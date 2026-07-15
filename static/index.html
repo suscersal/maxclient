@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAX Client</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; background: #f5f5f5; }
+        h1 { font-size: 24px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #007bff; }
+        .section { margin: 16px 0; padding: 16px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .section h3 { margin: 0 0 12px 0; font-size: 16px; color: #555; }
+        .input-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+        .input-group input { flex: 1; min-width: 150px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
+        .input-group input:focus { border-color: #007bff; }
+        .input-group button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+        .input-group button:hover:not(:disabled) { background: #0056b3; }
+        .input-group button:disabled { background: #ccc; cursor: not-allowed; }
+        .input-group button.success { background: #28a745; }
+        .input-group button.success:hover:not(:disabled) { background: #218838; }
+        .status { padding: 10px 14px; margin: 8px 0; border-radius: 8px; font-size: 14px; font-weight: 500; }
+        .status.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .status.warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        #log { background: #1e1e1e; padding: 12px; border-radius: 8px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #d4d4d4; line-height: 1.6; }
+        .log-entry { margin: 1px 0; padding: 2px 6px; border-radius: 3px; }
+        .log-entry.info { color: #9cdcfe; }
+        .log-entry.success { color: #6a9955; }
+        .log-entry.error { color: #f48771; }
+        .log-entry.warning { color: #d7ba7d; }
+        .log-entry .time { color: #6a6a6a; margin-right: 8px; }
+        .response-box { background: #f8f9fa; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #e9ecef; white-space: pre-wrap; word-break: break-all; font-size: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; }
+        .response-box:empty { display: none; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge.online { background: #28a745; color: white; }
+        .badge.offline { background: #dc3545; color: white; }
+        .badge.connecting { background: #ffc107; color: #333; }
+        .token-display { font-size: 11px; word-break: break-all; background: #f5f5f5; padding: 6px 10px; border-radius: 4px; margin-top: 4px; font-family: monospace; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>MAX Client <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span></h1>
+    <div id="status" class="status info">Connecting...</div>
+
+    <div class="section">
+        <h3>📱 Authentication</h3>
+        <div class="input-group">
+            <input type="text" id="phone" placeholder="Phone number" value="+7">
+            <button id="requestOtp">Request OTP</button>
+        </div>
+        <div class="input-group">
+            <input type="text" id="code" placeholder="Verification code">
+            <button id="verifyCode" class="success">Verify Code</button>
+        </div>
+        <div id="authStatus" style="font-size:13px;color:#888;margin-top:4px;"></div>
+        <div id="tokenDisplay" class="token-display hidden"></div>
+    </div>
+
+    <div class="section">
+        <h3>💬 Chats</h3>
+        <button id="getChats">Get Chats</button>
+        <div id="chatsList" class="response-box"></div>
+    </div>
+
+    <div class="section">
+        <h3>📝 Messages</h3>
+        <div class="input-group">
+            <input type="text" id="chatId" placeholder="Chat ID">
+            <button id="getMessages">Get Messages</button>
+        </div>
+        <div id="messagesList" class="response-box"></div>
+    </div>
+
+    <div class="section">
+        <h3>✉️ Send Message</h3>
+        <div class="input-group">
+            <input type="text" id="sendChatId" placeholder="Chat ID">
+            <input type="text" id="messageText" placeholder="Message text">
+            <button id="sendMessage" class="success">Send</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>📋 Log</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        let authToken = null;
+        let otpToken = null;
+        let phoneNumber = '';
+
+        function log(msg, type = 'info') {
+            const el = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span>${msg}`;
+            el.appendChild(entry);
+            el.scrollTop = el.scrollHeight;
+            while (el.children.length > 200) el.removeChild(el.firstChild);
+        }
+
+        function setStatus(msg, type = 'info') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+        }
+
+        function connect() {
+            const wsUrl = `ws://${window.location.host}/relay`;
+            log(`Connecting...`);
+            setStatus('Connecting...', 'info');
+            document.getElementById('connectionBadge').textContent = 'Connecting';
+            document.getElementById('connectionBadge').className = 'badge connecting';
+
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                isConnected = true;
+                setStatus('Connected', 'success');
+                document.getElementById('connectionBadge').textContent = 'Online';
+                document.getElementById('connectionBadge').className = 'badge online';
+                log('✅ Connected');
+                document.querySelectorAll('button').forEach(b => b.disabled = false);
+            };
+            ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+
+                    if (data.type === 'connected') { 
+                        log(`✅ ${data.message}`, 'success'); 
+                        return; 
+                    }
+
+                    if (data.type === 'session_restored') {
+                        log(`✅ ${data.message}`, 'success');
+                        setStatus('Authenticated (saved session)', 'success');
+                        document.getElementById('authStatus').textContent = '✅ Saved session restored';
+                        authToken = 'restored';
+                        return;
+                    }
+
+                    log(`📥 opcode=${data.opcode}, cmd=${data.cmd || '?'}`, 'info');
+
+                    // Сохраняем токен если есть
+                    if (data.payload && data.payload.token) {
+                        otpToken = data.payload.token;
+                        document.getElementById('tokenDisplay').textContent = 'OTP Token: ' + otpToken;
+                        document.getElementById('tokenDisplay').className = 'token-display';
+                        log('✅ OTP token received!', 'success');
+                        document.getElementById('authStatus').textContent = '✅ OTP token ready. Enter code from SMS.';
+                    }
+
+                    // Сохраняем auth token при успешной верификации
+                    if (data.opcode === 18 && data.cmd === 256) {
+                        if (data.payload && data.payload.token) {
+                            authToken = data.payload.token;
+                            log('✅ Verification successful!', 'success');
+                            setStatus('Authenticated', 'success');
+                            document.getElementById('authStatus').textContent = '✅ Authenticated!';
+                        }
+                        return;
+                    }
+
+                    if (data.cmd === 768) {
+                        const err = data.payload?.error || data.payload?.localizedMessage || 'Error';
+                        log(`❌ ${err}`, 'error');
+                        setStatus(`Error: ${err}`, 'error');
+                        if (err === 'verify.token') {
+                            document.getElementById('authStatus').textContent = '❌ Invalid token. Please request OTP again.';
+                        }
+                        return;
+                    }
+
+                    if (data.opcode === 17 && data.cmd === 256) {
+                        log('✅ OTP sent! Check your phone.', 'success');
+                        setStatus('OTP sent', 'success');
+                        document.getElementById('authStatus').textContent = '✅ OTP sent. Enter code from SMS.';
+                        return;
+                    }
+
+                    if (data.opcode === 19 && data.cmd === 256) {
+                        document.getElementById('chatsList').textContent = JSON.stringify(data.payload, null, 2);
+                        log(`📋 Chats received`, 'success');
+                        return;
+                    }
+
+                    if (data.opcode === 49 && data.cmd === 256) {
+                        document.getElementById('messagesList').textContent = JSON.stringify(data.payload, null, 2);
+                        log(`📝 Messages received`, 'success');
+                        return;
+                    }
+
+                    if (data.opcode === 64 && data.cmd === 256) {
+                        log('✅ Message sent!', 'success');
+                        document.getElementById('messageText').value = '';
+                        return;
+                    }
+
+                } catch(e) { 
+                    log(`⚠️ ${e.message}`, 'error'); 
+                    console.error(e);
+                }
+            };
+            ws.onclose = () => {
+                isConnected = false;
+                setStatus('Disconnected', 'error');
+                document.getElementById('connectionBadge').textContent = 'Offline';
+                document.getElementById('connectionBadge').className = 'badge offline';
+                log('🔌 Disconnected', 'error');
+                document.querySelectorAll('button').forEach(b => b.disabled = true);
+                setTimeout(connect, 5000);
+            };
+            ws.onerror = () => { 
+                log('⚠️ WebSocket error', 'error'); 
+            };
+        }
+
+        function send(opcode, payload) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ Not connected', 'error');
+                return;
+            }
+            log(`📤 opcode=${opcode}`, 'info');
+            ws.send(JSON.stringify({ opcode, payload }));
+        }
+
+        document.getElementById('requestOtp').onclick = () => {
+            const phone = document.getElementById('phone').value.trim().replace(/[\s\-\(\)]/g, '');
+            if (!phone || phone === '+7') { 
+                log('❌ Enter phone number', 'error'); 
+                return; 
+            }
+            phoneNumber = phone;
+            otpToken = null;
+            document.getElementById('tokenDisplay').className = 'token-display hidden';
+            document.getElementById('authStatus').textContent = '⏳ Sending OTP...';
+            send(17, { phone, type: "START_AUTH" });
+        };
+
+        document.getElementById('verifyCode').onclick = () => {
+            const code = document.getElementById('code').value.trim();
+            if (!code) { 
+                log('❌ Enter code', 'error'); 
+                return; 
+            }
+            if (!otpToken) { 
+                log('❌ No OTP token. Request OTP first.', 'error'); 
+                setStatus('Request OTP first', 'error');
+                return; 
+            }
+            if (!phoneNumber) {
+                log('❌ No phone number. Please request OTP again.', 'error');
+                return;
+            }
+            log(`🔑 Verifying with token: ${otpToken.substring(0, 20)}...`, 'info');
+            send(18, { 
+                token: otpToken, 
+                verifyCode: code, 
+                authTokenType: "CHECK_CODE",
+                phone: phoneNumber
+            });
+        };
+
+        document.getElementById('getChats').onclick = () => {
+            if (!authToken) { 
+                log('⚠️ Authenticate first', 'warning'); 
+                return; 
+            }
+            const payload = { chatsSync: 0, contactsSync: 0, interactive: true };
+            if (authToken !== 'restored') {
+                payload.token = authToken;
+            }
+            send(19, payload);
+        };
+
+        document.getElementById('getMessages').onclick = () => {
+            const id = document.getElementById('chatId').value.trim();
+            if (!id) { 
+                log('❌ Enter chat ID', 'error'); 
+                return; 
+            }
+            send(49, { chatId: parseInt(id), from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+        };
+
+        document.getElementById('sendMessage').onclick = () => {
+            const id = document.getElementById('sendChatId').value.trim();
+            const text = document.getElementById('messageText').value.trim();
+            if (!id || !text) { 
+                log('❌ Enter chat ID and message', 'error'); 
+                return; 
+            }
+            send(64, { chatId: parseInt(id), message: { text, cid: Date.now(), attaches: [] }, notify: true });
+        };
+
+        document.querySelectorAll('input').forEach(el => {
+            el.onkeypress = (e) => {
+                if (e.key === 'Enter') {
+                    const map = { phone: 'requestOtp', code: 'verifyCode', chatId: 'getMessages', messageText: 'sendMessage' };
+                    document.getElementById(map[el.id])?.click();
+                }
+            };
+        });
+
+        connect();
+        window.onbeforeunload = () => { if (ws) ws.close(); };
+    </script>
+</body>
+</html>
