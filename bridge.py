@@ -97,6 +97,21 @@ def get_latest_app_version() -> str:
         return cached.get("version", FALLBACK_APP_VERSION) if cached else FALLBACK_APP_VERSION
 
 
+def _decode_bytes_deep(obj):
+    """msgpack с raw=True отдаёт строки как bytes — рекурсивно декодируем
+    их в str, не падая на отдельных не-UTF8 полях (например, бинарных ID)."""
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return obj.hex()
+    if isinstance(obj, dict):
+        return {_decode_bytes_deep(k): _decode_bytes_deep(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decode_bytes_deep(v) for v in obj]
+    return obj
+
+
 class MaxClient:
     def __init__(self, on_message):
         self.sock = None
@@ -150,22 +165,26 @@ class MaxClient:
         payload = None
 
         if payload_bytes:
-            # Сначала пробуем распарсить как есть.
-            try:
-                payload = msgpack.unpackb(payload_bytes, raw=False)
-                logger.debug("Msgpack unpack success (offset 0)")
-            except Exception as e:
-                # Если не вышло из-за "лишних" данных — пробуем отступить 2 байта
-                # (похоже, при comp_flag != 0 сервер добавляет 2 служебных байта
-                # перед реальным msgpack, это не настоящее LZ4-сжатие).
+            parsed = None
+            for offset in range(0, 5):
                 try:
-                    payload = msgpack.unpackb(payload_bytes[2:], raw=False)
-                    logger.debug("Msgpack unpack success (offset 2)")
-                except Exception as e2:
-                    logger.debug(
-                        f"Msgpack unpack failed at offset 0 ({e}) and offset 2 ({e2})")
-                    raw_hex = payload_bytes.hex()
-                    payload = {"raw": raw_hex}
+                    unpacker = msgpack.Unpacker(raw=True, strict_map_key=False)
+                    unpacker.feed(payload_bytes[offset:])
+                    candidate = next(iter(unpacker))
+                    if isinstance(candidate, dict):
+                        parsed = candidate
+                        logger.debug(
+                            f"Msgpack unpack success (offset {offset})")
+                        break
+                except Exception:
+                    continue
+
+            if parsed is not None:
+                payload = _decode_bytes_deep(parsed)
+            else:
+                logger.debug(
+                    "Msgpack unpack failed at all offsets (no dict found)")
+                payload = {"raw": payload_bytes.hex()}
 
         return {
             "ver": ver,
