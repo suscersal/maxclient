@@ -69,28 +69,16 @@ def get_latest_app_version() -> str:
         return cached.get("version", FALLBACK_APP_VERSION)
     try:
         import urllib.request
-
-        req = urllib.request.Request(
-            VERSION_CHECK_URL, headers={"User-Agent": "Mozilla/5.0"}
-        )
+        req = urllib.request.Request(VERSION_CHECK_URL, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
         match = re.search(r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
         version = match.group(1) if match else FALLBACK_APP_VERSION
-        save_session(
-            {
-                **load_session(),
-                "appVersionCache": {"version": version, "checkedAt": time.time()},
-            }
-        )
+        save_session({**load_session(), "appVersionCache": {"version": version, "checkedAt": time.time()}})
         return version
     except Exception as e:
         logger.warning(f"[version] fetch failed, using fallback: {e}")
-        return (
-            cached.get("version", FALLBACK_APP_VERSION)
-            if cached
-            else FALLBACK_APP_VERSION
-        )
+        return cached.get("version", FALLBACK_APP_VERSION) if cached else FALLBACK_APP_VERSION
 
 
 def _decode_bytes_deep(obj):
@@ -112,27 +100,24 @@ def _lz4_decompress_block(data: bytes) -> bytes:
     out = bytearray()
     i, n = 0, len(data)
     while i < n:
-        token = data[i]
-        i += 1
+        token = data[i]; i += 1
         lit_len = token >> 4
         if lit_len == 15:
             while True:
-                b = data[i]
-                i += 1
+                b = data[i]; i += 1
                 lit_len += b
                 if b != 255:
                     break
-        out += data[i : i + lit_len]
+        out += data[i:i + lit_len]
         i += lit_len
         if i >= n:
             break
         offset = data[i] | (data[i + 1] << 8)
         i += 2
-        match_len = (token & 0x0F) + 4
-        if (token & 0x0F) == 15:
+        match_len = (token & 0x0f) + 4
+        if (token & 0x0f) == 15:
             while True:
-                b = data[i]
-                i += 1
+                b = data[i]; i += 1
                 match_len += b
                 if b != 255:
                     break
@@ -160,9 +145,7 @@ class MaxClient:
         pkt = self.pack(opcode, payload)
         with self._lock:
             self.sock.sendall(pkt)
-        logger.debug(
-            f"Sent: opcode={opcode}, seq={self.seq}, has_token={'token' in payload and bool(payload.get('token'))}"
-        )
+        logger.debug(f"Sent: opcode={opcode}, seq={self.seq}, has_token={'token' in payload and bool(payload.get('token'))}")
 
     def _recv_exact_more(self):
         chunk = self.sock.recv(4096)
@@ -181,8 +164,8 @@ class MaxClient:
         while len(self.buf) < 10 + payload_len:
             self._recv_exact_more()
 
-        payload_bytes = self.buf[10 : 10 + payload_len]
-        self.buf = self.buf[10 + payload_len :]
+        payload_bytes = self.buf[10:10 + payload_len]
+        self.buf = self.buf[10 + payload_len:]
 
         payload = None
         if payload_bytes:
@@ -196,13 +179,7 @@ class MaxClient:
                 logger.debug(f"Unpack failed: {e}")
                 payload = {"raw": payload_bytes.hex()}
 
-        return {
-            "ver": ver,
-            "cmd": cmd,
-            "seq": seq,
-            "opcode": opcode,
-            "payload": payload,
-        }
+        return {"ver": ver, "cmd": cmd, "seq": seq, "opcode": opcode, "payload": payload}
 
     def connect(self, existing_token: str = None):
         ctx = ssl.create_default_context()
@@ -256,14 +233,8 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
             logger.warning(f"recv_loop stopped: {e}")
             break
 
-        cmd_status = (
-            "OK"
-            if packet["cmd"] == 256
-            else "ERROR" if packet["cmd"] == 768 else str(packet["cmd"])
-        )
-        logger.info(
-            f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})"
-        )
+        cmd_status = "OK" if packet["cmd"] == 256 else "ERROR" if packet["cmd"] == 768 else str(packet["cmd"])
+        logger.info(f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
 
         if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
             token_attrs = packet["payload"].get("tokenAttrs")
@@ -303,21 +274,15 @@ def relay(ws):
         ws.send(json.dumps({"error": "Connection failed", "details": str(e)}))
         return
 
-    t = threading.Thread(
-        target=recv_loop, args=(client, out_queue, stop_event), daemon=True
-    )
+    t = threading.Thread(target=recv_loop, args=(client, out_queue, stop_event), daemon=True)
     t.start()
 
     ws.send(json.dumps({"type": "connected", "message": "Connected to MAX server"}))
     if saved_token:
-        ws.send(
-            json.dumps(
-                {
-                    "type": "session_restored",
-                    "message": "Используется сохранённая сессия — авторизация не требуется",
-                }
-            )
-        )
+        ws.send(json.dumps({
+            "type": "session_restored",
+            "message": "Используется сохранённая сессия — авторизация не требуется",
+        }))
 
     try:
         while True:
@@ -335,8 +300,10 @@ def relay(ws):
             req = json.loads(msg)
             opcode = req.get("opcode")
             payload = req.get("payload", {})
-            if "token" not in payload and saved_token:
-                payload["token"] = saved_token
+            if "token" not in payload:
+                current_token = get_saved_auth_token()  # читаем свежий токен, а не тот, что был на момент коннекта
+                if current_token:
+                    payload["token"] = current_token
             if opcode is not None:
                 client.send(opcode, payload)
 

@@ -29,16 +29,32 @@
         .hidden { display: none; }
         .chat-item { display: flex; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #eee; cursor: pointer; }
         .chat-item:last-child { border-bottom: none; }
-        .chat-avatar { width: 40px; height: 40px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; flex-shrink: 0; }
+        .chat-avatar { width: 40px; height: 40px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; flex-shrink: 0; overflow: hidden; }
+        .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .chat-info { flex: 1; min-width: 0; }
         .chat-name { font-weight: 600; font-size: 14px; }
         .chat-preview { font-size: 13px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .chat-meta { font-size: 11px; color: #aaa; text-align: right; flex-shrink: 0; }
         .unread { background: #007bff; color: white; border-radius: 10px; font-size: 11px; padding: 1px 6px; margin-top: 4px; display: inline-block; }
+        .chat-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .back-btn { background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px 8px; }
+        #messagesList { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; padding: 4px; margin-bottom: 10px; }
+        .msg-bubble { max-width: 80%; padding: 8px 12px; border-radius: 14px; background: var(--BOTS_CHAT_COLOR, #f0f0f0); font-size: 14px; align-self: flex-start; }
+        .msg-bubble.own { background: #d1e7ff; align-self: flex-end; }
+        .msg-time { font-size: 10px; color: #999; margin-top: 2px; text-align: right; }
+        .msg-img { max-width: 100%; border-radius: 8px; display: block; margin-top: 4px; }
+        .msg-file { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+        .chat-header .chat-avatar { width: 32px; height: 32px; }
+        .settings-row { display: flex; gap: 8px; margin-bottom: 6px; }
+        .settings-row input { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+        .autoreply-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
     </style>
 </head>
 <body>
-    <h1>MAX Client <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span></h1>
+    <h1>MAX Client
+        <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
+        <button id="settingsToggle" style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
+    </h1>
     <div id="status" class="status info">Connecting...</div>
 
     <div id="loginSection" class="section">
@@ -59,6 +75,33 @@
         <div id="chatsList"></div>
     </div>
 
+    <div id="chatDetailSection" class="section hidden">
+        <div class="chat-header">
+            <button class="back-btn" id="backBtn">←</button>
+            <div class="chat-avatar" id="chatDetailAvatar"></div>
+            <div class="chat-name" id="chatDetailName"></div>
+        </div>
+        <div id="messagesList"></div>
+        <div class="autoreply-row">
+            <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
+        </div>
+        <input type="text" id="autoreplyText" placeholder="Текст автоответа" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <div class="input-group" id="composerRow">
+            <input type="text" id="messageText" placeholder="Сообщение">
+            <button id="sendMessageBtn" class="success">Отправить</button>
+        </div>
+    </div>
+
+    <div id="settingsSection" class="section hidden">
+        <h3>⚙️ Настройки</h3>
+        <div id="settingsRows"></div>
+        <button id="addSettingRow" style="margin-top:6px;">+ переменная</button>
+        <button id="saveSettings" class="success" style="margin-top:6px;margin-left:6px;">Сохранить</button>
+        <div style="font-size:12px;color:#888;margin-top:8px;">
+            Пример: <code>BOTS_CHAT_COLOR=#ffe0e0</code> — применяется как CSS-переменная <code>--BOTS_CHAT_COLOR</code>.
+        </div>
+    </div>
+
     <div class="section">
         <h3>📋 Log</h3>
         <div id="log"></div>
@@ -71,6 +114,10 @@
         let phoneNumber = '';
         let selfId = null;
         let contactsById = {};
+        let chatsById = {};
+        let currentChatId = null;
+        let avatarsOverride = {};
+        let seenMessageIds = {}; // chatId -> Set, чтобы понять, было ли "первое сообщение"
 
         function log(msg, type = 'info') {
             const el = document.getElementById('log');
@@ -147,6 +194,17 @@
                     renderChats(data.payload);
                     return;
                 }
+
+                if (data.opcode === 49 && data.cmd === 256) {
+                    renderMessages(data.payload);
+                    return;
+                }
+
+                if (data.opcode === 64 && data.cmd === 256) {
+                    document.getElementById('messageText').value = '';
+                    send(49, { chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+                    return;
+                }
             };
 
             ws.onclose = () => {
@@ -172,29 +230,128 @@
             (payload.contacts || []).forEach(c => { contactsById[c.id] = c; });
 
             const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime || 0));
+            chatsById = {};
             const list = document.getElementById('chatsList');
             list.innerHTML = '';
 
             chats.forEach(chat => {
+                chatsById[chat.id] = chat;
                 const name = chatDisplayName(chat);
                 const preview = chatPreview(chat);
                 const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
                 const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
+                const avatarUrl = chatAvatarUrl(chat);
+                const avatarInner = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="">`
+                    : name.charAt(0).toUpperCase();
 
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
-                    <div class="chat-avatar">${name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-avatar">${avatarInner}</div>
                     <div class="chat-info">
                         <div class="chat-name">${escapeHtml(name)}</div>
                         <div class="chat-preview">${escapeHtml(preview)}</div>
                     </div>
                     <div class="chat-meta">${time}${unread}</div>
                 `;
+                el.onclick = () => openChat(chat.id);
                 list.appendChild(el);
             });
 
             log(`📋 ${chats.length} chats loaded`, 'success');
+        }
+
+        function chatAvatarUrl(chat) {
+            const overrideKey = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            if (avatarsOverride[overrideKey]) return avatarsOverride[overrideKey];
+            if (chat.baseIconUrl) return chat.baseIconUrl;
+            if (chat.type === 'DIALOG' && chat.id !== 0) {
+                const contact = contactsById[otherParticipantId(chat)];
+                if (contact?.baseUrl) return contact.baseUrl;
+            }
+            return null;
+        }
+
+        function otherParticipantId(chat) {
+            return Object.keys(chat.participants || {}).map(Number).find(id => id !== selfId);
+        }
+
+        function openChat(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            currentChatId = chatId;
+            document.getElementById('chatsSection').classList.add('hidden');
+            document.getElementById('chatDetailSection').classList.remove('hidden');
+            document.getElementById('chatDetailName').textContent = chatDisplayName(chat);
+
+            const avatarUrl = chatAvatarUrl(chat);
+            document.getElementById('chatDetailAvatar').innerHTML = avatarUrl
+                ? `<img src="${avatarUrl}" alt="">`
+                : chatDisplayName(chat).charAt(0).toUpperCase();
+
+            // В канале можно писать только админам (или если это не канал вообще)
+            const canPost = chat.type !== 'CHANNEL' || (chat.admins || []).includes(selfId);
+            document.getElementById('composerRow').classList.toggle('hidden', !canPost);
+
+            const ar = getAutoreplySettings(chatId);
+            document.getElementById('autoreplyEnabled').checked = ar.enabled;
+            document.getElementById('autoreplyText').value = ar.text || '';
+
+            document.getElementById('messagesList').innerHTML = '';
+            send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+        }
+
+        function renderMessages(payload) {
+            const list = document.getElementById('messagesList');
+            list.innerHTML = '';
+            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+            messages.forEach(m => {
+                const el = document.createElement('div');
+                const isOwn = m.sender === selfId;
+                el.className = 'msg-bubble' + (isOwn ? ' own' : '');
+
+                let bodyHtml = '';
+                if (m.text) bodyHtml += escapeHtml(m.text);
+
+                (m.attaches || []).forEach(a => {
+                    if (a._type === 'PHOTO' && a.previewData) {
+                        const dataUrl = hexPreviewToDataUrl(a.previewData);
+                        if (dataUrl) bodyHtml += `<img class="msg-img" src="${dataUrl}">`;
+                    } else if (a._type === 'FILE') {
+                        const sizeKb = a.size ? Math.round(a.size / 1024) + ' КБ' : '';
+                        bodyHtml += `<div class="msg-file">📎 ${escapeHtml(a.name || 'файл')} <span style="color:#999">${sizeKb}</span></div>`;
+                    } else if (a._type === 'CALL') {
+                        bodyHtml += `<div class="msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'} (${(a.hangupType || '').toLowerCase()})</div>`;
+                    } else if (a._type === 'VIDEO') {
+                        bodyHtml += `<div class="msg-file">🎬 Видео</div>`;
+                    } else if (a._type) {
+                        bodyHtml += `<div class="msg-file">[${a._type}]</div>`;
+                    }
+                });
+
+                const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                bodyHtml += `<div class="msg-time">${time}</div>`;
+
+                el.innerHTML = bodyHtml;
+                list.appendChild(el);
+            });
+            list.scrollTop = list.scrollHeight;
+
+            maybeAutoreply(currentChatId, messages);
+        }
+
+        // previewData приходит с бэкенда как hex (т.к. это бинарный WebP) — конвертируем в data URL
+        function hexPreviewToDataUrl(hex) {
+            try {
+                const bytes = new Uint8Array(hex.length / 2);
+                for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+                let binary = '';
+                bytes.forEach(b => binary += String.fromCharCode(b));
+                return 'data:image/webp;base64,' + btoa(binary);
+            } catch (e) {
+                return null;
+            }
         }
 
         function chatDisplayName(chat) {
@@ -202,14 +359,17 @@
                 return chat.title || 'Без названия';
             }
             if (chat.id === 0) return 'Избранное';
-            const otherId = Object.keys(chat.participants || {}).map(Number).find(id => id !== selfId);
+            const otherId = otherParticipantId(chat);
             const contact = contactsById[otherId];
             if (contact) {
                 const custom = contact.names?.find(n => n.type === 'CUSTOM');
                 const oneme = contact.names?.find(n => n.type === 'ONEME');
                 return (custom || oneme)?.name || 'Без имени';
             }
-            return 'Неизвестный контакт';
+            // Официальные боты (632, 452 и т.п.) обычно не приходят в contacts —
+            // это ожидаемо, а не ошибка, поэтому не называем их "неизвестными".
+            if (chat.hasBots || (otherId && otherId < 100000)) return 'Официальный бот';
+            return 'Контакт #' + otherId;
         }
 
         function chatPreview(chat) {
@@ -224,6 +384,112 @@
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
+        }
+
+        // ---------- Настройки (CSS-переменные вида KEY=VALUE) ----------
+
+        function loadSettingsVars() {
+            try { return JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}'); }
+            catch (e) { return {}; }
+        }
+
+        function applySettingsVars(vars) {
+            Object.entries(vars).forEach(([k, v]) => {
+                document.documentElement.style.setProperty('--' + k, v);
+            });
+        }
+
+        function renderSettingsRows() {
+            const vars = loadSettingsVars();
+            const container = document.getElementById('settingsRows');
+            container.innerHTML = '';
+            const entries = Object.entries(vars);
+            (entries.length ? entries : [['', '']]).forEach(([k, v]) => addSettingRow(k, v));
+        }
+
+        function addSettingRow(key = '', value = '') {
+            const row = document.createElement('div');
+            row.className = 'settings-row';
+            row.innerHTML = `<input class="setting-key" placeholder="KEY" value="${escapeHtml(key)}">
+                              <input class="setting-value" placeholder="value" value="${escapeHtml(value)}">`;
+            document.getElementById('settingsRows').appendChild(row);
+        }
+
+        document.getElementById('addSettingRow').onclick = () => addSettingRow();
+
+        document.getElementById('saveSettings').onclick = () => {
+            const vars = {};
+            document.querySelectorAll('#settingsRows .settings-row').forEach(row => {
+                const k = row.querySelector('.setting-key').value.trim();
+                const v = row.querySelector('.setting-value').value.trim();
+                if (k) vars[k] = v;
+            });
+            localStorage.setItem('maxclient_settings_vars', JSON.stringify(vars));
+            applySettingsVars(vars);
+            log('✅ Настройки сохранены', 'success');
+        };
+
+        document.getElementById('settingsToggle').onclick = () => {
+            const el = document.getElementById('settingsSection');
+            el.classList.toggle('hidden');
+            if (!el.classList.contains('hidden')) renderSettingsRows();
+        };
+
+        // ---------- Автоответ (на первое сообщение в чате, настраивается локально) ----------
+
+        function loadAutoreplyAll() {
+            try { return JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}'); }
+            catch (e) { return {}; }
+        }
+
+        function getAutoreplySettings(chatId) {
+            const all = loadAutoreplyAll();
+            return all[chatId] || { enabled: false, text: '', firstReplySent: false };
+        }
+
+        function saveAutoreplySettings(chatId, settings) {
+            const all = loadAutoreplyAll();
+            all[chatId] = settings;
+            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
+        }
+
+        document.getElementById('autoreplyEnabled').onchange = (e) => {
+            if (!currentChatId) return;
+            const s = getAutoreplySettings(currentChatId);
+            s.enabled = e.target.checked;
+            saveAutoreplySettings(currentChatId, s);
+        };
+
+        document.getElementById('autoreplyText').onchange = (e) => {
+            if (!currentChatId) return;
+            const s = getAutoreplySettings(currentChatId);
+            s.text = e.target.value;
+            saveAutoreplySettings(currentChatId, s);
+        };
+
+        // ВАЖНО: сервер сейчас присылает нам только ответы на НАШИ запросы (например,
+        // список сообщений после открытия чата), а не push-уведомления о новых входящих
+        // сообщениях в реальном времени — этого опкода мы ещё не вычисляли из трафика.
+        // Поэтому автоответ пока срабатывает по факту загрузки истории чата (когда
+        // последнее сообщение не от нас и мы её ещё не видели), а не мгновенно при
+        // получении сообщения. Для мгновенного автоответа нужно найти push-опкод.
+        function maybeAutoreply(chatId, messages) {
+            if (!messages.length) return;
+            const last = messages[messages.length - 1];
+            if (last.sender === selfId) return;
+
+            const seen = seenMessageIds[chatId] || new Set();
+            const isFirstTimeSeeingThisMessage = !seen.has(last.id);
+            seen.add(last.id);
+            seenMessageIds[chatId] = seen;
+
+            const s = getAutoreplySettings(chatId);
+            if (s.enabled && s.text && !s.firstReplySent && isFirstTimeSeeingThisMessage) {
+                send(64, { chatId, message: { text: s.text, cid: Date.now(), attaches: [] }, notify: true });
+                s.firstReplySent = true;
+                saveAutoreplySettings(chatId, s);
+                log('🤖 Автоответ отправлен', 'success');
+            }
         }
 
         // ---------- Обработчики форм ----------
@@ -243,14 +509,29 @@
             send(18, { token: otpToken, verifyCode: code, authTokenType: 'CHECK_CODE', phone: phoneNumber });
         };
 
+        document.getElementById('backBtn').onclick = () => {
+            currentChatId = null;
+            document.getElementById('chatDetailSection').classList.add('hidden');
+            document.getElementById('chatsSection').classList.remove('hidden');
+        };
+
+        document.getElementById('sendMessageBtn').onclick = () => {
+            const text = document.getElementById('messageText').value.trim();
+            if (!text || !currentChatId) return;
+            send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+        };
+
         document.querySelectorAll('input').forEach(el => {
             el.onkeypress = (e) => {
                 if (e.key === 'Enter') {
-                    const map = { phone: 'requestOtp', code: 'verifyCode' };
+                    const map = { phone: 'requestOtp', code: 'verifyCode', messageText: 'sendMessageBtn' };
                     document.getElementById(map[el.id])?.click();
                 }
             };
         });
+
+        fetch('avatars.json').then(r => r.ok ? r.json() : {}).then(data => { avatarsOverride = data; }).catch(() => {});
+        applySettingsVars(loadSettingsVars());
 
         connect();
         window.onbeforeunload = () => { if (ws) ws.close(); };
