@@ -226,7 +226,7 @@ class MaxClient:
                 "deviceLocale": "ru",
                 "osVersion": "Android 14",
                 "deviceName": "Samsung Galaxy S23",
-                "appVersion": get_latest_app_version(),
+                "appVersion": "26.6.1",
                 "screen": "xxhdpi 480dpi 1080x2340",
                 "timezone": "Europe/Moscow",
                 "pushDeviceType": "GCM",
