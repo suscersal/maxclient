@@ -74,27 +74,28 @@ def get_latest_app_version() -> str:
 
     try:
         import urllib.request
+
         req = urllib.request.Request(
-            VERSION_CHECK_URL,
-            headers={"User-Agent": "Mozilla/5.0"}
+            VERSION_CHECK_URL, headers={"User-Agent": "Mozilla/5.0"}
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
 
-        match = re.search(
-            r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
+        match = re.search(r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
         version = match.group(1) if match else FALLBACK_APP_VERSION
 
-        sess["appVersionCache"] = {
-            "version": version, "checkedAt": time.time()}
+        sess["appVersionCache"] = {"version": version, "checkedAt": time.time()}
         save_session(sess)
         logger.info(f"[version] latest MAX version detected: {version}")
         return version
 
     except Exception as e:
-        logger.warning(
-            f"[version] failed to fetch latest version, using fallback: {e}")
-        return cached.get("version", FALLBACK_APP_VERSION) if cached else FALLBACK_APP_VERSION
+        logger.warning(f"[version] failed to fetch latest version, using fallback: {e}")
+        return (
+            cached.get("version", FALLBACK_APP_VERSION)
+            if cached
+            else FALLBACK_APP_VERSION
+        )
 
 
 def _decode_bytes_deep(obj):
@@ -110,6 +111,43 @@ def _decode_bytes_deep(obj):
     if isinstance(obj, list):
         return [_decode_bytes_deep(v) for v in obj]
     return obj
+
+
+def _lz4_decompress_block(data: bytes) -> bytes:
+    """Распаковка сырого LZ4-блока (без заголовка/префикса размера) —
+    именно так сервер MAX присылает сжатые пакеты."""
+    out = bytearray()
+    i = 0
+    n = len(data)
+    while i < n:
+        token = data[i]
+        i += 1
+        lit_len = token >> 4
+        if lit_len == 15:
+            while True:
+                b = data[i]
+                i += 1
+                lit_len += b
+                if b != 255:
+                    break
+        out += data[i : i + lit_len]
+        i += lit_len
+        if i >= n:
+            break
+        offset = data[i] | (data[i + 1] << 8)
+        i += 2
+        match_len = (token & 0x0F) + 4
+        if (token & 0x0F) == 15:
+            while True:
+                b = data[i]
+                i += 1
+                match_len += b
+                if b != 255:
+                    break
+        start = len(out) - offset
+        for k in range(match_len):
+            out.append(out[start + k])
+    return bytes(out)
 
 
 class MaxClient:
@@ -134,7 +172,8 @@ class MaxClient:
         pkt = self.pack(opcode, payload)
         self.sock.sendall(pkt)
         logger.debug(
-            f"Sent: opcode={opcode}, seq={self.seq}, payload_keys={list(payload.keys())}, has_token={'token' in payload and bool(payload.get('token'))}")
+            f"Sent: opcode={opcode}, seq={self.seq}, payload_keys={list(payload.keys())}, has_token={'token' in payload and bool(payload.get('token'))}"
+        )
         return self.seq
 
     def recv_packet(self) -> dict:
@@ -145,13 +184,13 @@ class MaxClient:
                 raise ConnectionError("Connection closed")
             self.buf += chunk
 
-        ver, cmd, seq, opcode, packed_len = struct.unpack(
-            ">BHBHI", self.buf[:10])
+        ver, cmd, seq, opcode, packed_len = struct.unpack(">BHBHI", self.buf[:10])
         comp_flag = packed_len >> 24
         payload_len = packed_len & 0x00FFFFFF
 
         logger.debug(
-            f"Header: ver={ver}, cmd={cmd}, seq={seq}, opcode={opcode}, comp_flag={comp_flag}, payload_len={payload_len}")
+            f"Header: ver={ver}, cmd={cmd}, seq={seq}, opcode={opcode}, comp_flag={comp_flag}, payload_len={payload_len}"
+        )
 
         while len(self.buf) < 10 + payload_len:
             chunk = self.sock.recv(4096)
@@ -159,31 +198,22 @@ class MaxClient:
                 raise ConnectionError("Connection closed")
             self.buf += chunk
 
-        payload_bytes = self.buf[10:10 + payload_len]
-        self.buf = self.buf[10 + payload_len:]
+        payload_bytes = self.buf[10 : 10 + payload_len]
+        self.buf = self.buf[10 + payload_len :]
 
         payload = None
 
         if payload_bytes:
-            parsed = None
-            for offset in range(0, 5):
-                try:
-                    unpacker = msgpack.Unpacker(raw=True, strict_map_key=False)
-                    unpacker.feed(payload_bytes[offset:])
-                    candidate = next(iter(unpacker))
-                    if isinstance(candidate, dict):
-                        parsed = candidate
-                        logger.debug(
-                            f"Msgpack unpack success (offset {offset})")
-                        break
-                except Exception:
-                    continue
-
-            if parsed is not None:
+            try:
+                data_to_parse = payload_bytes
+                if comp_flag:
+                    data_to_parse = _lz4_decompress_block(payload_bytes)
+                    logger.debug(f"LZ4 decompressed: {len(data_to_parse)} bytes")
+                parsed = msgpack.unpackb(data_to_parse, raw=True, strict_map_key=False)
                 payload = _decode_bytes_deep(parsed)
-            else:
-                logger.debug(
-                    "Msgpack unpack failed at all offsets (no dict found)")
+                logger.debug("Msgpack unpack success")
+            except Exception as e:
+                logger.debug(f"Unpack failed: {e}")
                 payload = {"raw": payload_bytes.hex()}
 
         return {
@@ -191,7 +221,7 @@ class MaxClient:
             "cmd": cmd,
             "seq": seq,
             "opcode": opcode,
-            "payload": payload
+            "payload": payload,
         }
 
     async def connect(self, existing_token: str = None):
@@ -204,6 +234,7 @@ class MaxClient:
             logger.info(f"Connecting to {HOST}:{PORT}")
             raw = socket.create_connection((HOST, PORT))
             self.sock = ctx.wrap_socket(raw, server_hostname=HOST)
+            self.sock.settimeout(3.0)
             self._connected = True
 
             self._recv_task = asyncio.create_task(self._recv_loop())
@@ -226,7 +257,7 @@ class MaxClient:
                 "deviceLocale": "ru",
                 "osVersion": "Android 14",
                 "deviceName": "Samsung Galaxy S23",
-                "appVersion": "26.6.1",
+                "appVersion": "26.15",
                 "screen": "xxhdpi 480dpi 1080x2340",
                 "timezone": "Europe/Moscow",
                 "pushDeviceType": "GCM",
@@ -251,24 +282,36 @@ class MaxClient:
                         None, self.recv_packet
                     )
 
-                    cmd_status = "OK" if packet['cmd'] == 256 else "ERROR" if packet[
-                        'cmd'] == 768 else f"UNKNOWN({packet['cmd']})"
+                    cmd_status = (
+                        "OK"
+                        if packet["cmd"] == 256
+                        else (
+                            "ERROR"
+                            if packet["cmd"] == 768
+                            else f"UNKNOWN({packet['cmd']})"
+                        )
+                    )
 
-                    if packet['opcode'] == 6 and packet['cmd'] == 256:
+                    if packet["opcode"] == 6 and packet["cmd"] == 256:
                         self._handshake_done = True
                         logger.info("✅ Handshake successful!")
 
                     logger.info(
-                        f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
+                        f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})"
+                    )
 
                     # Сохраняем auth-токен после успешного CHECK_CODE (opcode 18)
-                    if packet['opcode'] == 18 and packet['cmd'] == 256 and packet.get('payload'):
-                        token_attrs = packet['payload'].get('tokenAttrs')
-                        if token_attrs and 'LOGIN' in token_attrs:
-                            save_auth_token(token_attrs['LOGIN']['token'])
+                    if (
+                        packet["opcode"] == 18
+                        and packet["cmd"] == 256
+                        and packet.get("payload")
+                    ):
+                        token_attrs = packet["payload"].get("tokenAttrs")
+                        if token_attrs and "LOGIN" in token_attrs:
+                            save_auth_token(token_attrs["LOGIN"]["token"])
                             logger.info("[session] auth token saved")
 
-                    if packet['payload']:
+                    if packet["payload"]:
                         logger.debug(f"Payload: {packet['payload']}")
 
                     await self.on_message(packet)
@@ -276,6 +319,8 @@ class MaxClient:
                 except ConnectionError as e:
                     logger.warning(f"Connection error: {e}")
                     break
+                except socket.timeout:
+                    continue
                 except Exception as e:
                     logger.error(f"Receive error: {e}")
                     break
@@ -300,6 +345,7 @@ class MaxClient:
 
 # ---------- HTTP/WS мост ----------
 
+
 async def relay(request):
     ws_client = web.WebSocketResponse()
     await ws_client.prepare(request)
@@ -317,16 +363,19 @@ async def relay(request):
         saved_token = get_saved_auth_token()
         await client.connect(existing_token=saved_token)
 
-        await ws_client.send_str(json.dumps({
-            "type": "connected",
-            "message": "Connected to MAX server"
-        }))
+        await ws_client.send_str(
+            json.dumps({"type": "connected", "message": "Connected to MAX server"})
+        )
 
         if saved_token:
-            await ws_client.send_str(json.dumps({
-                "type": "session_restored",
-                "message": "Используется сохранённая сессия — авторизация не требуется",
-            }))
+            await ws_client.send_str(
+                json.dumps(
+                    {
+                        "type": "session_restored",
+                        "message": "Используется сохранённая сессия — авторизация не требуется",
+                    }
+                )
+            )
 
         async for msg in ws_client:
             if msg.type == WSMsgType.TEXT:
@@ -349,9 +398,7 @@ async def relay(request):
                     logger.error(f"Invalid JSON: {e}")
                 except Exception as e:
                     logger.error(f"Error processing request: {e}")
-                    await ws_client.send_str(json.dumps({
-                        "error": str(e)
-                    }))
+                    await ws_client.send_str(json.dumps({"error": str(e)}))
 
             elif msg.type == WSMsgType.ERROR:
                 logger.error("WebSocket error")
@@ -362,10 +409,9 @@ async def relay(request):
     except Exception as e:
         logger.error(f"Relay error: {e}")
         try:
-            await ws_client.send_str(json.dumps({
-                "error": "Connection failed",
-                "details": str(e)
-            }))
+            await ws_client.send_str(
+                json.dumps({"error": "Connection failed", "details": str(e)})
+            )
         except Exception:
             pass
     finally:
@@ -384,7 +430,9 @@ app.router.add_get("/relay", relay)
 
 
 async def index(request):
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "index.html"))
+    return web.FileResponse(
+        os.path.join(os.path.dirname(__file__), "static", "index.html")
+    )
 
 
 app.router.add_get("/", index)
