@@ -15,24 +15,15 @@ import msgpack
 from flask import Flask, send_from_directory
 from flask_sock import Sock
 
-# Для LZ4 (установить: pip install lz4)
-import lz4.block
-
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# --- Конфигурация из переменных окружения ---
-HOST = os.getenv("MAX_HOST", "api.oneme.ru")
-PORT = int(os.getenv("MAX_PORT", "443"))
-SESSION_FILE = os.getenv(
-    "SESSION_FILE", os.path.join(os.path.dirname(__file__), "session.json")
-)
-VERSION_CACHE_HOURS = 24
-FALLBACK_APP_VERSION = "26.15.0"
-TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))  # секунды
+HOST = "api.oneme.ru"
+PORT = 443
+
+SESSION_FILE = os.path.join(os.path.dirname(__file__), "session.json")
 
 
-# --- Работа с сессией ---
 def load_session():
     if os.path.exists(SESSION_FILE):
         try:
@@ -66,8 +57,9 @@ def get_saved_auth_token():
     return load_session().get("authToken")
 
 
-# --- Версия приложения ---
+FALLBACK_APP_VERSION = "26.15.0"
 VERSION_CHECK_URL = "https://ru-oneme-app.en.uptodown.com/android"
+VERSION_CACHE_HOURS = 24
 
 
 def get_latest_app_version() -> str:
@@ -101,15 +93,12 @@ def get_latest_app_version() -> str:
         )
 
 
-# --- Декодирование с перебором кодировок ---
 def _decode_bytes_deep(obj):
     if isinstance(obj, bytes):
-        for enc in ("utf-8", "cp1251", "koi8-r", "iso-8859-5"):
-            try:
-                return obj.decode(enc)
-            except UnicodeDecodeError:
-                continue
-        return obj.hex()
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return obj.hex()
     if isinstance(obj, dict):
         return {_decode_bytes_deep(k): _decode_bytes_deep(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -117,23 +106,42 @@ def _decode_bytes_deep(obj):
     return obj
 
 
-# --- LZ4 с использованием библиотеки ---
 def _lz4_decompress_block(data: bytes) -> bytes:
-    # Библиотека lz4.block ожижает размер распакованного блока.
-    # Мы не знаем точный размер, поэтому используем lz4.block.decompress с max size.
-    # Для надежности можно попробовать распаковать с максимальным размером 1 МБ,
-    # но лучше использовать lz4.frame.decompress, если данные в формате frame.
-    # Однако сервер присылает сырой блок, поэтому воспользуемся lz4.block.decompress
-    # с указанием большого лимита.
-    try:
-        # Пытаемся распаковать, предполагая, что размер не превышает 2 МБ.
-        return lz4.block.decompress(data, uncompressed_size=2 * 1024 * 1024)
-    except Exception:
-        # Если не вышло, пробуем без указания размера (может выбросить ошибку)
-        return lz4.block.decompress(data)
+    """Распаковка сырого LZ4-блока (без заголовка/префикса размера) —
+    именно так сервер MAX присылает сжатые пакеты."""
+    out = bytearray()
+    i, n = 0, len(data)
+    while i < n:
+        token = data[i]
+        i += 1
+        lit_len = token >> 4
+        if lit_len == 15:
+            while True:
+                b = data[i]
+                i += 1
+                lit_len += b
+                if b != 255:
+                    break
+        out += data[i : i + lit_len]
+        i += lit_len
+        if i >= n:
+            break
+        offset = data[i] | (data[i + 1] << 8)
+        i += 2
+        match_len = (token & 0x0F) + 4
+        if (token & 0x0F) == 15:
+            while True:
+                b = data[i]
+                i += 1
+                match_len += b
+                if b != 255:
+                    break
+        start = len(out) - offset
+        for k in range(match_len):
+            out.append(out[start + k])
+    return bytes(out)
 
 
-# --- Клиент MAX ---
 class MaxClient:
     def __init__(self):
         self.sock = None
@@ -152,7 +160,9 @@ class MaxClient:
         pkt = self.pack(opcode, payload)
         with self._lock:
             self.sock.sendall(pkt)
-        logger.debug(f"Sent: opcode={opcode}, seq={self.seq}")
+        logger.debug(
+            f"Sent: opcode={opcode}, seq={self.seq}, has_token={'token' in payload and bool(payload.get('token'))}"
+        )
 
     def _recv_exact_more(self):
         chunk = self.sock.recv(4096)
@@ -200,7 +210,7 @@ class MaxClient:
         ctx.verify_mode = ssl.CERT_NONE
         raw = socket.create_connection((HOST, PORT))
         self.sock = ctx.wrap_socket(raw, server_hostname=HOST)
-        self.sock.settimeout(TIMEOUT)
+        self.sock.settimeout(2.0)
         self._connected = True
         self._send_handshake(existing_token)
 
@@ -236,7 +246,6 @@ class MaxClient:
                 pass
 
 
-# --- Цикл приёма ---
 def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.Event):
     while not stop_event.is_set():
         try:
@@ -265,7 +274,8 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
         out_queue.put(packet)
 
 
-# --- Flask приложение ---
+# ---------- Flask app ----------
+
 app = Flask(__name__, static_folder="static")
 sock = Sock(app)
 
@@ -278,33 +288,6 @@ def index():
 @app.route("/<path:filename>")
 def static_files(filename):
     return send_from_directory("static", filename)
-
-
-@app.route("/img")
-def proxy_image():
-    from flask import request, Response
-    import urllib.request
-
-    url = request.args.get("url", "")
-    allowed_hosts = ("i.oneme.ru", "iv.okcdn.ru", "st.max.ru")
-    if not url.startswith("https://") or not any(f"//{h}" in url for h in allowed_hosts):
-        return "", 400
-
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
-                "Referer": "https://web.max.ru/",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = resp.read()
-            content_type = resp.headers.get("Content-Type", "image/jpeg")
-        return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=3600"})
-    except Exception as e:
-        logger.warning(f"[img proxy] failed for {url}: {e}")
-        return "", 502
 
 
 @sock.route("/relay")
@@ -338,7 +321,6 @@ def relay(ws):
 
     try:
         while True:
-            # Отправка пакетов из очереди
             try:
                 while True:
                     packet = out_queue.get_nowait()
@@ -346,7 +328,6 @@ def relay(ws):
             except queue.Empty:
                 pass
 
-            # Приём сообщений от клиента
             msg = ws.receive(timeout=0.2)
             if msg is None:
                 continue
@@ -354,22 +335,12 @@ def relay(ws):
             req = json.loads(msg)
             opcode = req.get("opcode")
             payload = req.get("payload", {})
-
-            # ---- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: всегда вставляем свежий токен ----
-            current_token = get_saved_auth_token()
-            if current_token:
-                payload["token"] = current_token
-            # Если токена нет, можно либо отправить запрос без токена, либо вернуть ошибку
-            # В зависимости от логики, но лучше отправить как есть, если токен не требуется.
-            # ---------------------------------------------------------------
-
-            # ---- Обработка пинга (opcode=0) ----
-            if opcode == 0:
-                # Отправляем ответ-пустышку, чтобы клиент знал, что мы живы
-                ws.send(json.dumps({"opcode": 0, "payload": {"pong": True}}))
-                continue
-            # -----------------------------------
-
+            if "token" not in payload:
+                current_token = (
+                    get_saved_auth_token()
+                )  # читаем свежий токен, а не тот, что был на момент коннекта
+                if current_token:
+                    payload["token"] = current_token
             if opcode is not None:
                 client.send(opcode, payload)
 
@@ -381,9 +352,5 @@ def relay(ws):
 
 
 if __name__ == "__main__":
-    # Для продакшена используйте debug=False и запускайте через gunicorn или подобное
-    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
-    port = int(os.getenv("PORT", "8080"))
-    host = os.getenv("HOST", "0.0.0.0")
-    logger.info(f"Starting server on {host}:{port}, debug={debug_mode}")
-    app.run(host=host, port=port, debug=debug_mode)
+    logger.info("Starting server on http://0.0.0.0:8080")
+    app.run(host="0.0.0.0", port=8080, debug=False)

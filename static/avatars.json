@@ -1,4 +1,9 @@
 {
-  "632": "https://example.com/path/to/digital-id-bot-avatar.png",
-  "452": "https://example.com/path/to/max-business-bot-avatar.png"
+  "543835": {
+    "name": "Коды подтверждения",
+    "verified": true
+  },
+  "452": {
+    "name": "Бот-помощник"
+  }
 }

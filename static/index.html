@@ -1,59 +1,359 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MAX Client</title>
     <style>
-        * { box-sizing: border-box; }
-        body { font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; background: #f5f5f5; }
-        h1 { font-size: 24px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #007bff; }
-        .section { margin: 16px 0; padding: 16px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .section h3 { margin: 0 0 12px 0; font-size: 16px; color: #555; }
-        .input-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-        .input-group input { flex: 1; min-width: 150px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
-        .input-group button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
-        .input-group button.success { background: #28a745; }
-        .status { padding: 10px 14px; margin: 8px 0; border-radius: 8px; font-size: 14px; font-weight: 500; }
-        .status.success { background: #d4edda; color: #155724; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.info { background: #d1ecf1; color: #0c5460; }
-        #log { background: #1e1e1e; padding: 12px; border-radius: 8px; max-height: 240px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #d4d4d4; line-height: 1.6; }
-        .log-entry.info { color: #9cdcfe; }
-        .log-entry.success { color: #6a9955; }
-        .log-entry.error { color: #f48771; }
-        .log-entry .time { color: #6a6a6a; margin-right: 8px; }
-        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .badge.online { background: #28a745; color: white; }
-        .badge.offline { background: #dc3545; color: white; }
-        .hidden { display: none; }
-        .chat-item { display: flex; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #eee; cursor: pointer; }
-        .chat-item:last-child { border-bottom: none; }
-        .chat-avatar { width: 40px; height: 40px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; flex-shrink: 0; overflow: hidden; }
-        .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .chat-info { flex: 1; min-width: 0; }
-        .chat-name { font-weight: 600; font-size: 14px; }
-        .chat-preview { font-size: 13px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .chat-meta { font-size: 11px; color: #aaa; text-align: right; flex-shrink: 0; }
-        .unread { background: #007bff; color: white; border-radius: 10px; font-size: 11px; padding: 1px 6px; margin-top: 4px; display: inline-block; }
-        .chat-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-        .back-btn { background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px 8px; }
-        #messagesList { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; padding: 4px; margin-bottom: 10px; }
-        .msg-bubble { max-width: 80%; padding: 8px 12px; border-radius: 14px; background: var(--BOTS_CHAT_COLOR, #f0f0f0); font-size: 14px; align-self: flex-start; }
-        .msg-bubble.own { background: #d1e7ff; align-self: flex-end; }
-        .msg-time { font-size: 10px; color: #999; margin-top: 2px; text-align: right; }
-        .msg-img { max-width: 100%; border-radius: 8px; display: block; margin-top: 4px; }
-        .msg-file { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-        .chat-header .chat-avatar { width: 32px; height: 32px; }
-        .settings-row { display: flex; gap: 8px; margin-bottom: 6px; }
-        .settings-row input { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-        .autoreply-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 16px;
+            background: #f5f5f5;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #007bff;
+        }
+
+        .section {
+            margin: 16px 0;
+            padding: 16px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .section h3 {
+            margin: 0 0 12px 0;
+            font-size: 16px;
+            color: #555;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .input-group input {
+            flex: 1;
+            min-width: 150px;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .input-group button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .input-group button.success {
+            background: #28a745;
+        }
+
+        .status {
+            padding: 10px 14px;
+            margin: 8px 0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        #log {
+            background: #1e1e1e;
+            padding: 12px;
+            border-radius: 8px;
+            max-height: 240px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+            color: #d4d4d4;
+            line-height: 1.6;
+        }
+
+        .log-entry.info {
+            color: #9cdcfe;
+        }
+
+        .log-entry.success {
+            color: #6a9955;
+        }
+
+        .log-entry.error {
+            color: #f48771;
+        }
+
+        .log-entry .time {
+            color: #6a6a6a;
+            margin-right: 8px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge.online {
+            background: #28a745;
+            color: white;
+        }
+
+        .badge.offline {
+            background: #dc3545;
+            color: white;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .chat-item {
+            display: flex;
+            gap: 12px;
+            padding: 10px 4px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .chat-item:last-child {
+            border-bottom: none;
+        }
+
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #666;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .chat-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .chat-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chat-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .chat-preview {
+            font-size: 13px;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-meta {
+            font-size: 11px;
+            color: #aaa;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .unread {
+            background: #007bff;
+            color: white;
+            border-radius: 10px;
+            font-size: 11px;
+            padding: 1px 6px;
+            margin-top: 4px;
+            display: inline-block;
+        }
+
+        .chat-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+
+        #messagesList {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 50vh;
+            overflow-y: auto;
+            padding: 4px;
+            margin-bottom: 10px;
+        }
+
+        .msg-bubble {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 14px;
+            background: var(--BOTS_CHAT_COLOR, #f0f0f0);
+            font-size: 14px;
+            align-self: flex-start;
+        }
+
+        .msg-bubble.own {
+            background: #d1e7ff;
+            align-self: flex-end;
+        }
+
+        .msg-time {
+            font-size: 10px;
+            color: #999;
+            margin-top: 2px;
+            text-align: right;
+        }
+
+        .msg-img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            display: block;
+            margin: 4px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .msg-img:hover {
+            opacity: 0.85;
+        }
+
+        .msg-video {
+            width: 100%;
+            border-radius: 8px;
+            display: block;
+            margin: 4px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            background: #000;
+        }
+
+        .msg-attach {
+            margin-bottom: 6px;
+        }
+
+        .msg-text {
+            margin-top: 4px;
+            word-wrap: break-word;
+        }
+
+        .msg-file {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+
+        .msg-file a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .msg-file a:hover {
+            text-decoration: underline;
+        }
+
+        .chat-header .chat-avatar {
+            width: 32px;
+            height: 32px;
+        }
+
+        .chat-header .chat-id-label {
+            font-size: 11px;
+            color: #999;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .settings-row input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        .autoreply-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        .verified-badge {
+            color: #4da3ff;
+            font-size: 16px;
+            font-weight: bold;
+            margin-left: 3px;
+        }
     </style>
 </head>
+
 <body>
     <h1>MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
-        <button id="settingsToggle" style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
+        <button id="settingsToggle"
+            style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
     </h1>
     <div id="status" class="status info">Connecting...</div>
 
@@ -85,7 +385,8 @@
         <div class="autoreply-row">
             <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
         </div>
-        <input type="text" id="autoreplyText" placeholder="Текст автоответа" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <input type="text" id="autoreplyText" placeholder="Текст автоответа"
+            style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
@@ -97,9 +398,9 @@
         <div id="settingsRows"></div>
         <button id="addSettingRow" style="margin-top:6px;">+ переменная</button>
         <button id="saveSettings" class="success" style="margin-top:6px;margin-left:6px;">Сохранить</button>
-        <div style="font-size:12px;color:#888;margin-top:8px;">
-            Пример: <code>BOTS_CHAT_COLOR=#ffe0e0</code> — применяется как CSS-переменная <code>--BOTS_CHAT_COLOR</code>.
-        </div>
+        <button id="instructionToggle" style="margin-top:6px;margin-left:6px;">❓ Инструкция</button>
+        <textarea id="instructionText" class="hidden" readonly rows="20"
+            style="width:100%;margin-top:10px;padding:10px;font-family:monospace;font-size:12px;border:1px solid #ddd;border-radius:8px;background:#fafafa;"></textarea>
     </div>
 
     <div class="section">
@@ -108,16 +409,37 @@
     </div>
 
     <script>
+        // ------------------------------------------
+        // 1. Настройки переподключения
+        // ------------------------------------------
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 10;
+        let reconnectTimer = null;
+
+        // ------------------------------------------
+        // 2. Глобальные переменные
+        // ------------------------------------------
         let ws = null;
         let isConnected = false;
+        let pingInterval = null;
         let otpToken = null;
         let phoneNumber = '';
         let selfId = null;
         let contactsById = {};
         let chatsById = {};
         let currentChatId = null;
-        let avatarsOverride = {};
-        let seenMessageIds = {}; // chatId -> Set, чтобы понять, было ли "первое сообщение"
+        // Для инкрементального рендера сообщений
+        let lastMessageTimestamp = 0; // можно использовать для отслеживания
+
+        let metadataOverride = {};
+
+        // ------------------------------------------
+        // 3. Вспомогательные функции
+        // ------------------------------------------
+        fetch('avatars.json')
+            .then(r => r.ok ? r.json() : {})
+            .then(data => { metadataOverride = data; })
+            .catch(() => { });
 
         function log(msg, type = 'info') {
             const el = document.getElementById('log');
@@ -140,24 +462,50 @@
             document.getElementById('chatsSection').classList.remove('hidden');
         }
 
+        function send(opcode, payload) {
+            if (!isConnected) { log('❌ Not connected', 'error'); return; }
+            ws.send(JSON.stringify({ opcode, payload }));
+        }
+
+        // ------------------------------------------
+        // 4. Подключение к WebSocket (с ограничением)
+        // ------------------------------------------
         function connect() {
-            log('Connecting...');
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                log('❌ Превышено максимальное количество попыток подключения', 'error');
+                setStatus('Connection permanently lost', 'error');
+                return;
+            }
+            log('Connecting... (attempt ' + (reconnectAttempts + 1) + ')');
             setStatus('Connecting...', 'info');
             ws = new WebSocket(`ws://${window.location.host}/relay`);
 
             ws.onopen = () => {
                 isConnected = true;
+                reconnectAttempts = 0; // сброс при успехе
                 setStatus('Connected', 'success');
                 document.getElementById('connectionBadge').textContent = 'Online';
                 document.getElementById('connectionBadge').className = 'badge online';
                 log('✅ Connected');
+
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ opcode: 0, payload: {} }));
+                    }
+                }, 25000);
             };
 
             ws.onmessage = (e) => {
                 const data = JSON.parse(e.data);
 
-                if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
+                // Обработка пинга от сервера (opcode=0)
+                if (data.opcode === 0 && data.payload && data.payload.pong) {
+                    // Просто игнорируем, чтобы не засорять лог
+                    return;
+                }
 
+                if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
                 if (data.type === 'session_restored') {
                     log(`✅ ${data.message}`, 'success');
                     setStatus('Authenticated (сохранённая сессия)', 'success');
@@ -165,6 +513,9 @@
                     send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
                     return;
                 }
+                // Игнорируем наши собственные пинги (opcode=0) – они не должны приходить с сервера,
+                // но на всякий случай
+                if (data.opcode === 0) return;
 
                 log(`📥 opcode=${data.opcode}, cmd=${data.cmd}`, 'info');
 
@@ -209,20 +560,91 @@
 
             ws.onclose = () => {
                 isConnected = false;
+                if (pingInterval) {
+                    clearInterval(pingInterval);
+                    pingInterval = null;
+                }
                 setStatus('Disconnected', 'error');
                 document.getElementById('connectionBadge').textContent = 'Offline';
                 document.getElementById('connectionBadge').className = 'badge offline';
                 log('🔌 Disconnected', 'error');
-                setTimeout(connect, 5000);
+
+                // Попытка переподключения с экспоненциальной задержкой
+                const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts), 60000);
+                reconnectAttempts++;
+                if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+                    log(`🔄 Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})`, 'info');
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(connect, delay);
+                } else {
+                    log('❌ Max reconnect attempts reached', 'error');
+                }
             };
         }
 
-        function send(opcode, payload) {
-            if (!isConnected) { log('❌ Not connected', 'error'); return; }
-            ws.send(JSON.stringify({ opcode, payload }));
+        // ------------------------------------------
+        // 5. Рендер чатов (без изменений, но оставляем)
+        // ------------------------------------------
+        function otherParticipantId(chat) {
+            return Object.keys(chat.participants || {}).map(Number).find(id => id !== selfId);
         }
 
-        // ---------- Рендер списка чатов ----------
+        function chatDisplayName(chat) {
+            let name;
+            if (chat.type === 'CHANNEL' || chat.type === 'GROUP') {
+                const meta = metadataOverride[chat.id];
+                if (meta && meta.name) name = meta.name;
+                else name = chat.title || 'Без названия';
+            } else if (chat.id === 0) {
+                name = 'Избранное';
+            } else {
+                const otherId = otherParticipantId(chat);
+                if (otherId && metadataOverride[otherId] && metadataOverride[otherId].name) {
+                    name = metadataOverride[otherId].name;
+                } else {
+                    const contact = contactsById[otherId];
+                    if (contact) {
+                        const custom = contact.names?.find(n => n.type === 'CUSTOM');
+                        const oneme = contact.names?.find(n => n.type === 'ONEME');
+                        name = (custom || oneme)?.name || 'Без имени';
+                    } else {
+                        if (chat.hasBots || (otherId && otherId < 100000)) name = 'Официальный бот';
+                        else name = 'Контакт #' + otherId;
+                    }
+                }
+            }
+            const id = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            const meta = metadataOverride[id];
+            const verified = meta && meta.verified === true;
+            return name + (verified ? ' <span class="verified-badge">✔</span>' : '');
+        }
+
+        function chatAvatarUrl(chat) {
+            const overrideKey = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            if (metadataOverride[overrideKey] && metadataOverride[overrideKey].avatar) {
+                return proxied(metadataOverride[overrideKey].avatar);
+            }
+            if (chat.baseIconUrl) return proxied(chat.baseIconUrl);
+            if (chat.type === 'DIALOG' && chat.id !== 0) {
+                const contact = contactsById[otherParticipantId(chat)];
+                if (contact?.baseUrl) return proxied(contact.baseUrl);
+            }
+            return null;
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function handleAvatarError(img) {
+            img.style.display = 'none';
+            const parent = img.parentElement;
+            if (parent && parent.classList.contains('chat-avatar')) {
+                parent.textContent = parent.dataset.initials || '?';
+            }
+        }
 
         function renderChats(payload) {
             selfId = payload.profile?.contact?.id;
@@ -241,16 +663,20 @@
                 const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
                 const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
                 const avatarUrl = chatAvatarUrl(chat);
-                const avatarInner = avatarUrl
-                    ? `<img src="${avatarUrl}" alt="">`
-                    : name.charAt(0).toUpperCase();
+                const initial = name.charAt(0).toUpperCase();
+                let avatarHtml;
+                if (avatarUrl) {
+                    avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+                } else {
+                    avatarHtml = initial;
+                }
 
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
-                    <div class="chat-avatar">${avatarInner}</div>
+                    <div class="chat-avatar" data-initials="${initial}">${avatarHtml}</div>
                     <div class="chat-info">
-                        <div class="chat-name">${escapeHtml(name)}</div>
+                        <div class="chat-name">${name}</div>
                         <div class="chat-preview">${escapeHtml(preview)}</div>
                     </div>
                     <div class="chat-meta">${time}${unread}</div>
@@ -262,35 +688,47 @@
             log(`📋 ${chats.length} chats loaded`, 'success');
         }
 
-        function chatAvatarUrl(chat) {
-            const overrideKey = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
-            if (avatarsOverride[overrideKey]) return avatarsOverride[overrideKey];
-            if (chat.baseIconUrl) return chat.baseIconUrl;
-            if (chat.type === 'DIALOG' && chat.id !== 0) {
-                const contact = contactsById[otherParticipantId(chat)];
-                if (contact?.baseUrl) return contact.baseUrl;
-            }
-            return null;
+        function chatPreview(chat) {
+            const m = chat.lastMessage;
+            if (!m) return '';
+            if (m.text) return m.text.slice(0, 80);
+            if (m.attaches?.length) return `[${m.attaches[0]._type || 'вложение'}]`;
+            return '';
         }
 
-        function otherParticipantId(chat) {
-            return Object.keys(chat.participants || {}).map(Number).find(id => id !== selfId);
-        }
-
+        // ------------------------------------------
+        // 6. Открытие чата и рендер сообщений (инкрементальный)
+        // ------------------------------------------
         function openChat(chatId) {
             const chat = chatsById[chatId];
             if (!chat) return;
             currentChatId = chatId;
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.remove('hidden');
-            document.getElementById('chatDetailName').textContent = chatDisplayName(chat);
+
+            document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
 
             const avatarUrl = chatAvatarUrl(chat);
-            document.getElementById('chatDetailAvatar').innerHTML = avatarUrl
-                ? `<img src="${avatarUrl}" alt="">`
-                : chatDisplayName(chat).charAt(0).toUpperCase();
+            const initial = chatDisplayName(chat).charAt(0).toUpperCase();
+            let avatarHtml;
+            if (avatarUrl) {
+                avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+            } else {
+                avatarHtml = initial;
+            }
+            const avatarContainer = document.getElementById('chatDetailAvatar');
+            avatarContainer.innerHTML = avatarHtml;
+            avatarContainer.dataset.initials = initial;
 
-            // В канале можно писать только админам (или если это не канал вообще)
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            let idLabel = document.querySelector('.chat-header .chat-id-label');
+            if (!idLabel) {
+                idLabel = document.createElement('span');
+                idLabel.className = 'chat-id-label';
+                document.querySelector('.chat-header').appendChild(idLabel);
+            }
+            idLabel.textContent = 'ID: ' + otherId;
+
             const canPost = chat.type !== 'CHANNEL' || (chat.admins || []).includes(selfId);
             document.getElementById('composerRow').classList.toggle('hidden', !canPost);
 
@@ -298,50 +736,31 @@
             document.getElementById('autoreplyEnabled').checked = ar.enabled;
             document.getElementById('autoreplyText').value = ar.text || '';
 
-            document.getElementById('messagesList').innerHTML = '';
+            // Очищаем список и сбрасываем lastMessageTimestamp для инкрементального режима
+            const list = document.getElementById('messagesList');
+            list.innerHTML = '';
+            lastMessageTimestamp = 0;
+            // Запрос сообщений
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
         }
 
-        function renderMessages(payload) {
-            const list = document.getElementById('messagesList');
-            list.innerHTML = '';
-            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
-            messages.forEach(m => {
-                const el = document.createElement('div');
-                const isOwn = m.sender === selfId;
-                el.className = 'msg-bubble' + (isOwn ? ' own' : '');
-
-                let bodyHtml = '';
-                if (m.text) bodyHtml += escapeHtml(m.text);
-
-                (m.attaches || []).forEach(a => {
-                    if (a._type === 'PHOTO' && a.previewData) {
-                        const dataUrl = hexPreviewToDataUrl(a.previewData);
-                        if (dataUrl) bodyHtml += `<img class="msg-img" src="${dataUrl}">`;
-                    } else if (a._type === 'FILE') {
-                        const sizeKb = a.size ? Math.round(a.size / 1024) + ' КБ' : '';
-                        bodyHtml += `<div class="msg-file">📎 ${escapeHtml(a.name || 'файл')} <span style="color:#999">${sizeKb}</span></div>`;
-                    } else if (a._type === 'CALL') {
-                        bodyHtml += `<div class="msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'} (${(a.hangupType || '').toLowerCase()})</div>`;
-                    } else if (a._type === 'VIDEO') {
-                        bodyHtml += `<div class="msg-file">🎬 Видео</div>`;
-                    } else if (a._type) {
-                        bodyHtml += `<div class="msg-file">[${a._type}]</div>`;
-                    }
-                });
-
-                const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-                bodyHtml += `<div class="msg-time">${time}</div>`;
-
-                el.innerHTML = bodyHtml;
-                list.appendChild(el);
-            });
-            list.scrollTop = list.scrollHeight;
-
-            maybeAutoreply(currentChatId, messages);
+        function proxied(url) {
+            if (!url) return url;
+            return '/img?url=' + encodeURIComponent(url);
         }
 
-        // previewData приходит с бэкенда как hex (т.к. это бинарный WebP) — конвертируем в data URL
+        function getBestMediaUrl(a) {
+            // Реальные поля вложений MAX (проверено на живом трафике) —
+            // не 'fullUrl'/'videoUrl' и т.п. (это были придуманные названия).
+            return a.baseRawUrl || a.baseUrl || null;
+        }
+
+        function getVideoThumbnailUrl(a) {
+            // thumbnail — отдельная полноразмерная превью-картинка с CDN,
+            // это не то же самое, что previewData (крошечный blur-плейсхолдер).
+            return a.thumbnail || null;
+        }
+
         function hexPreviewToDataUrl(hex) {
             try {
                 const bytes = new Uint8Array(hex.length / 2);
@@ -354,40 +773,202 @@
             }
         }
 
-        function chatDisplayName(chat) {
-            if (chat.type === 'CHANNEL' || chat.type === 'GROUP') {
-                return chat.title || 'Без названия';
+        // ---- Инкрементальный рендер сообщений ----
+        function renderMessages(payload) {
+            const list = document.getElementById('messagesList');
+            // Получаем уже существующие id сообщений
+            const existingIds = new Set();
+            list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
+                existingIds.add(el.dataset.msgId);
+            });
+
+            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+            // Фильтруем только новые
+            const newMessages = messages.filter(m => !existingIds.has(m.id));
+            if (newMessages.length === 0) return;
+
+            // Сортируем новые по времени
+            newMessages.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+            // Добавляем каждый
+            newMessages.forEach(m => {
+                const el = createMessageElement(m);
+                el.dataset.msgId = m.id;
+                list.appendChild(el);
+            });
+
+            // Прокрутка вниз, если только что добавлены новые или если пользователь был внизу
+            const shouldScroll = true; // или проверять, находится ли скролл внизу
+            if (shouldScroll) {
+                list.scrollTop = list.scrollHeight;
             }
-            if (chat.id === 0) return 'Избранное';
-            const otherId = otherParticipantId(chat);
-            const contact = contactsById[otherId];
-            if (contact) {
-                const custom = contact.names?.find(n => n.type === 'CUSTOM');
-                const oneme = contact.names?.find(n => n.type === 'ONEME');
-                return (custom || oneme)?.name || 'Без имени';
+
+            // Автоответ (если есть новые сообщения)
+            maybeAutoreply(currentChatId, messages);
+        }
+
+        function createMessageElement(m) {
+            const el = document.createElement('div');
+            const isOwn = m.sender === selfId;
+            el.className = 'msg-bubble' + (isOwn ? ' own' : '');
+
+            // Цвет пузырька — по приоритету: конкретный контакт → конкретный чат →
+            // (если это чат с ботом) BOTS_CHAT_COLOR → свои сообщения OWN_CHAT_COLOR.
+            const vars = loadSettingsVars();
+            const chat = chatsById[currentChatId];
+            const color = vars[`CONTACT_${m.sender}_COLOR`]
+                || vars[`CHAT_${currentChatId}_COLOR`]
+                || (isOwn ? vars['OWN_CHAT_COLOR'] : null)
+                || (chat?.hasBots ? vars['BOTS_CHAT_COLOR'] : null);
+            if (color) el.style.background = color;
+
+            let attachesHtml = '';
+            (m.attaches || []).forEach(a => {
+                if (a._type === 'PHOTO') {
+                    let src = getBestMediaUrl(a);
+                    if (src) src = proxied(src);
+                    if (!src && a.previewData) {
+                        const dataUrl = hexPreviewToDataUrl(a.previewData);
+                        if (dataUrl) src = dataUrl;
+                    }
+                    if (src) {
+                        attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="window.open('${src}', '_blank')"></div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
+                    }
+                    return;
+                }
+                if (a._type === 'VIDEO') {
+                    // Прямого URL для проигрывания видео мы пока не вычисляли из
+                    // протокола — показываем честное превью (thumbnail с CDN,
+                    // это НЕ то же самое, что crop previewData) и длительность.
+                    let poster = getVideoThumbnailUrl(a);
+                    if (poster) poster = proxied(poster);
+                    if (!poster && a.previewData) {
+                        poster = hexPreviewToDataUrl(a.previewData);
+                    }
+                    const durationSec = a.duration ? Math.round(a.duration / 1000) : null;
+                    const durationLabel = durationSec ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}` : '';
+                    if (poster) {
+                        attachesHtml += `<div class="msg-attach" style="position:relative;">
+                            <img class="msg-img" src="${poster}" alt="Превью видео" loading="lazy">
+                            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                                <div style="background:rgba(0,0,0,0.55);color:white;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;">▶</div>
+                            </div>
+                            ${durationLabel ? `<div style="position:absolute;bottom:4px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:1px 6px;border-radius:4px;">${durationLabel}</div>` : ''}
+                        </div>
+                        <div style="text-align:center;font-size:12px;color:#888;">🎬 Видео (просмотр пока не поддерживается)</div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">🎬 Видео${durationLabel ? ' · ' + durationLabel : ''} (недоступно)</div>`;
+                    }
+                    return;
+                }
+                if (a._type === 'FILE') {
+                    const sizeKb = a.size ? Math.round(a.size / 1024) + ' КБ' : '';
+                    const fileName = a.name || 'файл';
+                    const fileUrl = getBestMediaUrl(a);
+                    let fileHtml;
+                    if (fileUrl) {
+                        fileHtml = `<a href="${fileUrl}" target="_blank">${escapeHtml(fileName)}</a>`;
+                    } else {
+                        fileHtml = escapeHtml(fileName);
+                    }
+                    attachesHtml += `<div class="msg-attach msg-file">📎 ${fileHtml} <span style="color:#999">${sizeKb}</span></div>`;
+                    return;
+                }
+                if (a._type === 'CALL') {
+                    attachesHtml += `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'} (${(a.hangupType || '').toLowerCase()})</div>`;
+                    return;
+                }
+                if (a._type) {
+                    attachesHtml += `<div class="msg-attach msg-file">[${a._type}]</div>`;
+                }
+            });
+
+            // Текст – используем textContent для безопасности
+            let textHtml = '';
+            if (m.text) {
+                // Используем escapeHtml для рендеринга в innerHTML, либо создаём текстовый узел
+                // Но для сохранения переносов строк можно использовать textContent и затем заменять \n на <br>
+                // Для простоты используем innerHTML с экранированием
+                textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
             }
-            // Официальные боты (632, 452 и т.п.) обычно не приходят в contacts —
-            // это ожидаемо, а не ошибка, поэтому не называем их "неизвестными".
-            if (chat.hasBots || (otherId && otherId < 100000)) return 'Официальный бот';
-            return 'Контакт #' + otherId;
+
+            const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const timeHtml = `<div class="msg-time">${time}</div>`;
+
+            el.innerHTML = attachesHtml + textHtml + timeHtml;
+            return el;
         }
 
-        function chatPreview(chat) {
-            const m = chat.lastMessage;
-            if (!m) return '';
-            if (m.text) return m.text.slice(0, 80);
-            if (m.attaches?.length) return `[${m.attaches[0]._type || 'вложение'}]`;
-            return '';
+        // ------------------------------------------
+        // 7. Автоответ (с сбросом при ручной отправке)
+        // ------------------------------------------
+        function loadAutoreplyAll() {
+            try { return JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}'); }
+            catch (e) { return {}; }
         }
 
-        function escapeHtml(s) {
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
+        function getAutoreplySettings(chatId) {
+            const all = loadAutoreplyAll();
+            return all[chatId] || { enabled: false, text: '', firstReplySent: false };
         }
 
-        // ---------- Настройки (CSS-переменные вида KEY=VALUE) ----------
+        function saveAutoreplySettings(chatId, settings) {
+            const all = loadAutoreplyAll();
+            all[chatId] = settings;
+            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
+        }
 
+        document.getElementById('autoreplyEnabled').onchange = (e) => {
+            if (!currentChatId) return;
+            const s = getAutoreplySettings(currentChatId);
+            s.enabled = e.target.checked;
+            saveAutoreplySettings(currentChatId, s);
+        };
+
+        document.getElementById('autoreplyText').onchange = (e) => {
+            if (!currentChatId) return;
+            const s = getAutoreplySettings(currentChatId);
+            s.text = e.target.value;
+            saveAutoreplySettings(currentChatId, s);
+        };
+
+        function maybeAutoreply(chatId, messages) {
+            if (!messages.length) return;
+            const last = messages[messages.length - 1];
+            if (last.sender === selfId) return;
+
+            const seen = seenMessageIds[chatId] || new Set();
+            const isFirstTimeSeeingThisMessage = !seen.has(last.id);
+            seen.add(last.id);
+            seenMessageIds[chatId] = seen;
+
+            const s = getAutoreplySettings(chatId);
+            if (s.enabled && s.text && !s.firstReplySent && isFirstTimeSeeingThisMessage) {
+                send(64, { chatId, message: { text: s.text, cid: Date.now(), attaches: [] }, notify: true });
+                s.firstReplySent = true;
+                saveAutoreplySettings(chatId, s);
+                log('🤖 Автоответ отправлен', 'success');
+            }
+        }
+
+        // Сброс автоответа при ручной отправке
+        document.getElementById('sendMessageBtn').onclick = () => {
+            const text = document.getElementById('messageText').value.trim();
+            if (!text || !currentChatId) return;
+            // Сбрасываем firstReplySent
+            const s = getAutoreplySettings(currentChatId);
+            s.firstReplySent = false;
+            saveAutoreplySettings(currentChatId, s);
+            // Отправляем сообщение
+            send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+            document.getElementById('messageText').value = '';
+        };
+
+        // ------------------------------------------
+        // 8. Настройки (без изменений)
+        // ------------------------------------------
         function loadSettingsVars() {
             try { return JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}'); }
             catch (e) { return {}; }
@@ -435,65 +1016,62 @@
             if (!el.classList.contains('hidden')) renderSettingsRows();
         };
 
-        // ---------- Автоответ (на первое сообщение в чате, настраивается локально) ----------
+        const INSTRUCTION_TEXT = `Как настраивать цвета в MAX Client
+====================================
 
-        function loadAutoreplyAll() {
-            try { return JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}'); }
-            catch (e) { return {}; }
-        }
+Формат каждой переменной: KEY=значение
+(вводится как отдельная строка в разделе "Настройки" → "+ переменная")
 
-        function getAutoreplySettings(chatId) {
-            const all = loadAutoreplyAll();
-            return all[chatId] || { enabled: false, text: '', firstReplySent: false };
-        }
+ДОСТУПНЫЕ ПЕРЕМЕННЫЕ:
 
-        function saveAutoreplySettings(chatId, settings) {
-            const all = loadAutoreplyAll();
-            all[chatId] = settings;
-            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
-        }
+1) Цвет пузырьков конкретного контакта:
+   CONTACT_<id>_COLOR=цвет
+   Пример: CONTACT_543835_COLOR=#e0f7ff
+   id контакта — это его числовой id (виден в avatars.json/metadataOverride
+   как ключ, либо можно узнать из лога после Get Chats).
 
-        document.getElementById('autoreplyEnabled').onchange = (e) => {
-            if (!currentChatId) return;
-            const s = getAutoreplySettings(currentChatId);
-            s.enabled = e.target.checked;
-            saveAutoreplySettings(currentChatId, s);
-        };
+2) Цвет пузырьков конкретного чата (для каналов/групп — по id чата):
+   CHAT_<id>_COLOR=цвет
+   Пример: CHAT_-70973328291177_COLOR=#fff3cd
 
-        document.getElementById('autoreplyText').onchange = (e) => {
-            if (!currentChatId) return;
-            const s = getAutoreplySettings(currentChatId);
-            s.text = e.target.value;
-            saveAutoreplySettings(currentChatId, s);
-        };
+3) Цвет пузырьков для ЛЮБОГО чата, где есть боты (chat.hasBots):
+   BOTS_CHAT_COLOR=цвет
+   Пример: BOTS_CHAT_COLOR=#ffe0e0
 
-        // ВАЖНО: сервер сейчас присылает нам только ответы на НАШИ запросы (например,
-        // список сообщений после открытия чата), а не push-уведомления о новых входящих
-        // сообщениях в реальном времени — этого опкода мы ещё не вычисляли из трафика.
-        // Поэтому автоответ пока срабатывает по факту загрузки истории чата (когда
-        // последнее сообщение не от нас и мы её ещё не видели), а не мгновенно при
-        // получении сообщения. Для мгновенного автоответа нужно найти push-опкод.
-        function maybeAutoreply(chatId, messages) {
-            if (!messages.length) return;
-            const last = messages[messages.length - 1];
-            if (last.sender === selfId) return;
+4) Цвет твоих собственных сообщений (по умолчанию):
+   OWN_CHAT_COLOR=цвет
 
-            const seen = seenMessageIds[chatId] || new Set();
-            const isFirstTimeSeeingThisMessage = !seen.has(last.id);
-            seen.add(last.id);
-            seenMessageIds[chatId] = seen;
+ПРИОРИТЕТ (если подходит несколько правил сразу):
+   CONTACT_<id>_COLOR  >  CHAT_<id>_COLOR  >  BOTS_CHAT_COLOR / OWN_CHAT_COLOR
 
-            const s = getAutoreplySettings(chatId);
-            if (s.enabled && s.text && !s.firstReplySent && isFirstTimeSeeingThisMessage) {
-                send(64, { chatId, message: { text: s.text, cid: Date.now(), attaches: [] }, notify: true });
-                s.firstReplySent = true;
-                saveAutoreplySettings(chatId, s);
-                log('🤖 Автоответ отправлен', 'success');
+Значение цвета — любой валидный CSS-цвет: "#ffcc00", "rgb(255,0,0)",
+"tomato" и т.п.
+
+---
+Промпт для нейросети, если хочешь, чтобы она сама подобрала палитру:
+
+"У меня есть мессенджер-клиент, где я задаю цвет пузырьков сообщений
+через переменные вида CONTACT_<id>_COLOR=#hex, CHAT_<id>_COLOR=#hex,
+BOTS_CHAT_COLOR=#hex и OWN_CHAT_COLOR=#hex (значение — любой CSS-цвет).
+Вот список моих контактов/чатов с именами: [вставь сюда список].
+Подбери для каждого приятный, различимый пастельный цвет фона (чтобы
+текст на нём было легко читать) и выведи готовые строки в формате
+KEY=значение, по одной на строку, без лишних пояснений."
+`;
+
+        document.getElementById('instructionToggle').onclick = () => {
+            const el = document.getElementById('instructionText');
+            el.classList.toggle('hidden');
+            if (!el.classList.contains('hidden')) {
+                el.value = INSTRUCTION_TEXT;
+                el.focus();
+                el.select();
             }
-        }
+        };
 
-        // ---------- Обработчики форм ----------
-
+        // ------------------------------------------
+        // 9. Обработчики событий
+        // ------------------------------------------
         document.getElementById('requestOtp').onclick = () => {
             const phone = document.getElementById('phone').value.trim().replace(/[\s\-\(\)]/g, '');
             if (!phone || phone === '+7') { log('❌ Enter phone number', 'error'); return; }
@@ -515,12 +1093,6 @@
             document.getElementById('chatsSection').classList.remove('hidden');
         };
 
-        document.getElementById('sendMessageBtn').onclick = () => {
-            const text = document.getElementById('messageText').value.trim();
-            if (!text || !currentChatId) return;
-            send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
-        };
-
         document.querySelectorAll('input').forEach(el => {
             el.onkeypress = (e) => {
                 if (e.key === 'Enter') {
@@ -530,11 +1102,13 @@
             };
         });
 
-        fetch('avatars.json').then(r => r.ok ? r.json() : {}).then(data => { avatarsOverride = data; }).catch(() => {});
+        // ------------------------------------------
+        // 10. Инициализация
+        // ------------------------------------------
         applySettingsVars(loadSettingsVars());
-
         connect();
         window.onbeforeunload = () => { if (ws) ws.close(); };
     </script>
 </body>
+
 </html>
