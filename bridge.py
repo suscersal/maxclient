@@ -83,7 +83,8 @@ def get_latest_app_version() -> str:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-        match = re.search(r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
+        match = re.search(
+            r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
         version = match.group(1) if match else FALLBACK_APP_VERSION
         save_session(
             {
@@ -164,15 +165,16 @@ class MaxClient:
         while len(self.buf) < 10:
             self._recv_exact_more()
 
-        ver, cmd, seq, opcode, packed_len = struct.unpack(">BHBHI", self.buf[:10])
+        ver, cmd, seq, opcode, packed_len = struct.unpack(
+            ">BHBHI", self.buf[:10])
         comp_flag = packed_len >> 24
         payload_len = packed_len & 0x00FFFFFF
 
         while len(self.buf) < 10 + payload_len:
             self._recv_exact_more()
 
-        payload_bytes = self.buf[10 : 10 + payload_len]
-        self.buf = self.buf[10 + payload_len :]
+        payload_bytes = self.buf[10: 10 + payload_len]
+        self.buf = self.buf[10 + payload_len:]
 
         payload = None
         if payload_bytes:
@@ -180,7 +182,8 @@ class MaxClient:
                 data_to_parse = payload_bytes
                 if comp_flag:
                     data_to_parse = _lz4_decompress_block(payload_bytes)
-                parsed = msgpack.unpackb(data_to_parse, raw=True, strict_map_key=False)
+                parsed = msgpack.unpackb(
+                    data_to_parse, raw=True, strict_map_key=False)
                 payload = _decode_bytes_deep(parsed)
             except Exception as e:
                 logger.debug(f"Unpack failed: {e}")
@@ -325,7 +328,8 @@ def relay(ws):
     )
     t.start()
 
-    ws.send(json.dumps({"type": "connected", "message": "Connected to MAX server"}))
+    ws.send(json.dumps(
+        {"type": "connected", "message": "Connected to MAX server"}))
     if saved_token:
         ws.send(
             json.dumps(

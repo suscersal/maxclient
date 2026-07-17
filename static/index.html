@@ -691,8 +691,22 @@
         function chatPreview(chat) {
             const m = chat.lastMessage;
             if (!m) return '';
-            if (m.text) return m.text.slice(0, 80);
-            if (m.attaches?.length) return `[${m.attaches[0]._type || 'вложение'}]`;
+
+            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+            const attach = m.attaches?.[0];
+
+            if (attach?._type === 'CONTROL') {
+                return attach.message || attach.shortMessage || 'Системное событие';
+            }
+            if (m.text && !isTranslationKey) return m.text.slice(0, 80);
+
+            if (attach) {
+                const labels = {
+                    PHOTO: '🖼️ Фото', VIDEO: '🎬 Видео', FILE: '📎 ' + (attach.name || 'Файл'),
+                    CALL: attach.callType === 'VIDEO' ? '📞 Видеозвонок' : '📞 Звонок',
+                };
+                return labels[attach._type] || `[${attach._type}]`;
+            }
             return '';
         }
 
@@ -880,17 +894,29 @@
                     attachesHtml += `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'} (${(a.hangupType || '').toLowerCase()})</div>`;
                     return;
                 }
+                if (a._type === 'CONTROL') {
+                    // Системные события: вход в чат, добавление в MAX, создание чата и т.п.
+                    const text = a.message || a.shortMessage
+                        || (a.event === 'new' ? `Чат «${a.title || ''}» создан` : null)
+                        || 'Системное событие';
+                    attachesHtml += `<div class="msg-attach msg-control" style="text-align:center;color:#888;font-size:12px;background:none;">${escapeHtml(text)}</div>`;
+                    return;
+                }
                 if (a._type) {
                     attachesHtml += `<div class="msg-attach msg-file">[${a._type}]</div>`;
                 }
             });
 
+            // Некоторые системные сообщения приходят с "техническим" текстом-ключом
+            // вида "welcome.saved.dialog.message" вместо человеческого текста —
+            // человеческий текст в этом случае лежит в CONTROL-вложении (уже
+            // отрендерено выше), поэтому сырой ключ показывать не нужно.
+            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+            const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
+
             // Текст – используем textContent для безопасности
             let textHtml = '';
-            if (m.text) {
-                // Используем escapeHtml для рендеринга в innerHTML, либо создаём текстовый узел
-                // Но для сохранения переносов строк можно использовать textContent и затем заменять \n на <br>
-                // Для простоты используем innerHTML с экранированием
+            if (m.text && !(isTranslationKey && hasControlAttach)) {
                 textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
             }
 
