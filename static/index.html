@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MAX Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -141,7 +142,11 @@
         }
 
         .hidden {
-            display: none;
+            display: none !important;
+        }
+
+        #videoModal {
+            display: flex;
         }
 
         .chat-item {
@@ -350,6 +355,11 @@
 </head>
 
 <body>
+    <div id="videoModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;" onclick="if (event.target === this) closeVideoModal()">
+        <button onclick="closeVideoModal()" style="position:absolute;top:16px;right:16px;z-index:2;background:none;border:none;color:white;font-size:32px;line-height:1;padding:12px;cursor:pointer;">✕</button>
+        <video id="videoModalPlayer" controls autoplay playsinline style="position:relative;z-index:1;max-width:95%;max-height:85%;"></video>
+    </div>
+
     <h1>MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
         <button id="settingsToggle"
@@ -554,6 +564,12 @@
                 if (data.opcode === 64 && data.cmd === 256) {
                     document.getElementById('messageText').value = '';
                     send(49, { chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+                    return;
+                }
+
+                // notifMessage — пуш о новом входящем сообщении в реальном времени
+                if (data.opcode === 128 && data.payload) {
+                    handleIncomingPush(data.payload);
                     return;
                 }
             };
@@ -763,6 +779,11 @@
             return '/img?url=' + encodeURIComponent(url);
         }
 
+        function proxiedVideo(url) {
+            if (!url) return url;
+            return '/video?url=' + encodeURIComponent(url);
+        }
+
         function getBestMediaUrl(a) {
             // Реальные поля вложений MAX (проверено на живом трафике) —
             // не 'fullUrl'/'videoUrl' и т.п. (это были придуманные названия).
@@ -785,6 +806,160 @@
             } catch (e) {
                 return null;
             }
+        }
+
+        // ---- Видеоплеер (через /api/video-sources, Opcode.videoPlay=83) ----
+        let currentHls = null;
+
+        function isHlsUrl(url) {
+            return /\.m3u8(\?|$)/i.test(url);
+        }
+
+        function attachVideoSource(player, url) {
+            // Сносим предыдущий hls.js-инстанс, если он был
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+
+            if (!isHlsUrl(url)) {
+                player.src = url;
+                return;
+            }
+
+            // Safari/iOS умеют HLS нативно — hls.js там не нужен и может конфликтовать
+            if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                player.src = url;
+                return;
+            }
+
+            if (window.Hls && Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(url);
+                hls.attachMedia(player);
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        log('❌ Ошибка HLS: ' + data.type, 'error');
+                    }
+                });
+                currentHls = hls;
+            } else {
+                log('❌ Браузер не поддерживает HLS, а hls.js не загрузился', 'error');
+            }
+        }
+
+        const MEDIA_ERROR_NAMES = {
+            1: 'ABORTED (загрузка прервана)',
+            2: 'NETWORK (сеть/сервер не отдал видео — часто 403/404/CORS)',
+            3: 'DECODE (файл повреждён или кодек не поддерживается)',
+            4: 'SRC_NOT_SUPPORTED (браузер не понимает формат/ссылку)',
+        };
+
+        function bindVideoErrorLogging(player) {
+            if (player.dataset.errorBound) return;
+            player.dataset.errorBound = '1';
+            player.addEventListener('error', () => {
+                const err = player.error;
+                const name = err ? (MEDIA_ERROR_NAMES[err.code] || `код ${err.code}`) : 'неизвестна';
+                log(`❌ Видео не воспроизводится: ${name}`, 'error');
+            });
+        }
+
+        async function playVideo(messageId, chatId, token, videoId) {
+            if (!token || !videoId) { log('❌ Нет данных для видео', 'error'); return; }
+            log('⏳ Получаю ссылку на видео...', 'info');
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+                console.log('[video-sources]', data);
+                const best = sources['720p'] || sources['480p'] || Object.values(sources)[0];
+                if (!best) {
+                    log('❌ Не удалось получить видео' + (data.error ? ` (${data.error})` : ''), 'error');
+                    return;
+                }
+
+                const player = document.getElementById('videoModalPlayer');
+                bindVideoErrorLogging(player);
+                attachVideoSource(player, proxiedVideo(best));
+                document.getElementById('videoModal').classList.remove('hidden');
+                player.play().catch(() => {});
+                let hostInfo = '';
+                try { hostInfo = ' → ' + new URL(best).hostname; } catch (e) {}
+                log('✅ Видео открыто' + hostInfo, 'success');
+            } catch (e) {
+                log('❌ Ошибка получения видео: ' + e.message, 'error');
+            }
+        }
+
+        function closeVideoModal() {
+            const player = document.getElementById('videoModalPlayer');
+            player.pause();
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            player.removeAttribute('src');
+            player.load();
+            document.getElementById('videoModal').classList.add('hidden');
+        }
+
+        // ---- Скачивание файлов (через /api/download, Opcode.fileDownload=88) ----
+        async function downloadFile(url, token, filename) {
+            log(`⏳ Скачиваю «${filename}»...`, 'info');
+            try {
+                const res = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, token, filename }),
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                log(`✅ «${filename}» скачан`, 'success');
+            } catch (e) {
+                log('❌ Ошибка скачивания: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Живой пуш нового сообщения (opcode 128 notifMessage) ----
+        function handleIncomingPush(payload) {
+            // Реальная структура payload notifMessage ещё не до конца проверена вживую —
+            // подстраховываемся под пару вероятных вариантов вложенности.
+            const message = payload.message || payload;
+            const chatId = payload.chatId ?? message.chatId;
+            if (chatId == null) { log('📩 Пуш без chatId, пропускаю', 'info'); return; }
+
+            log(`📩 Новое сообщение в чате ${chatId}`, 'success');
+
+            if (chatsById[chatId]) {
+                chatsById[chatId].lastMessage = message;
+                chatsById[chatId].lastEventTime = message.time || Date.now();
+                if (chatId !== currentChatId) {
+                    chatsById[chatId].newMessages = (chatsById[chatId].newMessages || 0) + 1;
+                }
+            }
+
+            const chatDetailOpen = !document.getElementById('chatDetailSection').classList.contains('hidden');
+            if (chatId === currentChatId && chatDetailOpen) {
+                const list = document.getElementById('messagesList');
+                const el = createMessageElement(message);
+                el.dataset.msgId = message.id;
+                list.appendChild(el);
+                list.scrollTop = list.scrollHeight;
+                maybeAutoreply(chatId, [message]);
+            }
+            // Полный ре-рендер списка чатов (с новым превью/бейджем) — просто заново
+            // запросим Get Chats при следующем открытии списка; здесь не критично.
         }
 
         // ---- Инкрементальный рендер сообщений ----
@@ -853,9 +1028,6 @@
                     return;
                 }
                 if (a._type === 'VIDEO') {
-                    // Прямого URL для проигрывания видео мы пока не вычисляли из
-                    // протокола — показываем честное превью (thumbnail с CDN,
-                    // это НЕ то же самое, что crop previewData) и длительность.
                     let poster = getVideoThumbnailUrl(a);
                     if (poster) poster = proxied(poster);
                     if (!poster && a.previewData) {
@@ -863,29 +1035,29 @@
                     }
                     const durationSec = a.duration ? Math.round(a.duration / 1000) : null;
                     const durationLabel = durationSec ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}` : '';
+                    const playArgs = `${m.id}, ${currentChatId}, '${a.token || a.videoToken || ''}', ${a.videoId || 0}`;
                     if (poster) {
-                        attachesHtml += `<div class="msg-attach" style="position:relative;">
+                        attachesHtml += `<div class="msg-attach" style="position:relative;cursor:pointer;" onclick="playVideo(${playArgs})">
                             <img class="msg-img" src="${poster}" alt="Превью видео" loading="lazy">
                             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
                                 <div style="background:rgba(0,0,0,0.55);color:white;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;">▶</div>
                             </div>
                             ${durationLabel ? `<div style="position:absolute;bottom:4px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:1px 6px;border-radius:4px;">${durationLabel}</div>` : ''}
-                        </div>
-                        <div style="text-align:center;font-size:12px;color:#888;">🎬 Видео (просмотр пока не поддерживается)</div>`;
+                        </div>`;
                     } else {
-                        attachesHtml += `<div class="msg-attach msg-file">🎬 Видео${durationLabel ? ' · ' + durationLabel : ''} (недоступно)</div>`;
+                        attachesHtml += `<div class="msg-attach msg-file" style="cursor:pointer;" onclick="playVideo(${playArgs})">🎬 Видео${durationLabel ? ' · ' + durationLabel : ''}</div>`;
                     }
                     return;
                 }
                 if (a._type === 'FILE') {
                     const sizeKb = a.size ? Math.round(a.size / 1024) + ' КБ' : '';
                     const fileName = a.name || 'файл';
-                    const fileUrl = getBestMediaUrl(a);
-                    let fileHtml;
-                    if (fileUrl) {
-                        fileHtml = `<a href="${fileUrl}" target="_blank">${escapeHtml(fileName)}</a>`;
-                    } else {
-                        fileHtml = escapeHtml(fileName);
+                    const fileUrl = a.baseUrl || a.url || '';
+                    const fileToken = a.token || a.fileToken || '';
+                    const safeFileName = escapeHtml(fileName).replace(/'/g, "\\'");
+                    let fileHtml = escapeHtml(fileName);
+                    if (fileUrl && fileToken) {
+                        fileHtml = `<a href="#" onclick="downloadFile('${fileUrl}', '${fileToken}', '${safeFileName}'); return false;">${escapeHtml(fileName)}</a>`;
                     }
                     attachesHtml += `<div class="msg-attach msg-file">📎 ${fileHtml} <span style="color:#999">${sizeKb}</span></div>`;
                     return;
