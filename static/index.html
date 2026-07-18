@@ -865,6 +865,45 @@
             });
         }
 
+        async function playVideoInline(container, messageId, chatId, token, videoId) {
+            if (!token || !videoId) { log('❌ Нет данных для видео', 'error'); return; }
+            if (container.dataset.loading === '1') return;
+            container.dataset.loading = '1';
+            container.style.opacity = '0.6';
+            log('⏳ Получаю ссылку на видео...', 'info');
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+                const best = sources['720p'] || sources['480p'] || Object.values(sources)[0];
+                if (!best) {
+                    log('❌ Не удалось получить видео' + (data.error ? ` (${data.error})` : ''), 'error');
+                    container.style.opacity = '1';
+                    container.dataset.loading = '0';
+                    return;
+                }
+
+                const video = document.createElement('video');
+                video.className = 'msg-img';
+                video.controls = true;
+                video.autoplay = true;
+                video.playsInline = true;
+                bindVideoErrorLogging(video);
+                attachVideoSource(video, proxiedVideo(best));
+                container.replaceWith(video);
+                video.play().catch(() => {});
+                log('✅ Видео воспроизводится', 'success');
+            } catch (e) {
+                log('❌ Ошибка получения видео: ' + e.message, 'error');
+                container.style.opacity = '1';
+                container.dataset.loading = '0';
+            }
+        }
+
         async function playVideo(messageId, chatId, token, videoId) {
             if (!token || !videoId) { log('❌ Нет данных для видео', 'error'); return; }
             log('⏳ Получаю ссылку на видео...', 'info');
@@ -1035,9 +1074,9 @@
                     }
                     const durationSec = a.duration ? Math.round(a.duration / 1000) : null;
                     const durationLabel = durationSec ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}` : '';
-                    const playArgs = `${m.id}, ${currentChatId}, '${a.token || a.videoToken || ''}', ${a.videoId || 0}`;
+                    const playArgs = `this, ${m.id}, ${currentChatId}, '${a.token || a.videoToken || ''}', ${a.videoId || 0}`;
                     if (poster) {
-                        attachesHtml += `<div class="msg-attach" style="position:relative;cursor:pointer;" onclick="playVideo(${playArgs})">
+                        attachesHtml += `<div class="msg-attach" style="position:relative;cursor:pointer;" onclick="playVideoInline(${playArgs})">
                             <img class="msg-img" src="${poster}" alt="Превью видео" loading="lazy">
                             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
                                 <div style="background:rgba(0,0,0,0.55);color:white;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;">▶</div>
@@ -1045,7 +1084,7 @@
                             ${durationLabel ? `<div style="position:absolute;bottom:4px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:1px 6px;border-radius:4px;">${durationLabel}</div>` : ''}
                         </div>`;
                     } else {
-                        attachesHtml += `<div class="msg-attach msg-file" style="cursor:pointer;" onclick="playVideo(${playArgs})">🎬 Видео${durationLabel ? ' · ' + durationLabel : ''}</div>`;
+                        attachesHtml += `<div class="msg-attach msg-file" style="cursor:pointer;" onclick="playVideoInline(${playArgs})">🎬 Видео${durationLabel ? ' · ' + durationLabel : ''}</div>`;
                     }
                     return;
                 }

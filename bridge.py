@@ -376,7 +376,7 @@ def proxy_image():
 
 @app.route("/video")
 def proxy_video():
-    from flask import request, Response
+    from flask import request, Response, stream_with_context
     import urllib.request
     import urllib.error
 
@@ -394,37 +394,42 @@ def proxy_video():
 
     try:
         req = urllib.request.Request(url, headers=req_headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
-            status = resp.status
-            content_type = resp.headers.get("Content-Type", "video/mp4")
-            content_range = resp.headers.get("Content-Range")
-            accept_ranges = resp.headers.get("Accept-Ranges", "bytes")
-
-        out_headers = {"Accept-Ranges": accept_ranges, "Cache-Control": "public, max-age=3600"}
-        if content_range:
-            out_headers["Content-Range"] = content_range
-        return Response(data, status=status if range_header else 200,
-                         content_type=content_type, headers=out_headers)
+        upstream = urllib.request.urlopen(req, timeout=15)
     except urllib.error.HTTPError as e:
-        # Сервер может не поддерживать наш Range-запрос — пробуем без него
-        if range_header:
-            try:
-                req2 = urllib.request.Request(url, headers={
-                    "User-Agent": req_headers["User-Agent"], "Referer": req_headers["Referer"],
-                })
-                with urllib.request.urlopen(req2, timeout=15) as resp2:
-                    data2 = resp2.read()
-                    content_type2 = resp2.headers.get("Content-Type", "video/mp4")
-                return Response(data2, content_type=content_type2,
-                                 headers={"Accept-Ranges": "bytes"})
-            except Exception as e2:
-                logger.warning(f"[video proxy] fallback failed for {url}: {e2}")
         logger.warning(f"[video proxy] HTTPError for {url}: {e}")
         return "", 502
     except Exception as e:
         logger.warning(f"[video proxy] failed for {url}: {e}")
         return "", 502
+
+    status = upstream.status
+    content_type = upstream.headers.get("Content-Type", "video/mp4")
+    content_range = upstream.headers.get("Content-Range")
+    content_length = upstream.headers.get("Content-Length")
+    accept_ranges = upstream.headers.get("Accept-Ranges", "bytes")
+
+    def generate():
+        try:
+            while True:
+                chunk = upstream.read(65536)  # 64 КБ за раз, не грузим весь файл в память
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            upstream.close()
+
+    out_headers = {"Accept-Ranges": accept_ranges, "Cache-Control": "public, max-age=3600"}
+    if content_range:
+        out_headers["Content-Range"] = content_range
+    if content_length:
+        out_headers["Content-Length"] = content_length
+
+    return Response(
+        stream_with_context(generate()),
+        status=status,
+        content_type=content_type,
+        headers=out_headers,
+    )
 
 
 @app.route("/api/video-sources", methods=["POST"])
