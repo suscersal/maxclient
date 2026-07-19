@@ -1,9 +1,19 @@
 {
-  "543835": {
+  "5267903": {
     "name": "Коды подтверждения",
     "verified": true
   },
+  "543835": {
+    "name": "MAX",
+    "verified": true
+  },
   "2165956": {
-    "name": "Гига чат"
+    "name": "GigaChat",
+    "verified": true,
+    "avatar": "https://f80a011b-5cd9-4330-960f-e5ce0ca5943e.selcdn.net/uploads/b441c469f3bc4779a7474c416edbf2cf.jpg"
+  },
+  "632": {
+    "name": "Стикеры в Max",
+    "verified": true
   }
 }

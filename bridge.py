@@ -117,6 +117,36 @@ def _decode_bytes_deep(obj):
     return obj
 
 
+# JS/JSON.parse теряет точность для целых чисел больше 2**53-1, а ID сообщений
+# в MAX (и некоторые другие поля) — 64-битные числа, которые легко превышают
+# эту границу. Поэтому такие числа гоняем между бэком и фронтом как строки.
+_JS_SAFE_INT = 2 ** 53 - 1
+
+
+def stringify_big_ints(obj):
+    """Сервер -> фронтенд: большие int превращаем в строки перед json.dumps."""
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, int) and abs(obj) > _JS_SAFE_INT:
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: stringify_big_ints(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [stringify_big_ints(v) for v in obj]
+    return obj
+
+
+def numify_big_int_strings(obj):
+    """Фронтенд -> сервер: строки-числа обратно в int перед упаковкой в msgpack."""
+    if isinstance(obj, str) and re.fullmatch(r"-?\d+", obj) and abs(int(obj)) > _JS_SAFE_INT:
+        return int(obj)
+    if isinstance(obj, dict):
+        return {k: numify_big_int_strings(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [numify_big_int_strings(v) for v in obj]
+    return obj
+
+
 # --- LZ4 с использованием библиотеки ---
 def _lz4_decompress_block(data: bytes) -> bytes:
     # Библиотека lz4.block ожижает размер распакованного блока.
@@ -561,7 +591,7 @@ def relay(ws):
             try:
                 while True:
                     packet = out_queue.get_nowait()
-                    ws.send(json.dumps(packet))
+                    ws.send(json.dumps(stringify_big_ints(packet)))
             except queue.Empty:
                 pass
 
@@ -572,7 +602,7 @@ def relay(ws):
 
             req = json.loads(msg)
             opcode = req.get("opcode")
-            payload = req.get("payload", {})
+            payload = numify_big_int_strings(req.get("payload", {}))
 
             # ---- Всегда вставляем свежий сохранённый токен, но не затираем
             # токен, который фронт передал явно (например, OTP-токен при
