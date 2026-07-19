@@ -310,7 +310,8 @@
             margin-left: auto;
             white-space: nowrap;
         }
-                .settings-row {
+
+        .settings-row {
             display: flex;
             gap: 8px;
             margin-bottom: 6px;
@@ -338,7 +339,7 @@
             font-weight: bold;
             margin-left: 3px;
         }
-        
+
         .online-dot {
             position: absolute;
             bottom: 0;
@@ -359,7 +360,7 @@
         }
 
         .reaction-badge {
-            background: rgba(0,0,0,0.06);
+            background: rgba(0, 0, 0, 0.06);
             border-radius: 10px;
             padding: 1px 7px;
             font-size: 12px;
@@ -389,7 +390,8 @@
 <body>
     <h1>MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
-        <button id="settingsToggle" style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
+        <button id="settingsToggle"
+            style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
     </h1>
     <div id="status" class="status info">Connecting...</div>
 
@@ -424,7 +426,8 @@
         <div class="autoreply-row">
             <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
         </div>
-        <input type="text" id="autoreplyText" placeholder="Текст автоответа" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <input type="text" id="autoreplyText" placeholder="Текст автоответа"
+            style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
         <div class="autoreply-row">
             <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано»</label>
         </div>
@@ -447,182 +450,182 @@
     </div>
 
     <script>
-    // ------------------------------------------
-// Глобальные переменные
-// ------------------------------------------
-let ws = null;
-let isConnected = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
-let reconnectTimer = null;
-let pingInterval = null;
-let otpToken = null;
-let phoneNumber = '';
-let selfId = null;
-let contactsById = {};
-let chatsById = {};
-let currentChatId = null;
-let metadataOverride = {};
-let presenceById = {};
+        // ------------------------------------------
+        // Глобальные переменные
+        // ------------------------------------------
+        let ws = null;
+        let isConnected = false;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 10;
+        let reconnectTimer = null;
+        let pingInterval = null;
+        let otpToken = null;
+        let phoneNumber = '';
+        let selfId = null;
+        let contactsById = {};
+        let chatsById = {};
+        let currentChatId = null;
+        let metadataOverride = {};
+        let presenceById = {};
 
-// ------------------------------------------
-// Логирование на экран
-// ------------------------------------------
-function log(msg, type = 'info') {
-    const el = document.getElementById('log');
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${type}`;
-    entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span>${msg}`;
-    el.appendChild(entry);
-    el.scrollTop = el.scrollHeight;
-    while (el.children.length > 200) el.removeChild(el.firstChild);
-}
-
-function setStatus(msg, type = 'info') {
-    const el = document.getElementById('status');
-    el.textContent = msg;
-    el.className = `status ${type}`;
-}
-
-function showAuthenticatedUI() {
-    document.getElementById('loginSection').classList.add('hidden');
-    document.getElementById('chatsSection').classList.remove('hidden');
-}
-
-function send(opcode, payload) {
-    if (!isConnected) { log('❌ Not connected', 'error'); return; }
-    ws.send(JSON.stringify({ opcode, payload }));
-}
-
-// ------------------------------------------
-// Загрузка avatars.json
-// ------------------------------------------
-fetch('avatars.json')
-    .then(r => r.ok ? r.json() : {})
-    .then(data => {
-        metadataOverride = data;
-        // Если чаты уже загружены — обновляем
-        if (Object.keys(chatsById).length > 0) {
-            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+        // ------------------------------------------
+        // Логирование на экран
+        // ------------------------------------------
+        function log(msg, type = 'info') {
+            const el = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span>${msg}`;
+            el.appendChild(entry);
+            el.scrollTop = el.scrollHeight;
+            while (el.children.length > 200) el.removeChild(el.firstChild);
         }
-    })
-    .catch(() => { metadataOverride = {}; });
 
-// ------------------------------------------
-// Вспомогательные функции
-// ------------------------------------------
-function otherParticipantId(chat) {
-    if (!chat || !chat.participants) return null;
-    const ids = Object.keys(chat.participants).map(Number);
-    if (selfId) {
-        return ids.find(id => id !== selfId) || ids[0];
-    }
-    return ids[0];
-}
+        function setStatus(msg, type = 'info') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+        }
 
-function chatDisplayName(chat) {
-    const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
-    const meta = metadataOverride[otherId];
-    let name;
-    
-    if (chat.type === 'DIALOG') {
-        if (chat.id === 0) {
-            name = 'Избранное';
-        } else if (meta && meta.name) {
-            name = meta.name;
-        } else {
-            const contact = contactsById[otherId];
-            if (contact) {
-                const custom = contact.names?.find(n => n.type === 'CUSTOM');
-                const oneme = contact.names?.find(n => n.type === 'ONEME');
-                name = (custom || oneme)?.name || 'Контакт #' + otherId;
+        function showAuthenticatedUI() {
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('chatsSection').classList.remove('hidden');
+        }
+
+        function send(opcode, payload) {
+            if (!isConnected) { log('❌ Not connected', 'error'); return; }
+            ws.send(JSON.stringify({ opcode, payload }));
+        }
+
+        // ------------------------------------------
+        // Загрузка avatars.json
+        // ------------------------------------------
+        fetch('avatars.json')
+            .then(r => r.ok ? r.json() : {})
+            .then(data => {
+                metadataOverride = data;
+                // Если чаты уже загружены — обновляем
+                if (Object.keys(chatsById).length > 0) {
+                    renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                }
+            })
+            .catch(() => { metadataOverride = {}; });
+
+        // ------------------------------------------
+        // Вспомогательные функции
+        // ------------------------------------------
+        function otherParticipantId(chat) {
+            if (!chat || !chat.participants) return null;
+            const ids = Object.keys(chat.participants).map(Number);
+            if (selfId) {
+                return ids.find(id => id !== selfId) || ids[0];
+            }
+            return ids[0];
+        }
+
+        function chatDisplayName(chat) {
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            const meta = metadataOverride[otherId];
+            let name;
+
+            if (chat.type === 'DIALOG') {
+                if (chat.id === 0) {
+                    name = 'Избранное';
+                } else if (meta && meta.name) {
+                    name = meta.name;
+                } else {
+                    const contact = contactsById[otherId];
+                    if (contact) {
+                        const custom = contact.names?.find(n => n.type === 'CUSTOM');
+                        const oneme = contact.names?.find(n => n.type === 'ONEME');
+                        name = (custom || oneme)?.name || 'Контакт #' + otherId;
+                    } else {
+                        name = 'Контакт #' + otherId;
+                    }
+                }
             } else {
-                name = 'Контакт #' + otherId;
+                if (meta && meta.name) {
+                    name = meta.name;
+                } else {
+                    name = chat.title || 'Без названия';
+                }
+            }
+
+            const optionsSource = chat.type === 'DIALOG' ? contactsById[otherId]?.options : chat.options;
+            const officialFromServer = Array.isArray(optionsSource) && optionsSource.includes('OFFICIAL');
+            const verified = officialFromServer || (meta && meta.verified === true);
+
+            return name + (verified ? ' <span class="verified-badge">✔</span>' : '');
+        }
+
+        function chatAvatarUrl(chat) {
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
+            const meta = metadataOverride[otherId];
+            if (meta && meta.avatar) {
+                return meta.avatar.startsWith('http') ? '/img?url=' + encodeURIComponent(meta.avatar) : meta.avatar;
+            }
+            if (chat.baseIconUrl) return '/img?url=' + encodeURIComponent(chat.baseIconUrl);
+            if (chat.type === 'DIALOG' && chat.id !== 0) {
+                const contact = contactsById[otherId];
+                if (contact?.baseUrl) return '/img?url=' + encodeURIComponent(contact.baseUrl);
+            }
+            return null;
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function handleAvatarError(img) {
+            img.style.display = 'none';
+            const parent = img.parentElement;
+            if (parent && parent.classList.contains('chat-avatar')) {
+                parent.textContent = parent.dataset.initials || '?';
             }
         }
-    } else {
-        if (meta && meta.name) {
-            name = meta.name;
-        } else {
-            name = chat.title || 'Без названия';
-        }
-    }
-    
-    const optionsSource = chat.type === 'DIALOG' ? contactsById[otherId]?.options : chat.options;
-    const officialFromServer = Array.isArray(optionsSource) && optionsSource.includes('OFFICIAL');
-    const verified = officialFromServer || (meta && meta.verified === true);
-    
-    return name + (verified ? ' <span class="verified-badge">✔</span>' : '');
-}
+        // ------------------------------------------
+        // Рендер чатов
+        // ------------------------------------------
+        function renderChats(payload) {
+            selfId = payload.profile?.contact?.id;
+            contactsById = {};
+            (payload.contacts || []).forEach(c => { contactsById[c.id] = c; });
 
-function chatAvatarUrl(chat) {
-    const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
-    const meta = metadataOverride[otherId];
-    if (meta && meta.avatar) {
-        return meta.avatar.startsWith('http') ? '/img?url=' + encodeURIComponent(meta.avatar) : meta.avatar;
-    }
-    if (chat.baseIconUrl) return '/img?url=' + encodeURIComponent(chat.baseIconUrl);
-    if (chat.type === 'DIALOG' && chat.id !== 0) {
-        const contact = contactsById[otherId];
-        if (contact?.baseUrl) return '/img?url=' + encodeURIComponent(contact.baseUrl);
-    }
-    return null;
-}
+            if (payload.presence) {
+                Object.entries(payload.presence).forEach(([uid, p]) => {
+                    presenceById[uid] = { online: p?.status === 1, seen: p?.seen || 0 };
+                });
+            }
 
-function escapeHtml(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-}
+            const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime || 0));
+            chatsById = {};
+            const list = document.getElementById('chatsList');
+            list.innerHTML = '';
 
-function handleAvatarError(img) {
-    img.style.display = 'none';
-    const parent = img.parentElement;
-    if (parent && parent.classList.contains('chat-avatar')) {
-        parent.textContent = parent.dataset.initials || '?';
-    }
-}
-// ------------------------------------------
-// Рендер чатов
-// ------------------------------------------
-function renderChats(payload) {
-    selfId = payload.profile?.contact?.id;
-    contactsById = {};
-    (payload.contacts || []).forEach(c => { contactsById[c.id] = c; });
+            chats.forEach(chat => {
+                chatsById[chat.id] = chat;
+                const name = chatDisplayName(chat);
+                const preview = chatPreview(chat);
+                const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
+                const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
+                const avatarUrl = chatAvatarUrl(chat);
+                const initial = name.charAt(0).toUpperCase();
+                let avatarHtml;
+                if (avatarUrl) {
+                    avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+                } else {
+                    avatarHtml = initial;
+                }
 
-    if (payload.presence) {
-        Object.entries(payload.presence).forEach(([uid, p]) => {
-            presenceById[uid] = { online: p?.status === 1, seen: p?.seen || 0 };
-        });
-    }
+                const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+                const isOnline = otherId != null && presenceById[otherId]?.online;
+                const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
 
-    const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime || 0));
-    chatsById = {};
-    const list = document.getElementById('chatsList');
-    list.innerHTML = '';
-
-    chats.forEach(chat => {
-        chatsById[chat.id] = chat;
-        const name = chatDisplayName(chat);
-        const preview = chatPreview(chat);
-        const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
-        const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
-        const avatarUrl = chatAvatarUrl(chat);
-        const initial = name.charAt(0).toUpperCase();
-        let avatarHtml;
-        if (avatarUrl) {
-            avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
-        } else {
-            avatarHtml = initial;
-        }
-
-        const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
-        const isOnline = otherId != null && presenceById[otherId]?.online;
-        const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
-
-        const el = document.createElement('div');
-        el.className = 'chat-item';
-        el.innerHTML = `
+                const el = document.createElement('div');
+                el.className = 'chat-item';
+                el.innerHTML = `
             <div class="chat-avatar" data-initials="${initial}" style="position:relative;">${avatarHtml}${onlineDot}</div>
             <div class="chat-info">
                 <div class="chat-name">${name}</div>
@@ -630,359 +633,359 @@ function renderChats(payload) {
             </div>
             <div class="chat-meta">${time}${unread}</div>
         `;
-        el.onclick = () => openChat(chat.id);
-        list.appendChild(el);
-    });
-
-    log(`📋 ${chats.length} chats loaded`, 'success');
-}
-
-function chatPreview(chat) {
-    const m = chat.lastMessage;
-    if (!m) return '';
-    const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
-    const attach = m.attaches?.[0];
-    if (attach?._type === 'CONTROL') {
-        return attach.message || attach.shortMessage || 'Системное событие';
-    }
-    if (m.text && !isTranslationKey) return m.text.slice(0, 80);
-    if (attach) {
-        const labels = {
-            PHOTO: '🖼️ Фото', VIDEO: '🎬 Видео', FILE: '📎 ' + (attach.name || 'Файл'),
-            CALL: attach.callType === 'VIDEO' ? '📞 Видеозвонок' : '📞 Звонок',
-        };
-        return labels[attach._type] || `[${attach._type}]`;
-    }
-    return '';
-}
-
-// ------------------------------------------
-// Галочки статуса прочитано
-// ------------------------------------------
-function buildStatusTicksHtml(m, chat) {
-    try {
-        if (chat?.type !== 'DIALOG') {
-            return '<span class="msg-status sent">✓</span>';
-        }
-        const otherId = otherParticipantId(chat);
-        if (!otherId) return '<span class="msg-status sent">✓</span>';
-        
-        const info = chat?.participants?.[otherId];
-        let otherLastRead = null;
-        
-        if (typeof info === 'number' || typeof info === 'string') {
-            otherLastRead = info;
-        } else if (info && typeof info === 'object') {
-            otherLastRead = info.lastReadMessageId ?? info.mark ?? info.readMark ?? null;
-        }
-        
-        // Также проверяем chat.readMarks
-        if (otherLastRead == null && chat?.readMarks) {
-            otherLastRead = chat.readMarks[otherId] || null;
-        }
-        
-        if (otherLastRead != null) {
-            try {
-                if (BigInt(m.id) <= BigInt(otherLastRead)) {
-                    return '<span class="msg-status read">✓✓</span>';
-                }
-            } catch (e) {}
-        }
-        return '<span class="msg-status sent">✓</span>';
-    } catch (err) {
-        return '<span class="msg-status sent">✓</span>';
-    }
-}
-
-// ------------------------------------------
-// Реакции
-// ------------------------------------------
-function buildReactionsHtml(m) {
-    try {
-        const counts = m.reactionInfo?.counters || [];
-        let badges = '';
-        if (Array.isArray(counts)) {
-            counts.forEach(r => {
-                const emoji = r.reaction || '👍';
-                const count = r.count ?? 1;
-                badges += `<span class="reaction-badge" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
+                el.onclick = () => openChat(chat.id);
+                list.appendChild(el);
             });
+
+            log(`📋 ${chats.length} chats loaded`, 'success');
         }
-        return badges ? `<div class="msg-reactions">${badges}</div>` : '';
-    } catch (err) {
-        return '';
-    }
-}
-// ------------------------------------------
-// Создание сообщения
-// ------------------------------------------
-function createMessageElement(m) {
-    const el = document.createElement('div');
-    const isOwn = m.sender === selfId;
-    el.className = 'msg-bubble' + (isOwn ? ' own' : '');
-    el.dataset.msgId = m.id;
 
-    let attachesHtml = '';
-    (m.attaches || []).forEach(a => {
-        if (a._type === 'PHOTO') {
-            let src = a.baseRawUrl || a.baseUrl;
-            if (src) src = '/img?url=' + encodeURIComponent(src);
-            if (!src && a.previewData) {
-                try {
-                    const bytes = new Uint8Array(a.previewData.length / 2);
-                    for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(a.previewData.substr(i * 2, 2), 16);
-                    let binary = '';
-                    bytes.forEach(b => binary += String.fromCharCode(b));
-                    src = 'data:image/webp;base64,' + btoa(binary);
-                } catch (e) {}
+        function chatPreview(chat) {
+            const m = chat.lastMessage;
+            if (!m) return '';
+            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+            const attach = m.attaches?.[0];
+            if (attach?._type === 'CONTROL') {
+                return attach.message || attach.shortMessage || 'Системное событие';
             }
-            if (src) {
-                attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="window.open('${src}', '_blank')"></div>`;
+            if (m.text && !isTranslationKey) return m.text.slice(0, 80);
+            if (attach) {
+                const labels = {
+                    PHOTO: '🖼️ Фото', VIDEO: '🎬 Видео', FILE: '📎 ' + (attach.name || 'Файл'),
+                    CALL: attach.callType === 'VIDEO' ? '📞 Видеозвонок' : '📞 Звонок',
+                };
+                return labels[attach._type] || `[${attach._type}]`;
             }
-            return;
+            return '';
         }
-        if (a._type === 'VIDEO') {
-            attachesHtml += `<div class="msg-attach msg-file">🎬 Видео</div>`;
-            return;
-        }
-        if (a._type === 'FILE') {
-            const fileName = a.name || 'файл';
-            attachesHtml += `<div class="msg-attach msg-file">📎 ${escapeHtml(fileName)}</div>`;
-            return;
-        }
-        if (a._type === 'CALL') {
-            attachesHtml += `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
-            return;
-        }
-        if (a._type === 'CONTROL') {
-            const text = a.message || a.shortMessage || 'Системное событие';
-            attachesHtml += `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
-            return;
-        }
-    });
 
-    const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
-    const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
-    
-    let textHtml = '';
-    if (m.text && !(isTranslationKey && hasControlAttach)) {
-        textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
-    }
-
-    const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const chat = chatsById[currentChatId];
-    const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
-    const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
-
-    const reactionsHtml = buildReactionsHtml(m);
-
-    el.innerHTML = attachesHtml + textHtml + reactionsHtml + timeHtml;
-    return el;
-}
-
-// ------------------------------------------
-// Открытие чата и загрузка сообщений
-// ------------------------------------------
-function openChat(chatId) {
-    const chat = chatsById[chatId];
-    if (!chat) return;
-    currentChatId = chatId;
-    document.getElementById('chatsSection').classList.add('hidden');
-    document.getElementById('chatDetailSection').classList.remove('hidden');
-
-    document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
-    document.getElementById('chatDetailStatus').textContent = '';
-
-    const avatarUrl = chatAvatarUrl(chat);
-    const initial = chatDisplayName(chat).charAt(0).toUpperCase();
-    let avatarHtml;
-    if (avatarUrl) {
-        avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
-    } else {
-        avatarHtml = initial;
-    }
-    const avatarContainer = document.getElementById('chatDetailAvatar');
-    avatarContainer.innerHTML = avatarHtml;
-    avatarContainer.dataset.initials = initial;
-
-    const list = document.getElementById('messagesList');
-    list.innerHTML = '';
-    
-    send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
-}
-
-// ------------------------------------------
-// Рендер сообщений (инкрементальный)
-// ------------------------------------------
-function renderMessages(payload) {
-    const list = document.getElementById('messagesList');
-    const existingIds = new Set();
-    list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
-        existingIds.add(el.dataset.msgId);
-    });
-
-    const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
-    const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
-
-    newMessages.forEach(m => {
-        const el = createMessageElement(m);
-        list.appendChild(el);
-    });
-
-    if (newMessages.length > 0) {
-        list.scrollTop = list.scrollHeight;
-    }
-}
-// ------------------------------------------
-// Подключение к WebSocket
-// ------------------------------------------
-function connect() {
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        log('❌ Max reconnect attempts reached', 'error');
-        setStatus('Connection lost', 'error');
-        return;
-    }
-    
-    log('Connecting... (attempt ' + (reconnectAttempts + 1) + ')');
-    setStatus('Connecting...', 'info');
-    ws = new WebSocket(`ws://${window.location.host}/relay`);
-
-    ws.onopen = () => {
-        isConnected = true;
-        reconnectAttempts = 0;
-        setStatus('Connected', 'success');
-        document.getElementById('connectionBadge').textContent = 'Online';
-        document.getElementById('connectionBadge').className = 'badge online';
-        log('✅ Connected');
-
-        if (pingInterval) clearInterval(pingInterval);
-        pingInterval = setInterval(() => {
-            if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ opcode: 0, payload: {} }));
-            }
-        }, 25000);
-    };
-
-    ws.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            if (data.opcode === 0 && data.payload?.pong) return;
-            if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
-            if (data.type === 'session_restored') {
-                log(`✅ ${data.message}`, 'success');
-                setStatus('Authenticated', 'success');
-                showAuthenticatedUI();
-                send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
-                return;
-            }
-
-            if (data.cmd === 768) {
-                const err = data.payload?.localizedMessage || data.payload?.error || 'Error';
-                log(`❌ ${err}`, 'error');
-                setStatus(`Error: ${err}`, 'error');
-                return;
-            }
-
-            if (data.opcode === 17 && data.cmd === 256) {
-                otpToken = data.payload.token;
-                log('✅ OTP sent!', 'success');
-                document.getElementById('authStatus').textContent = '✅ OTP sent. Enter code.';
-                return;
-            }
-
-            if (data.opcode === 18 && data.cmd === 256) {
-                log('✅ Authenticated!', 'success');
-                setStatus('Authenticated', 'success');
-                showAuthenticatedUI();
-                send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
-                return;
-            }
-
-            if (data.opcode === 19 && data.cmd === 256) {
-                renderChats(data.payload);
-                return;
-            }
-
-            if (data.opcode === 49 && data.cmd === 256) {
-                renderMessages(data.payload);
-                return;
-            }
-
-            if (data.opcode === 64 && data.cmd === 256) {
-                document.getElementById('messageText').value = '';
-                send(49, { chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
-                return;
-            }
-
-            // notifMark — обновление прочитанного
-            if (data.opcode === 130 && data.payload) {
-                const p = data.payload;
-                if (p.chatId != null && p.userId != null && p.mark != null) {
-                    const chat = chatsById[p.chatId];
-                    if (chat) {
-                        if (!chat.participants) chat.participants = {};
-                        chat.participants[p.userId] = p.mark;
-                        if (p.chatId === currentChatId) {
-                            document.querySelectorAll('#messagesList .msg-bubble.own').forEach(bubble => {
-                                const msgId = bubble.dataset.msgId;
-                                const statusEl = bubble.querySelector('.msg-status');
-                                if (statusEl && msgId != null) {
-                                    try {
-                                        if (BigInt(msgId) <= BigInt(p.mark)) {
-                                            statusEl.outerHTML = '<span class="msg-status read">✓✓</span>';
-                                        }
-                                    } catch (e) {}
-                                }
-                            });
-                        }
-                    }
+        // ------------------------------------------
+        // Галочки статуса прочитано
+        // ------------------------------------------
+        function buildStatusTicksHtml(m, chat) {
+            try {
+                if (chat?.type !== 'DIALOG') {
+                    return '<span class="msg-status sent">✓</span>';
                 }
+                const otherId = otherParticipantId(chat);
+                if (!otherId) return '<span class="msg-status sent">✓</span>';
+
+                const info = chat?.participants?.[otherId];
+                let otherLastRead = null;
+
+                if (typeof info === 'number' || typeof info === 'string') {
+                    otherLastRead = info;
+                } else if (info && typeof info === 'object') {
+                    otherLastRead = info.lastReadMessageId ?? info.mark ?? info.readMark ?? null;
+                }
+
+                // Также проверяем chat.readMarks
+                if (otherLastRead == null && chat?.readMarks) {
+                    otherLastRead = chat.readMarks[otherId] || null;
+                }
+
+                if (otherLastRead != null) {
+                    try {
+                        if (BigInt(m.id) <= BigInt(otherLastRead)) {
+                            return '<span class="msg-status read">✓✓</span>';
+                        }
+                    } catch (e) { }
+                }
+                return '<span class="msg-status sent">✓</span>';
+            } catch (err) {
+                return '<span class="msg-status sent">✓</span>';
+            }
+        }
+
+        // ------------------------------------------
+        // Реакции
+        // ------------------------------------------
+        function buildReactionsHtml(m) {
+            try {
+                const counts = m.reactionInfo?.counters || [];
+                let badges = '';
+                if (Array.isArray(counts)) {
+                    counts.forEach(r => {
+                        const emoji = r.reaction || '👍';
+                        const count = r.count ?? 1;
+                        badges += `<span class="reaction-badge" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
+                    });
+                }
+                return badges ? `<div class="msg-reactions">${badges}</div>` : '';
+            } catch (err) {
+                return '';
+            }
+        }
+        // ------------------------------------------
+        // Создание сообщения
+        // ------------------------------------------
+        function createMessageElement(m) {
+            const el = document.createElement('div');
+            const isOwn = m.sender === selfId;
+            el.className = 'msg-bubble' + (isOwn ? ' own' : '');
+            el.dataset.msgId = m.id;
+
+            let attachesHtml = '';
+            (m.attaches || []).forEach(a => {
+                if (a._type === 'PHOTO') {
+                    let src = a.baseRawUrl || a.baseUrl;
+                    if (src) src = '/img?url=' + encodeURIComponent(src);
+                    if (!src && a.previewData) {
+                        try {
+                            const bytes = new Uint8Array(a.previewData.length / 2);
+                            for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(a.previewData.substr(i * 2, 2), 16);
+                            let binary = '';
+                            bytes.forEach(b => binary += String.fromCharCode(b));
+                            src = 'data:image/webp;base64,' + btoa(binary);
+                        } catch (e) { }
+                    }
+                    if (src) {
+                        attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="window.open('${src}', '_blank')"></div>`;
+                    }
+                    return;
+                }
+                if (a._type === 'VIDEO') {
+                    attachesHtml += `<div class="msg-attach msg-file">🎬 Видео</div>`;
+                    return;
+                }
+                if (a._type === 'FILE') {
+                    const fileName = a.name || 'файл';
+                    attachesHtml += `<div class="msg-attach msg-file">📎 ${escapeHtml(fileName)}</div>`;
+                    return;
+                }
+                if (a._type === 'CALL') {
+                    attachesHtml += `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
+                    return;
+                }
+                if (a._type === 'CONTROL') {
+                    const text = a.message || a.shortMessage || 'Системное событие';
+                    attachesHtml += `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
+                    return;
+                }
+            });
+
+            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+            const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
+
+            let textHtml = '';
+            if (m.text && !(isTranslationKey && hasControlAttach)) {
+                textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
+            }
+
+            const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const chat = chatsById[currentChatId];
+            const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
+            const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
+
+            const reactionsHtml = buildReactionsHtml(m);
+
+            el.innerHTML = attachesHtml + textHtml + reactionsHtml + timeHtml;
+            return el;
+        }
+
+        // ------------------------------------------
+        // Открытие чата и загрузка сообщений
+        // ------------------------------------------
+        function openChat(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            currentChatId = chatId;
+            document.getElementById('chatsSection').classList.add('hidden');
+            document.getElementById('chatDetailSection').classList.remove('hidden');
+
+            document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
+            document.getElementById('chatDetailStatus').textContent = '';
+
+            const avatarUrl = chatAvatarUrl(chat);
+            const initial = chatDisplayName(chat).charAt(0).toUpperCase();
+            let avatarHtml;
+            if (avatarUrl) {
+                avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+            } else {
+                avatarHtml = initial;
+            }
+            const avatarContainer = document.getElementById('chatDetailAvatar');
+            avatarContainer.innerHTML = avatarHtml;
+            avatarContainer.dataset.initials = initial;
+
+            const list = document.getElementById('messagesList');
+            list.innerHTML = '';
+
+            send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+        }
+
+        // ------------------------------------------
+        // Рендер сообщений (инкрементальный)
+        // ------------------------------------------
+        function renderMessages(payload) {
+            const list = document.getElementById('messagesList');
+            const existingIds = new Set();
+            list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
+                existingIds.add(el.dataset.msgId);
+            });
+
+            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+            const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
+
+            newMessages.forEach(m => {
+                const el = createMessageElement(m);
+                list.appendChild(el);
+            });
+
+            if (newMessages.length > 0) {
+                list.scrollTop = list.scrollHeight;
+            }
+        }
+        // ------------------------------------------
+        // Подключение к WebSocket
+        // ------------------------------------------
+        function connect() {
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                log('❌ Max reconnect attempts reached', 'error');
+                setStatus('Connection lost', 'error');
                 return;
             }
 
-            // notifPresence — онлайн статус
-            if (data.opcode === 132 && data.payload) {
-                const uid = data.payload.userId;
-                const p = data.payload.presence;
-                if (uid != null && p) {
-                    presenceById[uid] = { online: p.status === 1, seen: p.seen || 0 };
-                    if (currentChatId) {
-                        const chat = chatsById[currentChatId];
-                        if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
-                            const statusEl = document.getElementById('chatDetailStatus');
-                            if (statusEl) {
-                                statusEl.textContent = p.status === 1 ? 'в сети' : 'был(а) в сети';
-                                statusEl.style.color = p.status === 1 ? '#4caf50' : '#888';
+            log('Connecting... (attempt ' + (reconnectAttempts + 1) + ')');
+            setStatus('Connecting...', 'info');
+            ws = new WebSocket(`ws://${window.location.host}/relay`);
+
+            ws.onopen = () => {
+                isConnected = true;
+                reconnectAttempts = 0;
+                setStatus('Connected', 'success');
+                document.getElementById('connectionBadge').textContent = 'Online';
+                document.getElementById('connectionBadge').className = 'badge online';
+                log('✅ Connected');
+
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ opcode: 0, payload: {} }));
+                    }
+                }, 25000);
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.opcode === 0 && data.payload?.pong) return;
+                    if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
+                    if (data.type === 'session_restored') {
+                        log(`✅ ${data.message}`, 'success');
+                        setStatus('Authenticated', 'success');
+                        showAuthenticatedUI();
+                        send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                        return;
+                    }
+
+                    if (data.cmd === 768) {
+                        const err = data.payload?.localizedMessage || data.payload?.error || 'Error';
+                        log(`❌ ${err}`, 'error');
+                        setStatus(`Error: ${err}`, 'error');
+                        return;
+                    }
+
+                    if (data.opcode === 17 && data.cmd === 256) {
+                        otpToken = data.payload.token;
+                        log('✅ OTP sent!', 'success');
+                        document.getElementById('authStatus').textContent = '✅ OTP sent. Enter code.';
+                        return;
+                    }
+
+                    if (data.opcode === 18 && data.cmd === 256) {
+                        log('✅ Authenticated!', 'success');
+                        setStatus('Authenticated', 'success');
+                        showAuthenticatedUI();
+                        send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                        return;
+                    }
+
+                    if (data.opcode === 19 && data.cmd === 256) {
+                        renderChats(data.payload);
+                        return;
+                    }
+
+                    if (data.opcode === 49 && data.cmd === 256) {
+                        renderMessages(data.payload);
+                        return;
+                    }
+
+                    if (data.opcode === 64 && data.cmd === 256) {
+                        document.getElementById('messageText').value = '';
+                        send(49, { chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+                        return;
+                    }
+
+                    // notifMark — обновление прочитанного
+                    if (data.opcode === 130 && data.payload) {
+                        const p = data.payload;
+                        if (p.chatId != null && p.userId != null && p.mark != null) {
+                            const chat = chatsById[p.chatId];
+                            if (chat) {
+                                if (!chat.participants) chat.participants = {};
+                                chat.participants[p.userId] = p.mark;
+                                if (p.chatId === currentChatId) {
+                                    document.querySelectorAll('#messagesList .msg-bubble.own').forEach(bubble => {
+                                        const msgId = bubble.dataset.msgId;
+                                        const statusEl = bubble.querySelector('.msg-status');
+                                        if (statusEl && msgId != null) {
+                                            try {
+                                                if (BigInt(msgId) <= BigInt(p.mark)) {
+                                                    statusEl.outerHTML = '<span class="msg-status read">✓✓</span>';
+                                                }
+                                            } catch (e) { }
+                                        }
+                                    });
+                                }
                             }
                         }
+                        return;
                     }
+
+                    // notifPresence — онлайн статус
+                    if (data.opcode === 132 && data.payload) {
+                        const uid = data.payload.userId;
+                        const p = data.payload.presence;
+                        if (uid != null && p) {
+                            presenceById[uid] = { online: p.status === 1, seen: p.seen || 0 };
+                            if (currentChatId) {
+                                const chat = chatsById[currentChatId];
+                                if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
+                                    const statusEl = document.getElementById('chatDetailStatus');
+                                    if (statusEl) {
+                                        statusEl.textContent = p.status === 1 ? 'в сети' : 'был(а) в сети';
+                                        statusEl.style.color = p.status === 1 ? '#4caf50' : '#888';
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+                } catch (err) {
+                    console.error('[ws error]', err);
                 }
-                return;
-            }
-        } catch (err) {
-            console.error('[ws error]', err);
-        }
-    };
+            };
 
-    ws.onclose = () => {
-        isConnected = false;
-        if (pingInterval) clearInterval(pingInterval);
-        setStatus('Disconnected', 'error');
-        document.getElementById('connectionBadge').textContent = 'Offline';
-        document.getElementById('connectionBadge').className = 'badge offline';
-        log('🔌 Disconnected', 'error');
+            ws.onclose = () => {
+                isConnected = false;
+                if (pingInterval) clearInterval(pingInterval);
+                setStatus('Disconnected', 'error');
+                document.getElementById('connectionBadge').textContent = 'Offline';
+                document.getElementById('connectionBadge').className = 'badge offline';
+                log('🔌 Disconnected', 'error');
 
-        const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts), 60000);
-        reconnectAttempts++;
-        if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-            log(`🔄 Reconnecting in ${Math.round(delay / 1000)}s`, 'info');
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            reconnectTimer = setTimeout(connect, delay);
-        } else {
-            log('❌ Max reconnect attempts reached', 'error');
+                const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts), 60000);
+                reconnectAttempts++;
+                if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+                    log(`🔄 Reconnecting in ${Math.round(delay / 1000)}s`, 'info');
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(connect, delay);
+                } else {
+                    log('❌ Max reconnect attempts reached', 'error');
+                }
+            };
         }
-    };
-}
         // ------------------------------------------
         // Обработчики событий
         // ------------------------------------------
@@ -1086,7 +1089,7 @@ function connect() {
             Object.entries(vars).forEach(([k, v]) => {
                 document.documentElement.style.setProperty('--' + k, v);
             });
-        } catch (e) {}
+        } catch (e) { }
 
         // Подключаемся
         connect();
@@ -1094,4 +1097,5 @@ function connect() {
         window.onbeforeunload = () => { if (ws) ws.close(); };
     </script>
 </body>
+
 </html>

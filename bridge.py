@@ -83,7 +83,8 @@ def get_latest_app_version() -> str:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-        match = re.search(r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
+        match = re.search(
+            r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
         version = match.group(1) if match else FALLBACK_APP_VERSION
         save_session(
             {
@@ -194,15 +195,16 @@ class MaxClient:
         while len(self.buf) < 10:
             self._recv_exact_more()
 
-        ver, cmd, seq, opcode, packed_len = struct.unpack(">BHBHI", self.buf[:10])
+        ver, cmd, seq, opcode, packed_len = struct.unpack(
+            ">BHBHI", self.buf[:10])
         comp_flag = packed_len >> 24
         payload_len = packed_len & 0x00FFFFFF
 
         while len(self.buf) < 10 + payload_len:
             self._recv_exact_more()
 
-        payload_bytes = self.buf[10 : 10 + payload_len]
-        self.buf = self.buf[10 + payload_len :]
+        payload_bytes = self.buf[10: 10 + payload_len]
+        self.buf = self.buf[10 + payload_len:]
 
         payload = None
         if payload_bytes:
@@ -210,7 +212,8 @@ class MaxClient:
                 data_to_parse = payload_bytes
                 if comp_flag:
                     data_to_parse = _lz4_decompress_block(payload_bytes)
-                parsed = msgpack.unpackb(data_to_parse, raw=True, strict_map_key=False)
+                parsed = msgpack.unpackb(
+                    data_to_parse, raw=True, strict_map_key=False)
                 payload = _decode_bytes_deep(parsed)
             except Exception as e:
                 logger.debug(f"Unpack failed: {e}")
@@ -316,7 +319,8 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
             if packet["opcode"] == 6:
                 handshake_ok = packet["cmd"] == 256
                 if not handshake_ok:
-                    logger.warning(f"[fetch_once] handshake failed: {packet.get('payload')!r}")
+                    logger.warning(
+                        f"[fetch_once] handshake failed: {packet.get('payload')!r}")
                     return packet
         if not handshake_ok:
             logger.warning("[fetch_once] handshake timeout")
@@ -340,7 +344,8 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
             if packet["opcode"] == 19:
                 sync_ok = packet["cmd"] == 256
                 if not sync_ok:
-                    logger.warning(f"[fetch_once] online-sync failed: {packet.get('payload')!r}")
+                    logger.warning(
+                        f"[fetch_once] online-sync failed: {packet.get('payload')!r}")
                     return packet
         if not sync_ok:
             logger.warning("[fetch_once] online-sync timeout")
@@ -441,14 +446,16 @@ def proxy_video():
     def generate():
         try:
             while True:
-                chunk = upstream.read(65536)  # 64 КБ за раз, не грузим весь файл в память
+                # 64 КБ за раз, не грузим весь файл в память
+                chunk = upstream.read(65536)
                 if not chunk:
                     break
                 yield chunk
         finally:
             upstream.close()
 
-    out_headers = {"Accept-Ranges": accept_ranges, "Cache-Control": "public, max-age=3600"}
+    out_headers = {"Accept-Ranges": accept_ranges,
+                   "Cache-Control": "public, max-age=3600"}
     if content_range:
         out_headers["Content-Range"] = content_range
     if content_length:
@@ -483,15 +490,18 @@ def video_sources():
         return jsonify({"error": str(e)}), 500
 
     if not packet:
-        logger.warning("[video-sources] no response from MAX (timeout waiting for opcode=83)")
+        logger.warning(
+            "[video-sources] no response from MAX (timeout waiting for opcode=83)")
         return jsonify({"sources": {}, "error": "timeout"})
 
     if packet["cmd"] != 256:
-        logger.warning(f"[video-sources] MAX returned error cmd={packet['cmd']} payload={packet.get('payload')!r}")
+        logger.warning(
+            f"[video-sources] MAX returned error cmd={packet['cmd']} payload={packet.get('payload')!r}")
         return jsonify({"sources": {}, "error": f"cmd={packet['cmd']}"})
 
     if not isinstance(packet.get("payload"), dict):
-        logger.warning(f"[video-sources] unexpected payload shape: {packet.get('payload')!r}")
+        logger.warning(
+            f"[video-sources] unexpected payload shape: {packet.get('payload')!r}")
         return jsonify({"sources": {}})
 
     mp4_keys = {
@@ -500,7 +510,8 @@ def video_sources():
     }
     payload = packet["payload"]
     logger.info(f"[video-sources] payload: {payload!r}")
-    sources = {label: payload[key] for key, label in mp4_keys.items() if payload.get(key)}
+    sources = {label: payload[key]
+               for key, label in mp4_keys.items() if payload.get(key)}
 
     # Если MP4-вариантов нет — пробуем HLS/внешнюю ссылку (как в Komet).
     # Фронтенд играет .m3u8 через hls.js.
@@ -574,7 +585,8 @@ def relay(ws):
     )
     t.start()
 
-    ws.send(json.dumps({"type": "connected", "message": "Connected to MAX server"}))
+    ws.send(json.dumps(
+        {"type": "connected", "message": "Connected to MAX server"}))
     if saved_token:
         ws.send(
             json.dumps(
