@@ -1533,6 +1533,49 @@
     </div>
 
     <script>
+    // --- Уведомления ---
+function showNotification(title, body, chatId, messageId) {
+    if (!("Notification" in window)) {
+        console.log("Браузер не поддерживает уведомления");
+        return;
+    }
+
+    if (Notification.permission === "granted") {
+        sendNotification(title, body, chatId, messageId);
+    } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(permission => {
+            if (permission === "granted") {
+                sendNotification(title, body, chatId, messageId);
+            }
+        });
+    }
+}
+
+function sendNotification(title, body, chatId, messageId) {
+    const notification = new Notification(title, {
+        body: body,
+        icon: '/favicon.ico', // или любая другая иконка
+        silent: false,
+        tag: `chat-${chatId}-${messageId}`,
+    });
+
+    // При клике на уведомление открываем чат
+    notification.onclick = function() {
+        window.focus();
+        this.close();
+        if (chatId) {
+            // Если чат свёрнут, разворачиваем
+            document.getElementById('chatsSection').classList.remove('hidden');
+            document.getElementById('chatDetailSection').classList.add('hidden');
+            openChat(chatId);
+        }
+    };
+}
+
+// Запрашиваем разрешение при загрузке
+if (Notification.permission === "default") {
+    Notification.requestPermission();
+}
         // ========================================
         // ПЛЕЕР (сокращён)
         // ========================================
@@ -1543,6 +1586,10 @@
         let isMuted = false;
         let controlsTimeout = null;
         let isControlsVisible = true;
+        let isLoadingMore = false;
+let hasMoreMessages = true;
+let earliestMessageTime = null;
+const MESSAGES_PER_PAGE = 10;
 
         const video = document.getElementById('videoPlayer');
         const modal = document.getElementById('videoModal');
@@ -1683,6 +1730,42 @@
                 toggleMute();
             }
         });
+        function loadMoreMessages() {
+    if (isLoadingMore || !hasMoreMessages || !currentChatId) return;
+    if (!earliestMessageTime) {
+        // Если нет времени самого раннего сообщения, просто загружаем последние 10
+        earliestMessageTime = Date.now();
+    }
+
+    isLoadingMore = true;
+    const list = document.getElementById('messagesList');
+    
+    // Показываем индикатор загрузки
+    const loadingIndicator = document.createElement('div');
+    loadingIndicator.id = 'loadingMore';
+    loadingIndicator.className = 'msg-bubble';
+    loadingIndicator.style.textAlign = 'center';
+    loadingIndicator.style.color = '#888';
+    loadingIndicator.style.fontSize = '12px';
+    loadingIndicator.textContent = '⏳ Загрузка...';
+    list.prepend(loadingIndicator);
+
+    // Отправляем запрос на получение старых сообщений
+    send(49, {
+        chatId: currentChatId,
+        from: earliestMessageTime - 1, // чуть раньше самого раннего сообщения
+        forward: 0,
+        backward: MESSAGES_PER_PAGE,
+        getMessages: true
+    });
+
+    // Устанавливаем таймаут, чтобы снять флаг загрузки если ответ не пришёл
+    setTimeout(() => {
+        isLoadingMore = false;
+        const indicator = document.getElementById('loadingMore');
+        if (indicator) indicator.remove();
+    }, 5000);
+}
 
         async function inlineVideoTap(uid) {
             const container = document.getElementById(uid);
@@ -2553,26 +2636,113 @@
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
 
-            // Загружаем сообщения
-            send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
-        }
+            // Сброс пагинации при открытии чата
+    hasMoreMessages = true;
+    earliestMessageTime = null;
+    isLoadingMore = false;
+
+    // Убираем старый обработчик, если был
+    const list = document.getElementById('messagesList');
+    list.removeEventListener('scroll', handleScroll);
+    list.addEventListener('scroll', handleScroll);
+
+    // Загружаем сообщения
+    send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: MESSAGES_PER_PAGE, getMessages: true });
+}
+
+// Обработчик скролла
+function handleScroll() {
+    const list = document.getElementById('messagesList');
+    if (list.scrollTop < 50) { // Когда доходим до верха
+        loadMoreMessages();
+    }
+}
 
         function renderMessages(payload) {
-            const list = document.getElementById('messagesList');
-            const existingIds = new Set();
-            list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
-                existingIds.add(el.dataset.msgId);
+    const list = document.getElementById('messagesList');
+    
+    // Убираем индикатор загрузки
+    const loadingIndicator = document.getElementById('loadingMore');
+    if (loadingIndicator) loadingIndicator.remove();
+
+    // Проверяем, есть ли ещё сообщения
+    const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+    
+    if (messages.length === 0) {
+        hasMoreMessages = false;
+        isLoadingMore = false;
+        // Показываем, что больше нет сообщений
+        if (list.children.length === 0) {
+            const emptyMsg = document.createElement('div');
+            emptyMsg.className = 'msg-bubble';
+            emptyMsg.style.textAlign = 'center';
+            emptyMsg.style.color = '#888';
+            emptyMsg.style.fontSize = '13px';
+            emptyMsg.style.padding = '20px';
+            emptyMsg.textContent = '💬 Нет сообщений. Напишите первое!';
+            list.appendChild(emptyMsg);
+        }
+        return;
+    }
+
+    // Сохраняем самое раннее время для следующей загрузки
+    const earliestMsg = messages[0];
+    if (earliestMsg && earliestMsg.time) {
+        earliestMessageTime = earliestMsg.time;
+    }
+
+    // Фильтруем уже существующие сообщения, чтобы не было дублей
+    const existingIds = new Set();
+    list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
+        existingIds.add(el.dataset.msgId);
+    });
+
+    const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
+
+    if (newMessages.length > 0) {
+        // Если мы загружаем старые сообщения (подгрузка вверх)
+        const isLoadMore = list.children.length > 0 && messages.length > 0;
+        
+        if (isLoadMore) {
+            // Сохраняем текущую позицию скролла
+            const scrollHeight = list.scrollHeight;
+            const scrollTop = list.scrollTop;
+            
+            // Добавляем новые сообщения в начало
+            newMessages.forEach(m => {
+                const el = createMessageElement(m);
+                list.prepend(el);
             });
-            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
-            const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
+            
+            // Восстанавливаем позицию скролла
+            const newScrollHeight = list.scrollHeight;
+            list.scrollTop = scrollTop + (newScrollHeight - scrollHeight);
+        } else {
+            // Просто добавляем в конец (новые сообщения)
             newMessages.forEach(m => {
                 const el = createMessageElement(m);
                 list.appendChild(el);
             });
-            if (newMessages.length > 0) {
-                list.scrollTop = list.scrollHeight;
-            }
         }
+        
+        // Если загрузили меньше, чем запрашивали - значит больше нет
+        if (messages.length < MESSAGES_PER_PAGE) {
+            hasMoreMessages = false;
+        }
+    } else {
+        // Если новых сообщений нет, но запрос был на загрузку старых - значит больше нет
+        if (payload.backward > 0) {
+            hasMoreMessages = false;
+        }
+    }
+
+    isLoadingMore = false;
+    
+    // Прокручиваем вниз только если это не загрузка старых сообщений
+    if (!payload.backward || payload.backward === 0) {
+        list.scrollTop = list.scrollHeight;
+    }
+}
 
         function connect() {
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -2671,13 +2841,37 @@
                         return;
                     }
                     if (data.opcode === 64 && data.cmd === 256) {
-                        document.getElementById('messageText').value = '';
-                        send(49, {
-                            chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
-                            getMessages: true
-                        });
-                        return;
-                    }
+    // Обновляем список сообщений
+    document.getElementById('messageText').value = '';
+    send(49, {
+        chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
+        getMessages: true
+    });
+
+    // === НОВОЕ: Уведомление ===
+    const payload = data.payload || {};
+    const message = payload.message || {};
+    const chatId = payload.chatId;
+
+    // Если чат не открыт ИЛИ открыт другой чат
+    if (chatId && chatId !== currentChatId) {
+        const chat = chatsById[chatId];
+        if (chat) {
+            const senderId = message.sender;
+            const senderName = chatDisplayName(chat);
+            const text = message.text || 'Новое сообщение';
+            
+            // Показываем уведомление
+            showNotification(
+                senderName,
+                text.length > 50 ? text.slice(0, 50) + '…' : text,
+                chatId,
+                message.id
+            );
+        }
+    }
+    return;
+}
                     if (data.opcode === 130 && data.payload) {
                         const p = data.payload;
                         if (p.chatId != null && p.userId != null && p.mark != null) {
