@@ -67,10 +67,25 @@
             border-radius: 8px;
             font-size: 14px;
             cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .input-group button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .input-group button.success {
             background: #28a745;
+        }
+
+        .input-group button.warning {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .input-group button.danger {
+            background: #dc3545;
         }
 
         .status {
@@ -143,6 +158,11 @@
             color: white;
         }
 
+        .badge.auth-error {
+            background: #ffc107;
+            color: #000;
+        }
+
         .hidden {
             display: none !important;
         }
@@ -153,6 +173,11 @@
             padding: 10px 4px;
             border-bottom: 1px solid #eee;
             cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .chat-item:hover {
+            background: #f8f9fa;
         }
 
         .chat-item:last-child {
@@ -357,6 +382,7 @@
             object-fit: cover;
             display: block;
         }
+
         .inline-top-actions {
             position: absolute;
             top: 8px;
@@ -365,17 +391,19 @@
             gap: 6px;
             z-index: 3;
         }
+
         .inline-bottom-actions {
             position: absolute;
             bottom: 8px;
             left: 8px;
             z-index: 3;
         }
+
         .inline-icon-btn {
             width: 32px;
             height: 32px;
             border-radius: 50%;
-            background: rgba(0,0,0,0.55);
+            background: rgba(0, 0, 0, 0.55);
             color: white;
             border: none;
             font-size: 14px;
@@ -384,7 +412,10 @@
             justify-content: center;
             cursor: pointer;
         }
-        .msg-video-container.loading .msg-video-poster { opacity: 0.5; }
+
+        .msg-video-container.loading .msg-video-poster {
+            opacity: 0.5;
+        }
 
         /* ======================================== */
         /* МОДАЛЬНОЕ ОКНО С ПЛЕЕРОМ (как в MAX) */
@@ -726,6 +757,7 @@
             z-index: 2100;
             overflow: hidden;
         }
+
         .media-bottom-bar button {
             background: none;
             border: none;
@@ -738,22 +770,36 @@
             gap: 6px;
             white-space: nowrap;
         }
-        .media-bottom-bar button + button {
-            border-left: 1px solid rgba(255,255,255,0.2);
+
+        .media-bottom-bar button+button {
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
         }
-        .media-bottom-bar button:hover { background: rgba(255,255,255,0.08); }
+
+        .media-bottom-bar button:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
 
         .media-viewer {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.82);
+            background: rgba(0, 0, 0, 0.82);
             z-index: 2000;
             align-items: center;
             justify-content: center;
         }
-        .media-viewer.active { display: flex; }
-        .media-viewer img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 12px; }
+
+        .media-viewer.active {
+            display: flex;
+        }
+
+        .media-viewer img {
+            max-width: 90vw;
+            max-height: 85vh;
+            object-fit: contain;
+            border-radius: 12px;
+        }
+
         .media-viewer .close-btn {
             position: absolute;
             top: 20px;
@@ -761,12 +807,100 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            background: rgba(255,255,255,0.12);
+            background: rgba(255, 255, 255, 0.12);
             color: white;
             border: none;
             font-size: 18px;
             cursor: pointer;
             z-index: 2101;
+        }
+
+        /* Секция пароля */
+        #passwordSection {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border: 1px solid #ffc107;
+        }
+
+        #passwordSection.hidden {
+            display: none;
+        }
+
+        .password-hint {
+            font-size: 12px;
+            color: #856404;
+            margin-bottom: 8px;
+        }
+
+        .password-email {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        /* Иконки в контролах */
+        .icon-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .volume-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .volume-group button {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.85);
+            cursor: pointer;
+            font-size: 20px;
+            padding: 4px;
+        }
+
+        .volume-slider {
+            width: 80px;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: white;
+            cursor: pointer;
+        }
+
+        .center-play {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.85);
+            cursor: pointer;
+            font-size: 28px;
+            padding: 8px;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .center-play:hover {
+            background: rgba(255, 255, 255, 0.1);
         }
     </style>
 </head>
@@ -788,9 +922,9 @@
                             <span id="muteIcon">🔊</span>
                         </button>
                         <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100"
-                               oninput="setVolumeFromSlider(this.value)">
+                            oninput="setVolumeFromSlider(this.value)">
                     </div>
-                    <button class="primary center-play" onclick="togglePlay()" aria-label="Play/Pause">
+                    <button class="center-play" onclick="togglePlay()" aria-label="Play/Pause">
                         <span id="playPauseIcon">⏸</span>
                     </button>
                     <button onclick="toggleFullscreen()" aria-label="Fullscreen">
@@ -830,26 +964,37 @@
 
     <h1>MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
+        <button id="logoutBtn" class="badge danger"
+            style="float:right;margin-right:8px;cursor:pointer;display:none;">Выйти</button>
         <button id="settingsToggle"
             style="float:right;margin-right:8px;background:none;border:none;font-size:18px;cursor:pointer;">⚙️</button>
     </h1>
-    <div id="status" class="status info">Connecting...</div>
+    <div id="status" class="status info">Подключение...</div>
 
     <div id="loginSection" class="section">
-        <h3>📱 Authentication</h3>
+        <h3>📱 Авторизация</h3>
         <div class="input-group">
-            <input type="text" id="phone" placeholder="Phone number" value="+7">
-            <button id="requestOtp">Request OTP</button>
+            <input type="text" id="phone" placeholder="Номер телефона" value="+7">
+            <button id="requestOtp">Отправить код</button>
+            <button id="resendCode" style="background: #6c757d;">Повторно</button>
         </div>
         <div class="input-group">
-            <input type="text" id="code" placeholder="Verification code">
-            <button id="verifyCode" class="success">Verify Code</button>
+            <input type="text" id="code" placeholder="Код из SMS">
+            <button id="verifyCode" class="success">Подтвердить</button>
+        </div>
+        <div id="passwordSection" class="hidden">
+            <div class="password-email" id="passwordEmail"></div>
+            <div class="password-hint" id="passwordHint"></div>
+            <div class="input-group">
+                <input type="password" id="password" placeholder="Пароль">
+                <button id="verifyPassword" class="warning">Войти</button>
+            </div>
         </div>
         <div id="authStatus" style="font-size:13px;color:#888;margin-top:4px;"></div>
     </div>
 
     <div id="chatsSection" class="section hidden">
-        <h3>💬 Chats</h3>
+        <h3>💬 Чаты</h3>
         <div id="chatsList"></div>
     </div>
 
@@ -885,7 +1030,7 @@
     </div>
 
     <div class="section">
-        <h3>📋 Log</h3>
+        <h3>📋 Лог</h3>
         <div id="log"></div>
     </div>
 
@@ -1086,7 +1231,7 @@
                 const v = document.createElement('video');
                 v.className = 'inline-video-el';
                 v.loop = true;
-                v.muted = true; // как в ленте — старт без звука, включается кнопкой
+                v.muted = true;
                 v.playsInline = true;
                 v.autoplay = true;
                 if (posterSrc) v.poster = posterSrc;
@@ -1105,7 +1250,7 @@
                 v.addEventListener('play', () => { playPauseBtn.textContent = '⏸'; });
                 v.addEventListener('pause', () => { playPauseBtn.textContent = '▶'; });
 
-                v.play().catch(() => {});
+                v.play().catch(() => { });
             } catch (e) {
                 log('❌ Ошибка видео: ' + e.message, 'error');
                 container.classList.remove('loading');
@@ -1124,7 +1269,8 @@
         function expandInlineVideo(uid) {
             const container = document.getElementById(uid);
             if (!container) return;
-            openVideoPlayer(container.dataset.msgId, container.dataset.chatId, container.dataset.token, Number(container.dataset.videoId));
+            openVideoPlayer(container.dataset.msgId, container.dataset.chatId, container.dataset.token, Number(container
+                .dataset.videoId));
         }
 
         async function openVideoPlayer(messageId, chatId, token, videoId) {
@@ -1269,9 +1415,6 @@
             const videoId = attach.videoId || 0;
             const uid = 'vid_' + Math.random().toString(36).slice(2, 9);
 
-            // messageId кладём в data-атрибут (текст HTML-атрибута), а не в
-            // онклик-строку как число — иначе большие ID теряют точность при
-            // подстановке в JS-код.
             let html = `
                 <div class="msg-video-container" id="${uid}"
                      data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
@@ -1280,9 +1423,11 @@
             `;
 
             if (poster) {
-                html += `<img src="${poster}" alt="Превью видео" loading="lazy" onerror="this.style.display='none'">`;
+                html +=
+                    `<img src="${poster}" alt="Превью видео" loading="lazy" onerror="this.style.display='none'">`;
             } else {
-                html += `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">🎬</div>`;
+                html +=
+                    `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">🎬</div>`;
             }
 
             html += `
@@ -1300,7 +1445,7 @@
         }
 
         // ========================================
-        // ОСТАЛЬНАЯ ЛОГИКА (как в предыдущей версии)
+        // ОСТАЛЬНАЯ ЛОГИКА
         // ========================================
         let ws = null;
         let isConnected = false;
@@ -1317,7 +1462,6 @@
         let metadataOverride = {};
         let presenceById = {};
         let seenMessageIds = {};
-        let currentHls = null;
 
         function log(msg, type = 'info') {
             const el = document.getElementById('log');
@@ -1338,10 +1482,23 @@
         function showAuthenticatedUI() {
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('chatsSection').classList.remove('hidden');
+            document.getElementById('logoutBtn').style.display = 'inline-block';
+            document.getElementById('passwordSection').classList.add('hidden');
+        }
+
+        function showLoginUI() {
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('chatsSection').classList.add('hidden');
+            document.getElementById('chatDetailSection').classList.add('hidden');
+            document.getElementById('logoutBtn').style.display = 'none';
+            document.getElementById('passwordSection').classList.add('hidden');
+            document.getElementById('authStatus').textContent = '🔄 Требуется авторизация';
+            document.getElementById('code').value = '';
+            document.getElementById('password').value = '';
         }
 
         function send(opcode, payload) {
-            if (!isConnected) { log('❌ Not connected', 'error'); return; }
+            if (!isConnected) { log('❌ Нет соединения', 'error'); return; }
             ws.send(JSON.stringify({ opcode, payload }));
         }
 
@@ -1451,7 +1608,8 @@
                 });
             }
 
-            const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime || 0));
+            const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime ||
+                0));
             chatsById = {};
             const list = document.getElementById('chatsList');
             list.innerHTML = '';
@@ -1466,7 +1624,8 @@
                 const initial = name.charAt(0).toUpperCase();
                 let avatarHtml;
                 if (avatarUrl) {
-                    avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+                    avatarHtml =
+                        `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
                 } else {
                     avatarHtml = initial;
                 }
@@ -1489,7 +1648,7 @@
                 list.appendChild(el);
             });
 
-            log(`📋 ${chats.length} chats loaded`, 'success');
+            log(`📋 Загружено ${chats.length} чатов`, 'success');
         }
 
         function chatPreview(chat) {
@@ -1558,7 +1717,8 @@
                     counts.forEach(r => {
                         const emoji = r.reaction || '👍';
                         const count = r.count ?? 1;
-                        badges += `<span class="reaction-badge" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
+                        badges +=
+                            `<span class="reaction-badge" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
                     });
                 }
                 return badges ? `<div class="msg-reactions">${badges}</div>` : '';
@@ -1582,28 +1742,34 @@
                         src = hexPreviewToDataUrl(a.previewData);
                     }
                     if (src) {
-                        attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
+                        attachesHtml +=
+                            `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
                     } else {
-                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
+                        attachesHtml +=
+                            `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
                     }
                     return;
                 }
                 if (a._type === 'VIDEO') {
-                    attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
+                    attachesHtml +=
+                        `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
                     return;
                 }
                 if (a._type === 'FILE') {
                     const fileName = a.name || 'файл';
-                    attachesHtml += `<div class="msg-attach msg-file">📎 ${escapeHtml(fileName)}</div>`;
+                    attachesHtml +=
+                        `<div class="msg-attach msg-file">📎 ${escapeHtml(fileName)}</div>`;
                     return;
                 }
                 if (a._type === 'CALL') {
-                    attachesHtml += `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
+                    attachesHtml +=
+                        `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
                     return;
                 }
                 if (a._type === 'CONTROL') {
                     const text = a.message || a.shortMessage || 'Системное событие';
-                    attachesHtml += `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
+                    attachesHtml +=
+                        `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
                     return;
                 }
             });
@@ -1616,7 +1782,10 @@
                 textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
             }
 
-            const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const time = m.time ? new Date(m.time).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '';
             const chat = chatsById[currentChatId];
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
             const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
@@ -1641,7 +1810,8 @@
             const initial = chatDisplayName(chat).charAt(0).toUpperCase();
             let avatarHtml;
             if (avatarUrl) {
-                avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+                avatarHtml =
+                    `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
             } else {
                 avatarHtml = initial;
             }
@@ -1651,6 +1821,15 @@
 
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
+
+            // Загружаем настройки автоответчика
+            const ars = getAutoreplySettings(chatId);
+            document.getElementById('autoreplyEnabled').checked = ars.enabled;
+            document.getElementById('autoreplyText').value = ars.text || '';
+
+            // Загружаем настройки ghost read
+            const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
+            document.getElementById('ghostReadEnabled').checked = gr[chatId] || false;
 
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
         }
@@ -1677,22 +1856,22 @@
 
         function connect() {
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                log('❌ Max reconnect attempts reached', 'error');
+                log('❌ Достигнут лимит попыток переподключения', 'error');
                 setStatus('Connection lost', 'error');
                 return;
             }
 
-            log('Connecting... (attempt ' + (reconnectAttempts + 1) + ')');
-            setStatus('Connecting...', 'info');
+            log('Подключение... (попытка ' + (reconnectAttempts + 1) + ')');
+            setStatus('Подключение...', 'info');
             ws = new WebSocket(`ws://${window.location.host}/relay`);
 
             ws.onopen = () => {
                 isConnected = true;
                 reconnectAttempts = 0;
-                setStatus('Connected', 'success');
+                setStatus('Подключено', 'success');
                 document.getElementById('connectionBadge').textContent = 'Online';
                 document.getElementById('connectionBadge').className = 'badge online';
-                log('✅ Connected');
+                log('✅ Подключено');
 
                 if (pingInterval) clearInterval(pingInterval);
                 pingInterval = setInterval(() => {
@@ -1709,30 +1888,69 @@
                     if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
                     if (data.type === 'session_restored') {
                         log(`✅ ${data.message}`, 'success');
-                        setStatus('Authenticated', 'success');
+                        setStatus('Авторизован', 'success');
                         showAuthenticatedUI();
                         send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
                         return;
                     }
+                    if (data.type === 'auth_required') {
+                        log('🔒 Требуется авторизация', 'info');
+                        showLoginUI();
+                        return;
+                    }
+
+                    // Обработка ошибки авторизации
+                    if (data._auth_error ||
+                        (data.opcode === 19 && data.cmd === 768 &&
+                            data.payload?.localizedMessage?.includes('авторизируйтесь'))) {
+                        log('❌ Сессия истекла. Требуется повторная авторизация.', 'error');
+                        setStatus('Сессия истекла', 'error');
+                        showLoginUI();
+                        document.getElementById('connectionBadge').className = 'badge auth-error';
+                        document.getElementById('connectionBadge').textContent = 'Auth Error';
+                        return;
+                    }
 
                     if (data.cmd === 768) {
-                        const err = data.payload?.localizedMessage || data.payload?.error || 'Error';
+                        const err = data.payload?.localizedMessage || data.payload?.error || 'Ошибка';
                         log(`❌ ${err}`, 'error');
-                        setStatus(`Error: ${err}`, 'error');
+                        setStatus(`Ошибка: ${err}`, 'error');
                         return;
                     }
 
                     if (data.opcode === 17 && data.cmd === 256) {
                         otpToken = data.payload.token;
-                        log('✅ OTP sent!', 'success');
-                        document.getElementById('authStatus').textContent = '✅ OTP sent. Enter code.';
+                        log('✅ Код отправлен!', 'success');
+                        document.getElementById('authStatus').textContent = '✅ Код отправлен. Введите код из SMS.';
+                        startResendTimer(60);
                         return;
                     }
 
                     if (data.opcode === 18 && data.cmd === 256) {
-                        log('✅ Authenticated!', 'success');
-                        setStatus('Authenticated', 'success');
+                        // Проверяем, нужен ли пароль
+                        if (data.payload?.passwordChallenge) {
+                            const pc = data.payload.passwordChallenge;
+                            document.getElementById('passwordSection').classList.remove('hidden');
+                            document.getElementById('passwordHint').textContent = '💡 Подсказка: ' + (pc.hint || '');
+                            document.getElementById('passwordEmail').textContent = '📧 ' + (pc.email || '');
+                            document.getElementById('authStatus').textContent = '🔒 Требуется ввод пароля';
+                            log('🔒 Требуется ввод пароля', 'info');
+                            return;
+                        }
+
+                        log('✅ Авторизация успешна!', 'success');
+                        setStatus('Авторизован', 'success');
                         showAuthenticatedUI();
+                        send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                        return;
+                    }
+
+                    if (data.opcode === 20 && data.cmd === 256) {
+                        log('✅ Авторизация с паролем успешна!', 'success');
+                        setStatus('Авторизован', 'success');
+                        showAuthenticatedUI();
+                        document.getElementById('passwordSection').classList.add('hidden');
+                        document.getElementById('password').value = '';
                         send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
                         return;
                     }
@@ -1749,7 +1967,10 @@
 
                     if (data.opcode === 64 && data.cmd === 256) {
                         document.getElementById('messageText').value = '';
-                        send(49, { chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
+                        send(49, {
+                            chatId: currentChatId, from: Date.now() + 86400000, forward: 0,
+                            backward: 50, getMessages: true
+                        });
                         return;
                     }
 
@@ -1761,17 +1982,19 @@
                                 if (!chat.participants) chat.participants = {};
                                 chat.participants[p.userId] = p.mark;
                                 if (p.chatId === currentChatId) {
-                                    document.querySelectorAll('#messagesList .msg-bubble.own').forEach(bubble => {
-                                        const msgId = bubble.dataset.msgId;
-                                        const statusEl = bubble.querySelector('.msg-status');
-                                        if (statusEl && msgId != null) {
-                                            try {
-                                                if (BigInt(msgId) <= BigInt(p.mark)) {
-                                                    statusEl.outerHTML = '<span class="msg-status read">✓✓</span>';
-                                                }
-                                            } catch (e) { }
-                                        }
-                                    });
+                                    document.querySelectorAll('#messagesList .msg-bubble.own').forEach(
+                                        bubble => {
+                                            const msgId = bubble.dataset.msgId;
+                                            const statusEl = bubble.querySelector('.msg-status');
+                                            if (statusEl && msgId != null) {
+                                                try {
+                                                    if (BigInt(msgId) <= BigInt(p.mark)) {
+                                                        statusEl.outerHTML =
+                                                            '<span class="msg-status read">✓✓</span>';
+                                                    }
+                                                } catch (e) { }
+                                            }
+                                        });
                                 }
                             }
                         }
@@ -1788,7 +2011,8 @@
                                 if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
                                     const statusEl = document.getElementById('chatDetailStatus');
                                     if (statusEl) {
-                                        statusEl.textContent = p.status === 1 ? 'в сети' : 'был(а) в сети';
+                                        statusEl.textContent = p.status === 1 ? 'в сети' :
+                                            'был(а) в сети';
                                         statusEl.style.color = p.status === 1 ? '#4caf50' : '#888';
                                     }
                                 }
@@ -1804,39 +2028,255 @@
             ws.onclose = () => {
                 isConnected = false;
                 if (pingInterval) clearInterval(pingInterval);
-                setStatus('Disconnected', 'error');
+                setStatus('Отключено', 'error');
                 document.getElementById('connectionBadge').textContent = 'Offline';
                 document.getElementById('connectionBadge').className = 'badge offline';
-                log('🔌 Disconnected', 'error');
+                log('🔌 Отключено', 'error');
 
-                const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts), 60000);
+                const delay = 300;
                 reconnectAttempts++;
                 if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-                    log(`🔄 Reconnecting in ${Math.round(delay / 1000)}s`, 'info');
+                    log('🔄 Переподключение...', 'info');
                     if (reconnectTimer) clearTimeout(reconnectTimer);
                     reconnectTimer = setTimeout(connect, delay);
                 } else {
-                    log('❌ Max reconnect attempts reached', 'error');
+                    log('❌ Достигнут лимит попыток переподключения', 'error');
                 }
             };
         }
 
-        // Обработчики
-        document.getElementById('requestOtp').onclick = () => {
+        // ========================================
+        // АУТЕНТИФИКАЦИЯ
+        // ========================================
+        document.getElementById('requestOtp').onclick = async () => {
             const phone = document.getElementById('phone').value.trim().replace(/[\s\-\(\)]/g, '');
-            if (!phone || phone === '+7') { log('❌ Enter phone number', 'error'); return; }
+            if (!phone || phone === '+7') {
+                log('❌ Введите номер телефона', 'error');
+                return;
+            }
+
             phoneNumber = phone;
-            document.getElementById('authStatus').textContent = '⏳ Sending...';
-            send(17, { phone, type: 'START_AUTH' });
+            document.getElementById('authStatus').textContent = '⏳ Отправляю код...';
+
+            try {
+                const res = await fetch('/api/start-auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    log('✅ Код отправлен', 'success');
+                    document.getElementById('authStatus').textContent = '✅ Код отправлен. Введите код из SMS.';
+                    startResendTimer(60);
+                    return;
+                } else {
+                    log('⚠️ ' + (data.error || 'Неизвестная ошибка'), 'info');
+                }
+            } catch (e) {
+                log('⚠️ API недоступен, использую WebSocket', 'info');
+            }
+
+            if (isConnected) {
+                send(17, { phone, type: 'START_AUTH' });
+                document.getElementById('authStatus').textContent = '⏳ Отправляю код через WebSocket...';
+            } else {
+                log('❌ Нет соединения', 'error');
+                document.getElementById('authStatus').textContent = '❌ Нет соединения с сервером';
+            }
         };
 
-        document.getElementById('verifyCode').onclick = () => {
+        document.getElementById('verifyCode').onclick = async () => {
             const code = document.getElementById('code').value.trim();
-            if (!code) { log('❌ Enter code', 'error'); return; }
-            if (!otpToken) { log('❌ Request OTP first', 'error'); return; }
-            send(18, { token: otpToken, verifyCode: code, authTokenType: 'CHECK_CODE', phone: phoneNumber });
+            if (!code) {
+                log('❌ Введите код', 'error');
+                return;
+            }
+
+            document.getElementById('authStatus').textContent = '⏳ Проверяю код...';
+
+            try {
+                const res = await fetch('/api/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json();
+
+                if (data.needPassword) {
+                    document.getElementById('passwordSection').classList.remove('hidden');
+                    document.getElementById('passwordHint').textContent = '💡 Подсказка: ' + (data.hint || '');
+                    document.getElementById('passwordEmail').textContent = '📧 ' + (data.email || '');
+                    document.getElementById('authStatus').textContent = '🔒 Требуется ввод пароля';
+                    log('🔒 Требуется ввод пароля', 'info');
+                    return;
+                }
+
+                if (data.success) {
+                    log('✅ Авторизация успешна!', 'success');
+                    setStatus('Авторизован', 'success');
+                    showAuthenticatedUI();
+
+                    if (isConnected) {
+                        send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                    }
+                    return;
+                } else {
+                    log('❌ Ошибка: ' + (data.error || 'Неверный код'), 'error');
+                    document.getElementById('authStatus').textContent = '❌ ' + (data.error || 'Неверный код');
+                    return;
+                }
+            } catch (e) {
+                log('⚠️ API недоступен, использую WebSocket', 'info');
+            }
+
+            if (!otpToken) {
+                log('❌ Сначала запросите код', 'error');
+                document.getElementById('authStatus').textContent = '❌ Сначала запросите код';
+                return;
+            }
+
+            if (isConnected) {
+                send(18, {
+                    token: otpToken,
+                    verifyCode: code,
+                    authTokenType: 'CHECK_CODE',
+                    phone: phoneNumber
+                });
+                document.getElementById('authStatus').textContent = '⏳ Проверяю код через WebSocket...';
+            } else {
+                log('❌ Нет соединения', 'error');
+                document.getElementById('authStatus').textContent = '❌ Нет соединения с сервером';
+            }
         };
 
+        document.getElementById('verifyPassword').onclick = async () => {
+            const password = document.getElementById('password').value.trim();
+            if (!password) {
+                log('❌ Введите пароль', 'error');
+                return;
+            }
+
+            document.getElementById('authStatus').textContent = '⏳ Проверяю пароль...';
+
+            try {
+                const res = await fetch('/api/verify-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    log('✅ Пароль принят!', 'success');
+                    document.getElementById('passwordSection').classList.add('hidden');
+                    document.getElementById('password').value = '';
+                    document.getElementById('authStatus').textContent = '✅ Вход выполнен!';
+
+                    // Пробуем переподключиться чтобы получить токен
+                    setTimeout(() => {
+                        setStatus('Переподключение...', 'info');
+                        showAuthenticatedUI();
+                        if (ws) ws.close(); // Закрываем текущее соединение
+                        // connect() будет вызван автоматически через onclose
+                    }, 1000);
+
+                } else if (data.needPassword) {
+                    document.getElementById('passwordHint').textContent = '💡 Подсказка: ' + (data.hint || '');
+                    document.getElementById('authStatus').textContent = '❌ ' + (data.error || 'Неверный пароль');
+                    document.getElementById('password').value = '';
+                    log('❌ Неверный пароль', 'error');
+                } else {
+                    log('❌ Ошибка: ' + (data.error || 'Неверный пароль'), 'error');
+                    document.getElementById('authStatus').textContent = '❌ ' + (data.error || 'Неверный пароль');
+                }
+            } catch (e) {
+                log('❌ Ошибка соединения', 'error');
+            }
+        };
+
+        async function handleResendCode() {
+            const phone = document.getElementById('phone').value.trim().replace(/[\s\-\(\)]/g, '');
+            if (!phone || phone === '+7') {
+                log('❌ Введите номер телефона', 'error');
+                return;
+            }
+
+            document.getElementById('authStatus').textContent = '⏳ Отправляю код повторно...';
+            startResendTimer(60);
+
+            try {
+                const res = await fetch('/api/resend-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    log('✅ Код отправлен повторно', 'success');
+                    document.getElementById('authStatus').textContent =
+                        '✅ Код отправлен повторно. Проверьте SMS.';
+                    return;
+                }
+            } catch (e) {
+                log('⚠️ API resend failed, using WebSocket', 'info');
+            }
+
+            if (isConnected) {
+                send(17, { phone, type: 'START_AUTH' });
+            }
+        }
+
+        document.getElementById('resendCode').onclick = handleResendCode;
+
+        let resendTimer = null;
+        let resendSeconds = 0;
+
+        function startResendTimer(seconds = 60) {
+            const btn = document.getElementById('resendCode');
+            resendSeconds = seconds;
+            btn.disabled = true;
+
+            if (resendTimer) clearInterval(resendTimer);
+
+            resendTimer = setInterval(() => {
+                resendSeconds--;
+                if (resendSeconds <= 0) {
+                    clearInterval(resendTimer);
+                    btn.disabled = false;
+                    btn.textContent = 'Повторно';
+                    btn.style.background = '#6c757d';
+                } else {
+                    btn.textContent = `Повторно (${resendSeconds}с)`;
+                    btn.style.background = '#adb5bd';
+                }
+            }, 1000);
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+            } catch (e) { }
+
+            selfId = null;
+            contactsById = {};
+            chatsById = {};
+            currentChatId = null;
+            otpToken = null;
+            phoneNumber = '';
+
+            showLoginUI();
+            log('👋 Вы вышли из аккаунта', 'info');
+            setStatus('Отключено', 'info');
+            document.getElementById('connectionBadge').className = 'badge offline';
+            document.getElementById('connectionBadge').textContent = 'Offline';
+        }
+
+        document.getElementById('logoutBtn').onclick = logout;
+
+        // Обработчики UI
         document.getElementById('backBtn').onclick = () => {
             currentChatId = null;
             document.getElementById('chatDetailSection').classList.add('hidden');
@@ -1846,14 +2286,20 @@
         document.getElementById('sendMessageBtn').onclick = () => {
             const text = document.getElementById('messageText').value.trim();
             if (!text || !currentChatId) return;
-            send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+            send(64, {
+                chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] },
+                notify: true
+            });
             document.getElementById('messageText').value = '';
         };
 
         document.querySelectorAll('input').forEach(el => {
             el.onkeypress = (e) => {
                 if (e.key === 'Enter') {
-                    const map = { phone: 'requestOtp', code: 'verifyCode', messageText: 'sendMessageBtn' };
+                    const map = {
+                        phone: 'requestOtp', code: 'verifyCode', password: 'verifyPassword',
+                        messageText: 'sendMessageBtn'
+                    };
                     document.getElementById(map[el.id])?.click();
                 }
             };
@@ -1861,8 +2307,8 @@
 
         // Настройки
         function loadSettingsVars() {
-            try { return JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}'); }
-            catch (e) { return {}; }
+            try { return JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}'); } catch (
+            e) { return {}; }
         }
 
         function applySettingsVars(vars) {
@@ -1882,13 +2328,16 @@
             const container = document.getElementById('settingsRows');
             container.innerHTML = '';
             const entries = Object.entries(vars);
-            (entries.length ? entries : [['', '']]).forEach(([k, v]) => addSettingRow(k, v));
+            (entries.length ? entries : [
+                ['', '']
+            ]).forEach(([k, v]) => addSettingRow(k, v));
         }
 
         function addSettingRow(key = '', value = '') {
             const row = document.createElement('div');
             row.className = 'settings-row';
-            row.innerHTML = `<input class="setting-key" placeholder="KEY" value="${escapeHtml(key)}">
+            row.innerHTML =
+                `<input class="setting-key" placeholder="KEY" value="${escapeHtml(key)}">
                               <input class="setting-value" placeholder="value" value="${escapeHtml(value)}">`;
             document.getElementById('settingsRows').appendChild(row);
         }
@@ -1942,8 +2391,22 @@
             localStorage.setItem('maxclient_ghost_read', JSON.stringify(all));
         };
 
+        // Проверка авторизации при загрузке
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/check-auth');
+                const data = await res.json();
+                if (!data.authenticated) {
+                    showLoginUI();
+                }
+            } catch (e) {
+                showLoginUI();
+            }
+        }
+
         // Инициализация
         applySettingsVars(loadSettingsVars());
+        checkAuth();
         connect();
 
         window.onbeforeunload = () => { if (ws) ws.close(); };

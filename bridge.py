@@ -17,6 +17,7 @@ from flask_sock import Sock
 import lz4.block
 import urllib.request
 import urllib.error
+import urllib.parse
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def load_session():
 
 def save_session(data: dict):
     with open(SESSION_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
 
 def get_or_create_device_id() -> str:
@@ -58,11 +59,25 @@ def get_or_create_device_id() -> str:
 def save_auth_token(token: str):
     sess = load_session()
     sess["authToken"] = token
+    sess["authTime"] = int(time.time())
     save_session(sess)
+    logger.info(f"[session] Auth token saved: {token[:20]}...")
 
 
 def get_saved_auth_token():
-    return load_session().get("authToken")
+    token = load_session().get("authToken")
+    if token:
+        logger.info(f"[session] Using saved auth token: {token[:20]}...")
+    return token
+
+
+def clear_auth_token():
+    """Удаляет токен при ошибке авторизации"""
+    sess = load_session()
+    sess.pop("authToken", None)
+    sess.pop("authTime", None)
+    save_session(sess)
+    logger.info("[session] Auth token cleared")
 
 
 # --- Версия приложения ---
@@ -227,6 +242,11 @@ class MaxClient:
         }
         if existing_token:
             payload["token"] = existing_token
+            logger.info(
+                f"[handshake] Using existing token: {existing_token[:20]}...")
+        else:
+            logger.info("[handshake] No existing token, starting fresh")
+
         self.send(6, payload)
 
     def close(self):
@@ -239,53 +259,73 @@ class MaxClient:
 
 
 # --- fetch_once ---
-def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15.0):
-    saved_token = get_saved_auth_token()
+def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15.0, use_token: bool = True):
+    saved_token = get_saved_auth_token() if use_token else None
     client = MaxClient()
     client.connect(existing_token=saved_token)
     try:
         deadline = time.time() + timeout
 
+        # Ждем успешного handshake
         handshake_ok = False
+        handshake_response = None
         while time.time() < deadline and not handshake_ok:
             try:
                 packet = client.recv_packet()
             except socket.timeout:
                 continue
             if packet["opcode"] == 6:
+                handshake_response = packet
                 handshake_ok = packet["cmd"] == 256
-                if not handshake_ok:
+                if handshake_ok:
+                    logger.info("[fetch_once] Handshake successful")
+                else:
                     logger.warning(
-                        f"[fetch_once] handshake failed: {packet.get('payload')!r}")
+                        f"[fetch_once] handshake failed: cmd={packet['cmd']}, payload={packet.get('payload')!r}")
                     return packet
+
         if not handshake_ok:
             logger.warning("[fetch_once] handshake timeout")
             return None
 
-        sync_payload = {"chatsSync": 0, "contactsSync": 0, "interactive": True}
-        if saved_token:
-            sync_payload["token"] = saved_token
-        client.send(19, sync_payload)
-        sync_ok = False
-        while time.time() < deadline and not sync_ok:
-            try:
-                packet = client.recv_packet()
-            except socket.timeout:
-                continue
-            if packet["opcode"] == 19:
-                sync_ok = packet["cmd"] == 256
-                if not sync_ok:
-                    logger.warning(
-                        f"[fetch_once] online-sync failed: {packet.get('payload')!r}")
-                    return packet
-        if not sync_ok:
-            logger.warning("[fetch_once] online-sync timeout")
-            return None
+        # Если это операция аутентификации, пропускаем sync
+        # (20 — это logout, не имеет отношения к паролю; проверка пароля при
+        # входе — отдельный опкод 115, см. Komet: Opcode.authLoginCheckPassword)
+        if opcode in [17, 18, 115]:  # START_AUTH, CHECK_CODE, LOGIN_CHECK_PASSWORD
+            logger.info(f"[fetch_once] Auth operation {opcode}, skipping sync")
+        else:
+            # Отправляем sync только для не-аутентификационных операций
+            sync_payload = {"chatsSync": 0,
+                            "contactsSync": 0, "interactive": True}
+            if saved_token:
+                sync_payload["token"] = saved_token
+            client.send(19, sync_payload)
 
-        if "token" not in payload and saved_token:
+            sync_ok = False
+            while time.time() < deadline and not sync_ok:
+                try:
+                    packet = client.recv_packet()
+                except socket.timeout:
+                    continue
+                if packet["opcode"] == 19:
+                    sync_ok = packet["cmd"] == 256
+                    if not sync_ok:
+                        logger.warning(
+                            f"[fetch_once] online-sync failed: {packet.get('payload')!r}")
+                        return packet
+            if not sync_ok:
+                logger.warning("[fetch_once] online-sync timeout")
+                return None
+
+        # Добавляем токен только если нужно
+        if use_token and "token" not in payload and saved_token:
             payload["token"] = saved_token
+
+        logger.info(
+            f"[fetch_once] Sending opcode {opcode} with payload keys: {list(payload.keys())}")
         client.send(opcode, payload)
 
+        # Ждем ответ
         while time.time() < deadline:
             try:
                 packet = client.recv_packet()
@@ -293,6 +333,12 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                 continue
             if packet["opcode"] == wait_opcode:
                 return packet
+            # Также обрабатываем другие ответы
+            if packet["opcode"] == wait_opcode + 1 or packet["cmd"] == 768:
+                return packet
+
+        logger.warning(
+            f"[fetch_once] Timeout waiting for opcode {wait_opcode}")
         return None
     finally:
         client.close()
@@ -317,7 +363,12 @@ def static_files(filename):
 def proxy_image():
     url = request.args.get("url", "")
     allowed_hosts = ("i.oneme.ru", "iv.okcdn.ru", "st.max.ru", "selcdn.net")
-    if not url.startswith("https://") or not any(f"//{h}" in url for h in allowed_hosts):
+
+    if not url.startswith("https://"):
+        return "", 400
+
+    host = urllib.parse.urlparse(url).hostname or ""
+    if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
         return "", 400
 
     try:
@@ -394,6 +445,270 @@ def proxy_video():
     )
 
 
+@app.route("/api/start-auth", methods=["POST"])
+def start_auth():
+    """Начинает аутентификацию - запрос OTP"""
+    data = request.get_json(force=True)
+    phone = data.get("phone", "").strip().replace(r"[\s\-\(\)]", "")
+
+    if not phone or phone == "+7":
+        return jsonify({"error": "Укажите номер телефона"}), 400
+
+    logger.info(f"[auth] Starting auth for {phone}")
+
+    try:
+        packet = fetch_once(
+            17,
+            {"phone": phone, "type": "START_AUTH"},
+            wait_opcode=17,
+            timeout=15,
+            use_token=False
+        )
+    except Exception as e:
+        logger.warning(f"[auth] Start auth failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Ошибка отправки кода") if packet else "Нет ответа"
+        return jsonify({"error": error_msg}), 502
+
+    # Сохраняем OTP токен
+    otp_token = packet.get("payload", {}).get("token")
+    if otp_token:
+        sess = load_session()
+        sess["otpToken"] = otp_token
+        sess["phone"] = phone
+        save_session(sess)
+        logger.info(f"[auth] OTP token saved: {otp_token[:20]}...")
+
+    return jsonify({"success": True, "message": "Код отправлен"})
+
+
+@app.route("/api/verify-code", methods=["POST"])
+def verify_code():
+    """Подтверждает код и проверяет, нужен ли пароль"""
+    data = request.get_json(force=True)
+    code = data.get("code", "").strip()
+
+    sess = load_session()
+    otp_token = sess.get("otpToken")
+    phone = sess.get("phone")
+
+    if not code:
+        return jsonify({"error": "Введите код"}), 400
+    if not otp_token:
+        return jsonify({"error": "Сначала запросите код"}), 400
+
+    logger.info(f"[auth] Verifying code for {phone}")
+
+    try:
+        packet = fetch_once(
+            18,
+            {
+                "token": otp_token,
+                "verifyCode": code,
+                "authTokenType": "CHECK_CODE",
+                "phone": phone
+            },
+            wait_opcode=18,
+            timeout=15,
+            use_token=False
+        )
+    except Exception as e:
+        logger.warning(f"[auth] Verify code failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+
+    payload = packet.get("payload", {})
+
+    # Проверяем, требует ли сервер пароль
+    if payload.get("passwordChallenge"):
+        challenge = payload["passwordChallenge"]
+        logger.info(f"[auth] Password required. Hint: {challenge.get('hint')}")
+
+        # Сохраняем данные для проверки пароля
+        sess["passwordTrackId"] = challenge.get("trackId")
+        sess["passwordHint"] = challenge.get("hint", "")
+        sess["passwordEmail"] = challenge.get("email", "")
+        save_session(sess)
+
+        return jsonify({
+            "needPassword": True,
+            "hint": challenge.get("hint", ""),
+            "email": challenge.get("email", ""),
+            "trackId": challenge.get("trackId", "")
+        })
+
+    if packet["cmd"] != 256:
+        error_msg = payload.get("localizedMessage", "Неверный код")
+        return jsonify({"error": error_msg}), 502
+
+    # Сохраняем основной токен (без пароля)
+    token_attrs = payload.get("tokenAttrs", {})
+    if "LOGIN" in token_attrs:
+        new_token = token_attrs["LOGIN"].get("token")
+        if new_token:
+            save_auth_token(new_token)
+            sess = load_session()
+            sess.pop("otpToken", None)
+            sess.pop("phone", None)
+            save_session(sess)
+            logger.info(
+                f"[auth] Auth successful! Token saved: {new_token[:20]}...")
+            return jsonify({"success": True, "message": "Авторизация успешна", "needPassword": False})
+
+    auth_token = payload.get("authToken") or payload.get("token")
+    if auth_token:
+        save_auth_token(auth_token)
+        sess = load_session()
+        sess.pop("otpToken", None)
+        sess.pop("phone", None)
+        save_session(sess)
+        logger.info(
+            f"[auth] Auth token saved from payload: {auth_token[:20]}...")
+        return jsonify({"success": True, "message": "Авторизация успешна", "needPassword": False})
+
+    logger.warning(f"[auth] Unexpected response: {payload}")
+    return jsonify({"error": "Неожиданный ответ сервера"}), 502
+
+
+@app.route("/api/verify-password", methods=["POST"])
+def verify_password():
+    """Отправляет пароль для двухфакторной аутентификации.
+
+    Опкод — 115 (authLoginCheckPassword в Komet), не 18 (это проверка
+    OTP-кода) и не 20 (это logout). Payload минимальный — только trackId
+    и password, без token/authTokenType/phone."""
+    data = request.get_json(force=True)
+    password = data.get("password", "").strip()
+
+    sess = load_session()
+    otp_token = sess.get("otpToken")
+    phone = sess.get("phone")
+    track_id = sess.get("passwordTrackId")
+
+    if not password:
+        return jsonify({"error": "Введите пароль"}), 400
+    if not otp_token or not track_id:
+        return jsonify({"error": "Сначала запросите код"}), 400
+
+    logger.info(f"[auth] Verifying password for {phone}, trackId={track_id}")
+
+    payload = {
+        "trackId": track_id,
+        "password": password,
+    }
+
+    try:
+        packet = fetch_once(
+            115,
+            payload,
+            wait_opcode=115,
+            timeout=10,
+            use_token=False,
+        )
+    except Exception as e:
+        logger.warning(f"[auth] verify-password exception: {e}")
+        return jsonify({"error": str(e)}), 502
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+
+    if packet.get("cmd") == 256:
+        payload_data = packet.get("payload", {}) or {}
+
+        token_attrs = payload_data.get("tokenAttrs", {})
+        new_token = token_attrs.get("LOGIN", {}).get(
+            "token") if isinstance(token_attrs, dict) else None
+        if not new_token:
+            new_token = payload_data.get(
+                "authToken") or payload_data.get("token")
+
+        if new_token:
+            save_auth_token(new_token)
+
+        sess = load_session()
+        for key in ["otpToken", "phone", "passwordTrackId", "passwordHint", "passwordEmail"]:
+            sess.pop(key, None)
+        save_session(sess)
+
+        logger.info(
+            "[auth] Password check succeeded, token saved" if new_token else "[auth] Password check succeeded, no token in response")
+        return jsonify({"success": True, "message": "Авторизация успешна"})
+
+    if packet.get("cmd") == 768:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage") or packet.get("payload", {}).get("message", "")
+        logger.warning(f"[auth] Password check failed: {error_msg}")
+
+        if packet.get("payload", {}).get("passwordChallenge"):
+            challenge = packet["payload"]["passwordChallenge"]
+            sess["passwordTrackId"] = challenge.get("trackId")
+            sess["passwordHint"] = challenge.get("hint", "")
+            save_session(sess)
+
+        return jsonify({"error": error_msg or "Неверный пароль"}), 400
+
+    logger.warning(f"[auth] Password check: unexpected response {packet}")
+    return jsonify({"error": "Не удалось подтвердить пароль"}), 502
+
+
+@app.route("/api/resend-code", methods=["POST"])
+def resend_code():
+    """Повторно отправляет код подтверждения"""
+    sess = load_session()
+    phone = sess.get("phone")
+
+    if not phone:
+        return jsonify({"error": "Сначала запросите код"}), 400
+
+    logger.info(f"[resend] Resending code to {phone}")
+
+    try:
+        packet = fetch_once(
+            17,
+            {"phone": phone, "type": "START_AUTH"},
+            wait_opcode=17,
+            timeout=15,
+            use_token=False
+        )
+    except Exception as e:
+        logger.warning(f"[resend] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось отправить код") if packet else "Нет ответа"
+        return jsonify({"error": error_msg}), 502
+
+    otp_token = packet.get("payload", {}).get("token")
+    if otp_token:
+        sess["otpToken"] = otp_token
+        save_session(sess)
+        logger.info(f"[resend] New OTP token saved: {otp_token[:20]}...")
+
+    return jsonify({"success": True, "message": "Код отправлен повторно"})
+
+
+@app.route("/api/check-auth", methods=["GET"])
+def check_auth():
+    """Проверяет статус авторизации"""
+    token = get_saved_auth_token()
+    if token:
+        return jsonify({"authenticated": True})
+    return jsonify({"authenticated": False})
+
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    """Выход из аккаунта"""
+    clear_auth_token()
+    return jsonify({"success": True, "message": "Вы вышли из аккаунта"})
+
+
 @app.route("/api/video-url", methods=["GET"])
 def video_url():
     """Получает прямой URL видео по videoId и token"""
@@ -426,9 +741,7 @@ def video_url():
         return jsonify({"error": "No response from MAX"}), 502
 
     payload = packet.get("payload", {})
-    logger.info(f"[video-url] payload keys: {list(payload.keys())}")
 
-    # Ищем ссылку на видео
     video_url = None
     quality_map = {
         "MP4_1080": "1080p",
@@ -442,20 +755,15 @@ def video_url():
     for key in quality_map.keys():
         if payload.get(key):
             video_url = payload[key]
-            logger.info(
-                f"[video-url] Found {quality_map[key]}: {video_url[:50]}...")
             break
 
     if not video_url and payload.get("HLS"):
         video_url = payload.get("HLS")
-        logger.info("[video-url] Using HLS")
 
     if not video_url and payload.get("EXTERNAL"):
         video_url = payload.get("EXTERNAL")
-        logger.info("[video-url] Using EXTERNAL")
 
     if not video_url:
-        logger.warning(f"[video-url] No URL in payload: {payload}")
         return jsonify({"error": "No video URL found"}), 404
 
     return jsonify({"url": video_url})
@@ -564,9 +872,19 @@ def relay(ws):
 
     ws.send(json.dumps(
         {"type": "connected", "message": "Connected to MAX server"}))
+
     if saved_token:
-        ws.send(json.dumps({"type": "session_restored",
-                "message": "Используется сохранённая сессия"}))
+        ws.send(json.dumps({
+            "type": "session_restored",
+            "message": "Используется сохранённая сессия"
+        }))
+        logger.info("[relay] Session restored with saved token")
+    else:
+        logger.info("[relay] New session, no saved token")
+        ws.send(json.dumps({
+            "type": "auth_required",
+            "message": "Требуется авторизация"
+        }))
 
     try:
         while True:
@@ -619,11 +937,52 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
         logger.info(
             f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
 
+        # Обработка ошибки авторизации
+        if packet["opcode"] == 19 and packet["cmd"] == 768:
+            error_msg = packet.get("payload", {}).get("localizedMessage", "")
+            if any(word in error_msg.lower() for word in ["авториз", "authoriz", "login", "вход"]):
+                logger.warning("[session] Auth token expired or invalid")
+                clear_auth_token()
+                packet["_auth_error"] = True
+
+        # Сохраняем токен при успешной аутентификации (opcode 18)
         if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
-            token_attrs = packet["payload"].get("tokenAttrs")
+            payload = packet["payload"]
+
+            # Проверяем, есть ли passwordChallenge (значит пароль еще нужен)
+            if payload.get("passwordChallenge"):
+                logger.info("[session] Server requests password")
+                # Не сохраняем токен, передаем challenge клиенту
+            else:
+                # Сохраняем токен
+                token_attrs = payload.get("tokenAttrs")
+                if token_attrs and "LOGIN" in token_attrs:
+                    new_token = token_attrs["LOGIN"]["token"]
+                    save_auth_token(new_token)
+                    logger.info(
+                        f"[session] Auth token saved: {new_token[:20]}...")
+                else:
+                    auth_token = payload.get(
+                        "authToken") or payload.get("token")
+                    if auth_token:
+                        save_auth_token(auth_token)
+                        logger.info(
+                            f"[session] Auth token saved from alt field: {auth_token[:20]}...")
+            # Проверяем tokenAttrs
+            token_attrs = payload.get("tokenAttrs")
             if token_attrs and "LOGIN" in token_attrs:
-                save_auth_token(token_attrs["LOGIN"]["token"])
-                logger.info("[session] auth token saved")
+                new_token = token_attrs["LOGIN"].get("token")
+                if new_token:
+                    save_auth_token(new_token)
+                    logger.info(
+                        f"[session] Auth token saved: {new_token[:20]}...")
+
+            # Проверяем другие поля
+            auth_token = payload.get("authToken") or payload.get("token")
+            if auth_token and not token_attrs:
+                save_auth_token(auth_token)
+                logger.info(
+                    f"[session] Auth token saved from alt field: {auth_token[:20]}...")
 
         out_queue.put(packet)
 
