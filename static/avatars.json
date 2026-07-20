@@ -1,11 +1,13 @@
 {
   "5267903": {
     "name": "Коды подтверждения",
-    "verified": true
+    "verified": true,
+    "avatar": "https://i.oneme.ru/i?r=BTE2sh_eZW7g8kugOdIm2NotEpsTwj1FZKGgnkWgCorIbr_LFfvk6ed4kWJqmCIwz20&fn=sqr_96"
   },
   "543835": {
     "name": "MAX",
-    "verified": true
+    "verified": true,
+    "avatar": "https://i.oneme.ru/i?r=BTE2sh_eZW7g8kugOdIm2NotDN_R4ZQNdF4l9L2IqiDZib_LFfvk6ed4kWJqmCIwz20&fn=sqr_96"
   },
   "2165956": {
     "name": "GigaChat",
@@ -14,6 +16,17 @@
   },
   "632": {
     "name": "Стикеры в Max",
-    "verified": true
+    "verified": true,
+    "avatar": "https://i.oneme.ru/i?r=BTE2sh_eZW7g8kugOdIm2NothXtWygAgWdZG7xsWM1ttMr_LFfvk6ed4kWJqmCIwz20&fn=sqr_96"
+  },
+  "452": {
+    "name": "MasterBot",
+    "verified": true,
+    "avatar": "https://i.oneme.ru/i?r=BTE2sh_eZW7g8kugOdIm2Not_99rTWy6W-rpI51LUAspnr_LFfvk6ed4kWJqmCIwz20&fn=sqr_96"
+  },
+  "34871493": {
+    "name": "Чат-бот «Мои Документы Москвы» .",
+    "verified": true,
+    "avatar": "https://i.oneme.ru/i?r=BTE2sh_eZW7g8kugOdIm2NotttJHz9qJ9d32FoKiWOiayr_LFfvk6ed4kWJqmCIwz20&fn=sqr_176"
   }
 }
