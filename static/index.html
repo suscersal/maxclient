@@ -2759,18 +2759,25 @@
         }
 
         function addSettingRow(key = '', value = '') {
-            const container = document.getElementById('settingsRowsContainer');
-            if (!container) return;
-            const empty = container.querySelector('.settings-empty');
+            const page = document.getElementById('page-vars');
+            if (!page) return;
+            // Удаляем сообщение "Нет переменных", если оно есть
+            const empty = page.querySelector('.settings-empty');
             if (empty) empty.remove();
+
             const row = document.createElement('div');
             row.className = 'settings-row';
             row.innerHTML = `
-            <input class="setting-key" placeholder="Название" value="${escapeHtml(key)}">
-            <input class="setting-value" placeholder="Значение" value="${escapeHtml(value)}">
-        `;
-            container.appendChild(row);
-            settingsMenu.refreshPage('vars');
+        <input class="setting-key" placeholder="Название" value="${escapeHtml(key)}">
+        <input class="setting-value" placeholder="Значение" value="${escapeHtml(value)}">
+    `;
+            // Вставляем перед последним элементом (футер с кнопками)
+            const footer = page.querySelector('.settings-content-footer');
+            if (footer) {
+                page.insertBefore(row, footer);
+            } else {
+                page.appendChild(row);
+            }
         }
 
         function saveSettings() {
