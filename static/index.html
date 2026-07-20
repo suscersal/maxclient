@@ -9,10 +9,12 @@
     <style>
         * {
             box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
-            font-family: sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 600px;
             margin: 0 auto;
             padding: 16px;
@@ -240,7 +242,7 @@
 
         .msg-bubble {
             position: relative;
-            max-width: 80%;
+            max-width: 85%;
             padding: 8px 12px;
             border-radius: 14px;
             background: #f0f0f0;
@@ -261,6 +263,7 @@
 
         .msg-img {
             width: 100%;
+            max-width: 350px;
             height: auto;
             border-radius: 8px;
             display: block;
@@ -276,6 +279,307 @@
 
         .msg-attach {
             margin-bottom: 6px;
+        }
+
+        /* ======================================== */
+        /* СТИЛИ ПЛЕЕРА В СТИЛЕ MAX */
+        /* ======================================== */
+
+        /* Контейнер видео в сообщении */
+        .msg-video-container {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            max-width: 350px;
+            min-width: 200px;
+            margin: 4px 0;
+            background: #000;
+            cursor: pointer;
+        }
+
+        /* Превью видео */
+        .msg-video-poster {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%;
+            background: #1a1a1a;
+            cursor: pointer;
+        }
+
+        .msg-video-poster img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .msg-video-poster .play-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 64px;
+            height: 64px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            color: white;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .msg-video-poster:hover .play-icon {
+            transform: translate(-50%, -50%) scale(1.1);
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .msg-video-poster .duration-badge {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .inline-video-el {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .inline-top-actions {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            display: flex;
+            gap: 6px;
+            z-index: 3;
+        }
+        .inline-bottom-actions {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            z-index: 3;
+        }
+        .inline-icon-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.55);
+            color: white;
+            border: none;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .msg-video-container.loading .msg-video-poster { opacity: 0.5; }
+
+        /* ======================================== */
+        /* МОДАЛЬНОЕ ОКНО С ПЛЕЕРОМ (как в MAX) */
+        /* ======================================== */
+        .video-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.82);
+            z-index: 10000;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-modal.active {
+            display: flex;
+        }
+
+        .video-modal .video-wrapper {
+            position: relative;
+            max-width: 90vw;
+            max-height: 85vh;
+            width: auto;
+            height: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .video-modal video {
+            max-width: 90vw;
+            max-height: 85vh;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            background: #000;
+            display: block;
+        }
+
+        /* Закрытие */
+        .video-modal .close-btn {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 10001;
+            background: rgba(0, 0, 0, 0.5);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            color: white;
+            font-size: 22px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .video-modal .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* ======================================== */
+        /* КАСТОМНЫЕ КОНТРОЛЫ ПЛЕЕРА (как в MAX) */
+        /* ======================================== */
+        .player-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 24px 24px;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.85) 70%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 10001;
+        }
+
+        .video-modal:hover .player-controls,
+        .video-modal.show-controls .player-controls {
+            opacity: 1;
+        }
+
+        .player-controls .top-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .player-controls .time {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 36px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .player-controls .time-right {
+            text-align: right;
+            min-width: 36px;
+        }
+
+        /* Прогресс-бар */
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            position: relative;
+            cursor: pointer;
+            min-height: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .progress-bar .progress-fill {
+            height: 4px;
+            background: #4da3ff;
+            border-radius: 2px;
+            width: 0%;
+            position: relative;
+            transition: width 0.1s linear;
+        }
+
+        .progress-bar .progress-fill .progress-dot {
+            position: absolute;
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background: #4da3ff;
+            border-radius: 50%;
+            border: 2px solid white;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .progress-bar:hover .progress-fill .progress-dot {
+            opacity: 1;
+        }
+
+        .progress-bar .progress-buffer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+            width: 0%;
+        }
+
+        /* Кнопки управления */
+        .controls-buttons {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .controls-buttons button {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.85);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            font-size: 20px;
+        }
+
+        .controls-buttons button:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .controls-buttons button.primary {
+            width: 48px;
+            height: 48px;
+            font-size: 28px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .controls-buttons button.primary:hover {
+            background: rgba(255, 255, 255, 0.15);
         }
 
         .msg-text {
@@ -384,10 +688,146 @@
         .msg-status.sent {
             color: #999;
         }
+
+        /* Анимация появления */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .video-modal.active {
+            animation: fadeIn 0.2s ease;
+        }
+
+        /* Скрываем стандартные контролы */
+        .video-modal video::-webkit-media-controls {
+            display: none !important;
+        }
+
+        .video-modal video::-webkit-media-controls-enclosure {
+            display: none !important;
+        }
+
+        /* ---- Нижняя панель действий (как в MAX): "Перейти к сообщению" / "Скачать" ---- */
+        .media-bottom-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.92);
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            z-index: 2100;
+            overflow: hidden;
+        }
+        .media-bottom-bar button {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 14px;
+            padding: 14px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+        .media-bottom-bar button + button {
+            border-left: 1px solid rgba(255,255,255,0.2);
+        }
+        .media-bottom-bar button:hover { background: rgba(255,255,255,0.08); }
+
+        .media-viewer {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.82);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .media-viewer.active { display: flex; }
+        .media-viewer img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 12px; }
+        .media-viewer .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.12);
+            color: white;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            z-index: 2101;
+        }
     </style>
 </head>
 
 <body>
+    <!-- Модальное окно плеера в стиле MAX -->
+    <div class="video-modal" id="videoModal">
+        <div class="video-wrapper" onclick="togglePlay()">
+            <video id="videoPlayer" playsinline></video>
+
+            <!-- Кнопка закрытия -->
+            <button class="close-btn" onclick="closeVideoModal(event)">✕</button>
+
+            <!-- Кастомные контролы -->
+            <div class="player-controls" id="playerControls">
+                <div class="icon-row">
+                    <div class="volume-group">
+                        <button onclick="toggleMute()" aria-label="Mute">
+                            <span id="muteIcon">🔊</span>
+                        </button>
+                        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100"
+                               oninput="setVolumeFromSlider(this.value)">
+                    </div>
+                    <button class="primary center-play" onclick="togglePlay()" aria-label="Play/Pause">
+                        <span id="playPauseIcon">⏸</span>
+                    </button>
+                    <button onclick="toggleFullscreen()" aria-label="Fullscreen">
+                        <span>⤢</span>
+                    </button>
+                </div>
+
+                <div class="top-row">
+                    <span class="time" id="currentTime">0:00</span>
+
+                    <div class="progress-bar" id="progressBar" onclick="seekVideo(event)">
+                        <div class="progress-buffer" id="bufferBar"></div>
+                        <div class="progress-fill" id="progressFill">
+                            <div class="progress-dot"></div>
+                        </div>
+                    </div>
+
+                    <span class="time time-right" id="totalTime">0:00</span>
+                </div>
+            </div>
+
+            <div class="media-bottom-bar" id="videoBottomBar">
+                <button onclick="jumpToMessageFromViewer()">↗ Перейти к сообщению</button>
+                <button onclick="downloadCurrentVideo()">⬇ Скачать видео</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="media-viewer" id="photoViewer">
+        <button class="close-btn" onclick="closePhotoViewer()">✕</button>
+        <img id="photoViewerImg" src="" alt="Фото">
+        <div class="media-bottom-bar">
+            <button onclick="jumpToMessageFromViewer()">↗ Перейти к сообщению</button>
+            <button onclick="downloadCurrentPhoto()">⬇ Скачать фото</button>
+        </div>
+    </div>
+
     <h1>MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
         <button id="settingsToggle"
@@ -450,9 +890,418 @@
     </div>
 
     <script>
-        // ------------------------------------------
-        // Глобальные переменные
-        // ------------------------------------------
+        // ========================================
+        // ПЛЕЕР В СТИЛЕ MAX
+        // ========================================
+        let currentVideoUrl = null;
+        let currentViewerMessageId = null;
+        let currentPhotoUrl = null;
+        let isPlaying = false;
+        let isMuted = false;
+        let controlsTimeout = null;
+        let isControlsVisible = true;
+
+        const video = document.getElementById('videoPlayer');
+        const modal = document.getElementById('videoModal');
+        const progressFill = document.getElementById('progressFill');
+        const bufferBar = document.getElementById('bufferBar');
+        const currentTimeEl = document.getElementById('currentTime');
+        const totalTimeEl = document.getElementById('totalTime');
+        const playPauseIcon = document.getElementById('playPauseIcon');
+
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds)) return '0:00';
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function updateProgress() {
+            if (!video.duration) return;
+            const percent = (video.currentTime / video.duration) * 100;
+            progressFill.style.width = percent + '%';
+            currentTimeEl.textContent = formatTime(video.currentTime);
+            totalTimeEl.textContent = formatTime(video.duration);
+        }
+
+        function updateBuffer() {
+            if (!video.buffered || !video.buffered.length) return;
+            const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+            const percent = (bufferedEnd / video.duration) * 100;
+            bufferBar.style.width = percent + '%';
+        }
+
+        function togglePlay() {
+            if (video.paused) {
+                video.play().catch(() => { });
+                playPauseIcon.textContent = '⏸';
+                isPlaying = true;
+            } else {
+                video.pause();
+                playPauseIcon.textContent = '▶';
+                isPlaying = false;
+            }
+        }
+
+        function toggleMute() {
+            video.muted = !video.muted;
+            isMuted = video.muted;
+            document.getElementById('muteIcon').textContent = isMuted ? '🔇' : '🔊';
+            const slider = document.getElementById('volumeSlider');
+            if (slider) slider.value = isMuted ? 0 : Math.round((video.volume || 1) * 100);
+        }
+
+        function setVolumeFromSlider(value) {
+            const v = Number(value) / 100;
+            video.volume = v;
+            video.muted = v === 0;
+            isMuted = video.muted;
+            document.getElementById('muteIcon').textContent = video.muted ? '🔇' : (v < 0.5 ? '🔉' : '🔊');
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen?.().catch(() => { });
+            } else {
+                document.exitFullscreen?.().catch(() => { });
+            }
+        }
+
+        function seekVideo(e) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            video.currentTime = x * video.duration;
+        }
+
+        function showControls() {
+            const controls = document.getElementById('playerControls');
+            controls.style.opacity = '1';
+            isControlsVisible = true;
+            clearTimeout(controlsTimeout);
+            controlsTimeout = setTimeout(() => {
+                if (isPlaying) {
+                    controls.style.opacity = '0';
+                    isControlsVisible = false;
+                }
+            }, 3000);
+        }
+
+        function hideControls() {
+            if (isPlaying) {
+                document.getElementById('playerControls').style.opacity = '0';
+                isControlsVisible = false;
+            }
+        }
+
+        // События видео
+        video.addEventListener('timeupdate', updateProgress);
+        video.addEventListener('progress', updateBuffer);
+        video.addEventListener('loadedmetadata', () => {
+            totalTimeEl.textContent = formatTime(video.duration);
+            updateProgress();
+        });
+        video.addEventListener('play', () => {
+            playPauseIcon.textContent = '⏸';
+            isPlaying = true;
+            showControls();
+        });
+        video.addEventListener('pause', () => {
+            playPauseIcon.textContent = '▶';
+            isPlaying = false;
+            showControls();
+        });
+        video.addEventListener('click', togglePlay);
+
+        // Показываем контролы при движении мыши
+        modal.addEventListener('mousemove', showControls);
+        modal.addEventListener('touchstart', showControls);
+
+        // Скрываем контролы при клике на видео (кроме кнопок)
+        document.querySelector('.video-wrapper').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget || e.target.tagName === 'VIDEO') {
+                if (isControlsVisible) {
+                    hideControls();
+                } else {
+                    showControls();
+                }
+            }
+        });
+
+        // Клавиатура
+        document.addEventListener('keydown', (e) => {
+            if (!modal.classList.contains('active')) return;
+            if (e.key === ' ' || e.key === 'Space') {
+                e.preventDefault();
+                togglePlay();
+            }
+            if (e.key === 'Escape') {
+                closeVideoModal();
+            }
+            if (e.key === 'f' || e.key === 'F') {
+                toggleFullscreen();
+            }
+            if (e.key === 'm' || e.key === 'M') {
+                toggleMute();
+            }
+        });
+
+        // ========================================
+        // ОТКРЫТИЕ ВИДЕО
+        // ========================================
+        async function inlineVideoTap(uid) {
+            const container = document.getElementById(uid);
+            if (!container) return;
+
+            const existingVideo = container.querySelector('video');
+            if (existingVideo) {
+                existingVideo.paused ? existingVideo.play() : existingVideo.pause();
+                return;
+            }
+
+            const messageId = container.dataset.msgId;
+            const chatId = container.dataset.chatId;
+            const token = container.dataset.token;
+            const videoId = container.dataset.videoId;
+            if (!token || !videoId) { log('❌ Нет данных для видео', 'error'); return; }
+
+            container.classList.add('loading');
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+                const best = sources['720p'] || sources['480p'] || Object.values(sources)[0];
+                if (!best) {
+                    log('❌ Не удалось получить видео' + (data.error ? ` (${data.error})` : ''), 'error');
+                    container.classList.remove('loading');
+                    return;
+                }
+
+                const posterImg = container.querySelector('.msg-video-poster img');
+                const posterSrc = posterImg ? posterImg.src : '';
+
+                const v = document.createElement('video');
+                v.className = 'inline-video-el';
+                v.loop = true;
+                v.muted = true; // как в ленте — старт без звука, включается кнопкой
+                v.playsInline = true;
+                v.autoplay = true;
+                if (posterSrc) v.poster = posterSrc;
+                v.src = '/video?url=' + encodeURIComponent(best);
+
+                container.querySelector('.msg-video-poster').replaceWith(v);
+                container.classList.remove('loading');
+
+                const bottom = document.createElement('div');
+                bottom.className = 'inline-bottom-actions';
+                bottom.onclick = (e) => e.stopPropagation();
+                bottom.innerHTML = `<button class="inline-icon-btn play-pause-btn">⏸</button>`;
+                container.appendChild(bottom);
+                const playPauseBtn = bottom.querySelector('.play-pause-btn');
+                playPauseBtn.onclick = () => { v.paused ? v.play() : v.pause(); };
+                v.addEventListener('play', () => { playPauseBtn.textContent = '⏸'; });
+                v.addEventListener('pause', () => { playPauseBtn.textContent = '▶'; });
+
+                v.play().catch(() => {});
+            } catch (e) {
+                log('❌ Ошибка видео: ' + e.message, 'error');
+                container.classList.remove('loading');
+            }
+        }
+
+        function toggleInlineMute(uid) {
+            const container = document.getElementById(uid);
+            const video = container?.querySelector('video');
+            const btn = container?.querySelector('.inline-mute-btn');
+            if (!video) return;
+            video.muted = !video.muted;
+            if (btn) btn.textContent = video.muted ? '🔇' : '🔊';
+        }
+
+        function expandInlineVideo(uid) {
+            const container = document.getElementById(uid);
+            if (!container) return;
+            openVideoPlayer(container.dataset.msgId, container.dataset.chatId, container.dataset.token, Number(container.dataset.videoId));
+        }
+
+        async function openVideoPlayer(messageId, chatId, token, videoId) {
+            currentViewerMessageId = messageId;
+            if (!token || !videoId) {
+                log('❌ Нет данных для видео', 'error');
+                return;
+            }
+
+            log('⏳ Получаю ссылку на видео...', 'info');
+
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+
+                // Выбираем лучшее качество
+                const best = sources['1080p'] || sources['720p'] || sources['480p'] || Object.values(sources)[0];
+
+                if (!best) {
+                    log('❌ Не удалось получить видео' + (data.error ? ` (${data.error})` : ''), 'error');
+                    return;
+                }
+
+                // Останавливаем текущее видео
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+
+                // Загружаем новое
+                const videoUrl = '/video?url=' + encodeURIComponent(best);
+                currentVideoUrl = videoUrl;
+                video.src = videoUrl;
+                video.load();
+
+                // Показываем модальное окно
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+
+                // Автовоспроизведение
+                video.play().catch(() => {
+                    log('ℹ️ Нажмите Play для воспроизведения', 'info');
+                });
+
+                // Показываем контролы
+                showControls();
+
+                log('✅ Видео загружено', 'success');
+
+            } catch (e) {
+                log('❌ Ошибка: ' + e.message, 'error');
+            }
+        }
+
+        function closeVideoModal(e) {
+            if (e) e.stopPropagation();
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+            currentVideoUrl = null;
+        }
+
+        // ---- Просмотрщик фото (та же нижняя панель, что и у видео) ----
+        function openPhotoViewer(url, messageId) {
+            currentPhotoUrl = url;
+            currentViewerMessageId = messageId;
+            document.getElementById('photoViewerImg').src = url;
+            document.getElementById('photoViewer').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePhotoViewer() {
+            document.getElementById('photoViewer').classList.remove('active');
+            document.body.style.overflow = '';
+            currentPhotoUrl = null;
+        }
+
+        async function downloadBlobUrl(url, filename) {
+            try {
+                const res = await fetch(url);
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                log(`✅ «${filename}» скачан`, 'success');
+            } catch (e) {
+                log('❌ Ошибка скачивания: ' + e.message, 'error');
+            }
+        }
+
+        function downloadCurrentVideo() {
+            if (!currentVideoUrl) return;
+            downloadBlobUrl(currentVideoUrl, `video_${currentViewerMessageId || Date.now()}.mp4`);
+        }
+
+        function downloadCurrentPhoto() {
+            if (!currentPhotoUrl) return;
+            downloadBlobUrl(currentPhotoUrl, `photo_${currentViewerMessageId || Date.now()}.jpg`);
+        }
+
+        function jumpToMessageFromViewer() {
+            const messageId = currentViewerMessageId;
+            closeVideoModal();
+            closePhotoViewer();
+            if (messageId == null) return;
+            setTimeout(() => {
+                const bubble = document.querySelector(`.msg-bubble[data-msg-id="${messageId}"]`);
+                if (!bubble) return;
+                bubble.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                bubble.style.outline = '2px solid #4fc3f7';
+                setTimeout(() => { bubble.style.outline = ''; }, 1200);
+            }, 100);
+        }
+
+        // Закрытие по Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeVideoModal();
+            }
+            if (e.key === 'Escape' && document.getElementById('photoViewer').classList.contains('active')) {
+                closePhotoViewer();
+            }
+        });
+
+        // ========================================
+        // ПРЕВЬЮ ВИДЕО В СООБЩЕНИИ
+        // ========================================
+        function createVideoPreview(messageId, chatId, attach) {
+            const poster = attach.thumbnail ? '/img?url=' + encodeURIComponent(attach.thumbnail) :
+                attach.previewData ? hexPreviewToDataUrl(attach.previewData) : null;
+            const duration = attach.duration ? formatTime(Math.round(attach.duration / 1000)) : '';
+            const token = attach.token || attach.videoToken || '';
+            const videoId = attach.videoId || 0;
+            const uid = 'vid_' + Math.random().toString(36).slice(2, 9);
+
+            // messageId кладём в data-атрибут (текст HTML-атрибута), а не в
+            // онклик-строку как число — иначе большие ID теряют точность при
+            // подстановке в JS-код.
+            let html = `
+                <div class="msg-video-container" id="${uid}"
+                     data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
+                     onclick="inlineVideoTap('${uid}')">
+                    <div class="msg-video-poster">
+            `;
+
+            if (poster) {
+                html += `<img src="${poster}" alt="Превью видео" loading="lazy" onerror="this.style.display='none'">`;
+            } else {
+                html += `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">🎬</div>`;
+            }
+
+            html += `
+                        <div class="play-icon">▶</div>
+                        ${duration ? `<div class="duration-badge">${duration}</div>` : ''}
+                    </div>
+                    <div class="inline-top-actions" onclick="event.stopPropagation();">
+                        <button class="inline-icon-btn" onclick="expandInlineVideo('${uid}')" aria-label="Развернуть на весь экран">⛶</button>
+                        <button class="inline-icon-btn inline-mute-btn" onclick="toggleInlineMute('${uid}')" aria-label="Звук">🔇</button>
+                    </div>
+                </div>
+            `;
+
+            return html;
+        }
+
+        // ========================================
+        // ОСТАЛЬНАЯ ЛОГИКА (как в предыдущей версии)
+        // ========================================
         let ws = null;
         let isConnected = false;
         let reconnectAttempts = 0;
@@ -467,10 +1316,9 @@
         let currentChatId = null;
         let metadataOverride = {};
         let presenceById = {};
+        let seenMessageIds = {};
+        let currentHls = null;
 
-        // ------------------------------------------
-        // Логирование на экран
-        // ------------------------------------------
         function log(msg, type = 'info') {
             const el = document.getElementById('log');
             const entry = document.createElement('div');
@@ -497,23 +1345,17 @@
             ws.send(JSON.stringify({ opcode, payload }));
         }
 
-        // ------------------------------------------
         // Загрузка avatars.json
-        // ------------------------------------------
         fetch('avatars.json')
             .then(r => r.ok ? r.json() : {})
             .then(data => {
                 metadataOverride = data;
-                // Если чаты уже загружены — обновляем
                 if (Object.keys(chatsById).length > 0) {
                     renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
                 }
             })
             .catch(() => { metadataOverride = {}; });
 
-        // ------------------------------------------
-        // Вспомогательные функции
-        // ------------------------------------------
         function otherParticipantId(chat) {
             if (!chat || !chat.participants) return null;
             const ids = Object.keys(chat.participants).map(Number);
@@ -585,9 +1427,19 @@
                 parent.textContent = parent.dataset.initials || '?';
             }
         }
-        // ------------------------------------------
-        // Рендер чатов
-        // ------------------------------------------
+
+        function hexPreviewToDataUrl(hex) {
+            try {
+                const bytes = new Uint8Array(hex.length / 2);
+                for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+                let binary = '';
+                bytes.forEach(b => binary += String.fromCharCode(b));
+                return 'data:image/webp;base64,' + btoa(binary);
+            } catch (e) {
+                return null;
+            }
+        }
+
         function renderChats(payload) {
             selfId = payload.profile?.contact?.id;
             contactsById = {};
@@ -626,13 +1478,13 @@
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
-            <div class="chat-avatar" data-initials="${initial}" style="position:relative;">${avatarHtml}${onlineDot}</div>
-            <div class="chat-info">
-                <div class="chat-name">${name}</div>
-                <div class="chat-preview">${escapeHtml(preview)}</div>
-            </div>
-            <div class="chat-meta">${time}${unread}</div>
-        `;
+                    <div class="chat-avatar" data-initials="${initial}" style="position:relative;">${avatarHtml}${onlineDot}</div>
+                    <div class="chat-info">
+                        <div class="chat-name">${name}</div>
+                        <div class="chat-preview">${escapeHtml(preview)}</div>
+                    </div>
+                    <div class="chat-meta">${time}${unread}</div>
+                `;
                 el.onclick = () => openChat(chat.id);
                 list.appendChild(el);
             });
@@ -648,10 +1500,15 @@
             if (attach?._type === 'CONTROL') {
                 return attach.message || attach.shortMessage || 'Системное событие';
             }
+            if (attach?._type === 'VIDEO') {
+                return '🎬 Видео';
+            }
             if (m.text && !isTranslationKey) return m.text.slice(0, 80);
             if (attach) {
                 const labels = {
-                    PHOTO: '🖼️ Фото', VIDEO: '🎬 Видео', FILE: '📎 ' + (attach.name || 'Файл'),
+                    PHOTO: '🖼️ Фото',
+                    VIDEO: '🎬 Видео',
+                    FILE: '📎 ' + (attach.name || 'Файл'),
                     CALL: attach.callType === 'VIDEO' ? '📞 Видеозвонок' : '📞 Звонок',
                 };
                 return labels[attach._type] || `[${attach._type}]`;
@@ -659,9 +1516,6 @@
             return '';
         }
 
-        // ------------------------------------------
-        // Галочки статуса прочитано
-        // ------------------------------------------
         function buildStatusTicksHtml(m, chat) {
             try {
                 if (chat?.type !== 'DIALOG') {
@@ -679,7 +1533,6 @@
                     otherLastRead = info.lastReadMessageId ?? info.mark ?? info.readMark ?? null;
                 }
 
-                // Также проверяем chat.readMarks
                 if (otherLastRead == null && chat?.readMarks) {
                     otherLastRead = chat.readMarks[otherId] || null;
                 }
@@ -697,9 +1550,6 @@
             }
         }
 
-        // ------------------------------------------
-        // Реакции
-        // ------------------------------------------
         function buildReactionsHtml(m) {
             try {
                 const counts = m.reactionInfo?.counters || [];
@@ -716,9 +1566,7 @@
                 return '';
             }
         }
-        // ------------------------------------------
-        // Создание сообщения
-        // ------------------------------------------
+
         function createMessageElement(m) {
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
@@ -731,21 +1579,17 @@
                     let src = a.baseRawUrl || a.baseUrl;
                     if (src) src = '/img?url=' + encodeURIComponent(src);
                     if (!src && a.previewData) {
-                        try {
-                            const bytes = new Uint8Array(a.previewData.length / 2);
-                            for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(a.previewData.substr(i * 2, 2), 16);
-                            let binary = '';
-                            bytes.forEach(b => binary += String.fromCharCode(b));
-                            src = 'data:image/webp;base64,' + btoa(binary);
-                        } catch (e) { }
+                        src = hexPreviewToDataUrl(a.previewData);
                     }
                     if (src) {
-                        attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="window.open('${src}', '_blank')"></div>`;
+                        attachesHtml += `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
                     }
                     return;
                 }
                 if (a._type === 'VIDEO') {
-                    attachesHtml += `<div class="msg-attach msg-file">🎬 Видео</div>`;
+                    attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
                     return;
                 }
                 if (a._type === 'FILE') {
@@ -783,9 +1627,6 @@
             return el;
         }
 
-        // ------------------------------------------
-        // Открытие чата и загрузка сообщений
-        // ------------------------------------------
         function openChat(chatId) {
             const chat = chatsById[chatId];
             if (!chat) return;
@@ -814,9 +1655,6 @@
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
         }
 
-        // ------------------------------------------
-        // Рендер сообщений (инкрементальный)
-        // ------------------------------------------
         function renderMessages(payload) {
             const list = document.getElementById('messagesList');
             const existingIds = new Set();
@@ -836,9 +1674,7 @@
                 list.scrollTop = list.scrollHeight;
             }
         }
-        // ------------------------------------------
-        // Подключение к WebSocket
-        // ------------------------------------------
+
         function connect() {
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                 log('❌ Max reconnect attempts reached', 'error');
@@ -917,7 +1753,6 @@
                         return;
                     }
 
-                    // notifMark — обновление прочитанного
                     if (data.opcode === 130 && data.payload) {
                         const p = data.payload;
                         if (p.chatId != null && p.userId != null && p.mark != null) {
@@ -943,7 +1778,6 @@
                         return;
                     }
 
-                    // notifPresence — онлайн статус
                     if (data.opcode === 132 && data.payload) {
                         const uid = data.payload.userId;
                         const p = data.payload.presence;
@@ -986,9 +1820,8 @@
                 }
             };
         }
-        // ------------------------------------------
-        // Обработчики событий
-        // ------------------------------------------
+
+        // Обработчики
         document.getElementById('requestOtp').onclick = () => {
             const phone = document.getElementById('phone').value.trim().replace(/[\s\-\(\)]/g, '');
             if (!phone || phone === '+7') { log('❌ Enter phone number', 'error'); return; }
@@ -1026,20 +1859,41 @@
             };
         });
 
-        // ------------------------------------------
         // Настройки
-        // ------------------------------------------
+        function loadSettingsVars() {
+            try { return JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}'); }
+            catch (e) { return {}; }
+        }
+
+        function applySettingsVars(vars) {
+            Object.entries(vars).forEach(([k, v]) => {
+                document.documentElement.style.setProperty('--' + k, v);
+            });
+        }
+
         document.getElementById('settingsToggle').onclick = () => {
-            document.getElementById('settingsSection').classList.toggle('hidden');
+            const el = document.getElementById('settingsSection');
+            el.classList.toggle('hidden');
+            if (!el.classList.contains('hidden')) renderSettingsRows();
         };
 
-        document.getElementById('addSettingRow').onclick = () => {
+        function renderSettingsRows() {
+            const vars = loadSettingsVars();
             const container = document.getElementById('settingsRows');
+            container.innerHTML = '';
+            const entries = Object.entries(vars);
+            (entries.length ? entries : [['', '']]).forEach(([k, v]) => addSettingRow(k, v));
+        }
+
+        function addSettingRow(key = '', value = '') {
             const row = document.createElement('div');
             row.className = 'settings-row';
-            row.innerHTML = `<input class="setting-key" placeholder="KEY"><input class="setting-value" placeholder="value">`;
-            container.appendChild(row);
-        };
+            row.innerHTML = `<input class="setting-key" placeholder="KEY" value="${escapeHtml(key)}">
+                              <input class="setting-value" placeholder="value" value="${escapeHtml(value)}">`;
+            document.getElementById('settingsRows').appendChild(row);
+        }
+
+        document.getElementById('addSettingRow').onclick = () => addSettingRow();
 
         document.getElementById('saveSettings').onclick = () => {
             const vars = {};
@@ -1049,30 +1903,38 @@
                 if (k) vars[k] = v;
             });
             localStorage.setItem('maxclient_settings_vars', JSON.stringify(vars));
-            Object.entries(vars).forEach(([k, v]) => {
-                document.documentElement.style.setProperty('--' + k, v);
-            });
+            applySettingsVars(vars);
             log('✅ Настройки сохранены', 'success');
         };
 
         // Автоответ
+        function getAutoreplySettings(chatId) {
+            try {
+                const all = JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}');
+                return all[chatId] || { enabled: false, text: '', firstReplySent: false };
+            } catch (e) { return { enabled: false, text: '', firstReplySent: false }; }
+        }
+
+        function saveAutoreplySettings(chatId, settings) {
+            const all = JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}');
+            all[chatId] = settings;
+            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
+        }
+
         document.getElementById('autoreplyEnabled').onchange = (e) => {
             if (!currentChatId) return;
-            const all = JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}');
-            if (!all[currentChatId]) all[currentChatId] = {};
-            all[currentChatId].enabled = e.target.checked;
-            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
+            const s = getAutoreplySettings(currentChatId);
+            s.enabled = e.target.checked;
+            saveAutoreplySettings(currentChatId, s);
         };
 
         document.getElementById('autoreplyText').onchange = (e) => {
             if (!currentChatId) return;
-            const all = JSON.parse(localStorage.getItem('maxclient_autoreply') || '{}');
-            if (!all[currentChatId]) all[currentChatId] = {};
-            all[currentChatId].text = e.target.value;
-            localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
+            const s = getAutoreplySettings(currentChatId);
+            s.text = e.target.value;
+            saveAutoreplySettings(currentChatId, s);
         };
 
-        // Ghost read
         document.getElementById('ghostReadEnabled').onchange = (e) => {
             if (!currentChatId) return;
             const all = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
@@ -1080,18 +1942,8 @@
             localStorage.setItem('maxclient_ghost_read', JSON.stringify(all));
         };
 
-        // ------------------------------------------
         // Инициализация
-        // ------------------------------------------
-        // Применяем настройки цветов
-        try {
-            const vars = JSON.parse(localStorage.getItem('maxclient_settings_vars') || '{}');
-            Object.entries(vars).forEach(([k, v]) => {
-                document.documentElement.style.setProperty('--' + k, v);
-            });
-        } catch (e) { }
-
-        // Подключаемся
+        applySettingsVars(loadSettingsVars());
         connect();
 
         window.onbeforeunload = () => { if (ws) ws.close(); };

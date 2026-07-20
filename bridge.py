@@ -12,24 +12,23 @@ import time
 import uuid
 
 import msgpack
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
 from flask_sock import Sock
-
-# Для LZ4 (установить: pip install lz4)
 import lz4.block
+import urllib.request
+import urllib.error
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# --- Конфигурация из переменных окружения ---
+# --- Конфигурация ---
 HOST = os.getenv("MAX_HOST", "api.oneme.ru")
 PORT = int(os.getenv("MAX_PORT", "443"))
-SESSION_FILE = os.getenv(
-    "SESSION_FILE", os.path.join(os.path.dirname(__file__), "session.json")
-)
+SESSION_FILE = os.getenv("SESSION_FILE", os.path.join(
+    os.path.dirname(__file__), "session.json"))
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
-TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))  # секунды
+TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
 
 
 # --- Работа с сессией ---
@@ -76,33 +75,22 @@ def get_latest_app_version() -> str:
     if cached and time.time() - cached.get("checkedAt", 0) < VERSION_CACHE_HOURS * 3600:
         return cached.get("version", FALLBACK_APP_VERSION)
     try:
-        import urllib.request
-
-        req = urllib.request.Request(
-            VERSION_CHECK_URL, headers={"User-Agent": "Mozilla/5.0"}
-        )
+        req = urllib.request.Request(VERSION_CHECK_URL, headers={
+                                     "User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
         match = re.search(
             r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
         version = match.group(1) if match else FALLBACK_APP_VERSION
         save_session(
-            {
-                **load_session(),
-                "appVersionCache": {"version": version, "checkedAt": time.time()},
-            }
-        )
+            {**load_session(), "appVersionCache": {"version": version, "checkedAt": time.time()}})
         return version
     except Exception as e:
         logger.warning(f"[version] fetch failed, using fallback: {e}")
-        return (
-            cached.get("version", FALLBACK_APP_VERSION)
-            if cached
-            else FALLBACK_APP_VERSION
-        )
+        return cached.get("version", FALLBACK_APP_VERSION) if cached else FALLBACK_APP_VERSION
 
 
-# --- Декодирование с перебором кодировок ---
+# --- Декодирование ---
 def _decode_bytes_deep(obj):
     if isinstance(obj, bytes):
         for enc in ("utf-8", "cp1251", "koi8-r", "iso-8859-5"):
@@ -118,14 +106,10 @@ def _decode_bytes_deep(obj):
     return obj
 
 
-# JS/JSON.parse теряет точность для целых чисел больше 2**53-1, а ID сообщений
-# в MAX (и некоторые другие поля) — 64-битные числа, которые легко превышают
-# эту границу. Поэтому такие числа гоняем между бэком и фронтом как строки.
 _JS_SAFE_INT = 2 ** 53 - 1
 
 
 def stringify_big_ints(obj):
-    """Сервер -> фронтенд: большие int превращаем в строки перед json.dumps."""
     if isinstance(obj, bool):
         return obj
     if isinstance(obj, int) and abs(obj) > _JS_SAFE_INT:
@@ -138,7 +122,6 @@ def stringify_big_ints(obj):
 
 
 def numify_big_int_strings(obj):
-    """Фронтенд -> сервер: строки-числа обратно в int перед упаковкой в msgpack."""
     if isinstance(obj, str) and re.fullmatch(r"-?\d+", obj) and abs(int(obj)) > _JS_SAFE_INT:
         return int(obj)
     if isinstance(obj, dict):
@@ -148,19 +131,11 @@ def numify_big_int_strings(obj):
     return obj
 
 
-# --- LZ4 с использованием библиотеки ---
+# --- LZ4 ---
 def _lz4_decompress_block(data: bytes) -> bytes:
-    # Библиотека lz4.block ожижает размер распакованного блока.
-    # Мы не знаем точный размер, поэтому используем lz4.block.decompress с max size.
-    # Для надежности можно попробовать распаковать с максимальным размером 1 МБ,
-    # но лучше использовать lz4.frame.decompress, если данные в формате frame.
-    # Однако сервер присылает сырой блок, поэтому воспользуемся lz4.block.decompress
-    # с указанием большого лимита.
     try:
-        # Пытаемся распаковать, предполагая, что размер не превышает 2 МБ.
         return lz4.block.decompress(data, uncompressed_size=2 * 1024 * 1024)
     except Exception:
-        # Если не вышло, пробуем без указания размера (может выбросить ошибку)
         return lz4.block.decompress(data)
 
 
@@ -203,7 +178,7 @@ class MaxClient:
         while len(self.buf) < 10 + payload_len:
             self._recv_exact_more()
 
-        payload_bytes = self.buf[10: 10 + payload_len]
+        payload_bytes = self.buf[10:10 + payload_len]
         self.buf = self.buf[10 + payload_len:]
 
         payload = None
@@ -219,13 +194,7 @@ class MaxClient:
                 logger.debug(f"Unpack failed: {e}")
                 payload = {"raw": payload_bytes.hex()}
 
-        return {
-            "ver": ver,
-            "cmd": cmd,
-            "seq": seq,
-            "opcode": opcode,
-            "payload": payload,
-        }
+        return {"ver": ver, "cmd": cmd, "seq": seq, "opcode": opcode, "payload": payload}
 
     def connect(self, existing_token: str = None):
         ctx = ssl.create_default_context()
@@ -269,47 +238,14 @@ class MaxClient:
                 pass
 
 
-# --- Цикл приёма ---
-def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.Event):
-    while not stop_event.is_set():
-        try:
-            packet = client.recv_packet()
-        except socket.timeout:
-            continue
-        except (ConnectionError, OSError) as e:
-            logger.warning(f"recv_loop stopped: {e}")
-            break
-
-        cmd_status = (
-            "OK"
-            if packet["cmd"] == 256
-            else "ERROR" if packet["cmd"] == 768 else str(packet["cmd"])
-        )
-        logger.info(
-            f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})"
-        )
-
-        if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
-            token_attrs = packet["payload"].get("tokenAttrs")
-            if token_attrs and "LOGIN" in token_attrs:
-                save_auth_token(token_attrs["LOGIN"]["token"])
-                logger.info("[session] auth token saved")
-
-        out_queue.put(packet)
-
-
-# --- Одноразовый запрос вне основного WS-соединения (для видео/файлов) ---
+# --- fetch_once ---
 def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15.0):
-    """Открывает отдельное короткое соединение, логинится сохранённым токеном,
-    шлёт один запрос и ждёт ответ с нужным opcode. Используется там, где не
-    хочется тащить это через долгоживущий /relay (скачивание видео/файлов)."""
     saved_token = get_saved_auth_token()
     client = MaxClient()
     client.connect(existing_token=saved_token)
     try:
         deadline = time.time() + timeout
 
-        # Ждём ответ на handshake (opcode=6), прежде чем слать что-либо ещё.
         handshake_ok = False
         while time.time() < deadline and not handshake_ok:
             try:
@@ -326,11 +262,6 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
             logger.warning("[fetch_once] handshake timeout")
             return None
 
-        # Без этого шага сессия остаётся не-ONLINE и сервер отвечает
-        # proto.state / "Must be ONLINE session" на любой содержательный запрос
-        # (opcode=19 — тот же шаг, что и в основном /relay-соединении).
-        # Токен нужен явно: в /relay-маршруте bridge сам подставляет его в
-        # payload каждого исходящего пакета (см. relay()), здесь этого шага нет.
         sync_payload = {"chatsSync": 0, "contactsSync": 0, "interactive": True}
         if saved_token:
             sync_payload["token"] = saved_token
@@ -384,11 +315,8 @@ def static_files(filename):
 
 @app.route("/img")
 def proxy_image():
-    from flask import request, Response
-    import urllib.request
-
     url = request.args.get("url", "")
-    allowed_hosts = ("i.oneme.ru", "iv.okcdn.ru", "st.max.ru")
+    allowed_hosts = ("i.oneme.ru", "iv.okcdn.ru", "st.max.ru", "selcdn.net")
     if not url.startswith("https://") or not any(f"//{h}" in url for h in allowed_hosts):
         return "", 400
 
@@ -396,9 +324,7 @@ def proxy_image():
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
-                "Referer": "https://web.max.ru/",
-            },
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = resp.read()
@@ -411,12 +337,11 @@ def proxy_image():
 
 @app.route("/video")
 def proxy_video():
-    from flask import request, Response, stream_with_context
-    import urllib.request
-    import urllib.error
-
     url = request.args.get("url", "")
-    if not url.startswith("https://") or "okcdn.ru" not in url:
+    logger.info(f"[video proxy] Request for: {url}")
+
+    if not url or not (url.startswith("https://") or url.startswith("http://")):
+        logger.warning(f"[video proxy] Invalid URL: {url}")
         return "", 400
 
     range_header = request.headers.get("Range")
@@ -429,12 +354,13 @@ def proxy_video():
 
     try:
         req = urllib.request.Request(url, headers=req_headers)
-        upstream = urllib.request.urlopen(req, timeout=15)
+        upstream = urllib.request.urlopen(req, timeout=30)
+        logger.info(f"[video proxy] Success, status: {upstream.status}")
     except urllib.error.HTTPError as e:
-        logger.warning(f"[video proxy] HTTPError for {url}: {e}")
+        logger.warning(f"[video proxy] HTTPError: {e}")
         return "", 502
     except Exception as e:
-        logger.warning(f"[video proxy] failed for {url}: {e}")
+        logger.warning(f"[video proxy] failed: {e}")
         return "", 502
 
     status = upstream.status
@@ -446,7 +372,6 @@ def proxy_video():
     def generate():
         try:
             while True:
-                # 64 КБ за раз, не грузим весь файл в память
                 chunk = upstream.read(65536)
                 if not chunk:
                     break
@@ -469,14 +394,79 @@ def proxy_video():
     )
 
 
+@app.route("/api/video-url", methods=["GET"])
+def video_url():
+    """Получает прямой URL видео по videoId и token"""
+    video_id = request.args.get("videoId")
+    token = request.args.get("token")
+
+    if not video_id or not token:
+        return jsonify({"error": "Missing videoId or token"}), 400
+
+    logger.info(f"[video-url] Getting video for id={video_id}")
+
+    try:
+        packet = fetch_once(
+            83,
+            {
+                "messageId": 0,
+                "chatId": 0,
+                "token": token,
+                "videoId": int(video_id),
+            },
+            wait_opcode=83,
+            timeout=15
+        )
+    except Exception as e:
+        logger.warning(f"[video-url] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        logger.warning(f"[video-url] no response, packet: {packet}")
+        return jsonify({"error": "No response from MAX"}), 502
+
+    payload = packet.get("payload", {})
+    logger.info(f"[video-url] payload keys: {list(payload.keys())}")
+
+    # Ищем ссылку на видео
+    video_url = None
+    quality_map = {
+        "MP4_1080": "1080p",
+        "MP4_720": "720p",
+        "MP4_480": "480p",
+        "MP4_360": "360p",
+        "MP4_240": "240p",
+        "MP4_144": "144p"
+    }
+
+    for key in quality_map.keys():
+        if payload.get(key):
+            video_url = payload[key]
+            logger.info(
+                f"[video-url] Found {quality_map[key]}: {video_url[:50]}...")
+            break
+
+    if not video_url and payload.get("HLS"):
+        video_url = payload.get("HLS")
+        logger.info("[video-url] Using HLS")
+
+    if not video_url and payload.get("EXTERNAL"):
+        video_url = payload.get("EXTERNAL")
+        logger.info("[video-url] Using EXTERNAL")
+
+    if not video_url:
+        logger.warning(f"[video-url] No URL in payload: {payload}")
+        return jsonify({"error": "No video URL found"}), 404
+
+    return jsonify({"url": video_url})
+
+
 @app.route("/api/video-sources", methods=["POST"])
 def video_sources():
-    from flask import request, jsonify
-
     data = request.get_json(force=True)
     try:
         packet = fetch_once(
-            83,  # Opcode.videoPlay
+            83,
             {
                 "messageId": int(data.get("messageId") or 0),
                 "chatId": int(data["chatId"]),
@@ -490,31 +480,26 @@ def video_sources():
         return jsonify({"error": str(e)}), 500
 
     if not packet:
-        logger.warning(
-            "[video-sources] no response from MAX (timeout waiting for opcode=83)")
         return jsonify({"sources": {}, "error": "timeout"})
 
     if packet["cmd"] != 256:
-        logger.warning(
-            f"[video-sources] MAX returned error cmd={packet['cmd']} payload={packet.get('payload')!r}")
         return jsonify({"sources": {}, "error": f"cmd={packet['cmd']}"})
 
     if not isinstance(packet.get("payload"), dict):
-        logger.warning(
-            f"[video-sources] unexpected payload shape: {packet.get('payload')!r}")
         return jsonify({"sources": {}})
 
     mp4_keys = {
-        "MP4_1080": "1080p", "MP4_720": "720p", "MP4_480": "480p",
-        "MP4_360": "360p", "MP4_240": "240p", "MP4_144": "144p",
+        "MP4_1080": "1080p",
+        "MP4_720": "720p",
+        "MP4_480": "480p",
+        "MP4_360": "360p",
+        "MP4_240": "240p",
+        "MP4_144": "144p",
     }
     payload = packet["payload"]
-    logger.info(f"[video-sources] payload: {payload!r}")
     sources = {label: payload[key]
                for key, label in mp4_keys.items() if payload.get(key)}
 
-    # Если MP4-вариантов нет — пробуем HLS/внешнюю ссылку (как в Komet).
-    # Фронтенд играет .m3u8 через hls.js.
     if not sources:
         hls = payload.get("HLS")
         if hls:
@@ -528,8 +513,6 @@ def video_sources():
 
 @app.route("/api/download", methods=["POST"])
 def download_file():
-    from flask import request, Response
-
     data = request.get_json(force=True)
     url = data.get("url")
     token = data.get("token")
@@ -538,11 +521,7 @@ def download_file():
         return "", 400
 
     try:
-        packet = fetch_once(
-            88,  # Opcode.fileDownload
-            {"url": url, "token": token},
-            wait_opcode=88,
-        )
+        packet = fetch_once(88, {"url": url, "token": token}, wait_opcode=88)
     except Exception as e:
         logger.warning(f"[download] failed: {e}")
         return "", 500
@@ -557,7 +536,6 @@ def download_file():
     try:
         raw_bytes = bytes.fromhex(content)
     except ValueError:
-        # На случай если content уже успешно раскодировался в текст (не бинарь)
         raw_bytes = content.encode("utf-8", errors="ignore")
 
     return Response(
@@ -580,26 +558,18 @@ def relay(ws):
         ws.send(json.dumps({"error": "Connection failed", "details": str(e)}))
         return
 
-    t = threading.Thread(
-        target=recv_loop, args=(client, out_queue, stop_event), daemon=True
-    )
+    t = threading.Thread(target=recv_loop, args=(
+        client, out_queue, stop_event), daemon=True)
     t.start()
 
     ws.send(json.dumps(
         {"type": "connected", "message": "Connected to MAX server"}))
     if saved_token:
-        ws.send(
-            json.dumps(
-                {
-                    "type": "session_restored",
-                    "message": "Используется сохранённая сессия — авторизация не требуется",
-                }
-            )
-        )
+        ws.send(json.dumps({"type": "session_restored",
+                "message": "Используется сохранённая сессия"}))
 
     try:
         while True:
-            # Отправка пакетов из очереди
             try:
                 while True:
                     packet = out_queue.get_nowait()
@@ -607,7 +577,6 @@ def relay(ws):
             except queue.Empty:
                 pass
 
-            # Приём сообщений от клиента
             msg = ws.receive(timeout=0.2)
             if msg is None:
                 continue
@@ -616,21 +585,14 @@ def relay(ws):
             opcode = req.get("opcode")
             payload = numify_big_int_strings(req.get("payload", {}))
 
-            # ---- Всегда вставляем свежий сохранённый токен, но не затираем
-            # токен, который фронт передал явно (например, OTP-токен при
-            # проверке кода — это другой токен, не auth-токен сессии) ----
             if "token" not in payload:
                 current_token = get_saved_auth_token()
                 if current_token:
                     payload["token"] = current_token
-            # ---------------------------------------------------------------
 
-            # ---- Обработка пинга (opcode=0) ----
             if opcode == 0:
-                # Отправляем ответ-пустышку, чтобы клиент знал, что мы живы
                 ws.send(json.dumps({"opcode": 0, "payload": {"pong": True}}))
                 continue
-            # -----------------------------------
 
             if opcode is not None:
                 client.send(opcode, payload)
@@ -642,8 +604,31 @@ def relay(ws):
         client.close()
 
 
+def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.Event):
+    while not stop_event.is_set():
+        try:
+            packet = client.recv_packet()
+        except socket.timeout:
+            continue
+        except (ConnectionError, OSError) as e:
+            logger.warning(f"recv_loop stopped: {e}")
+            break
+
+        cmd_status = "OK" if packet["cmd"] == 256 else "ERROR" if packet["cmd"] == 768 else str(
+            packet["cmd"])
+        logger.info(
+            f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
+
+        if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
+            token_attrs = packet["payload"].get("tokenAttrs")
+            if token_attrs and "LOGIN" in token_attrs:
+                save_auth_token(token_attrs["LOGIN"]["token"])
+                logger.info("[session] auth token saved")
+
+        out_queue.put(packet)
+
+
 if __name__ == "__main__":
-    # Для продакшена используйте debug=False и запускайте через gunicorn или подобное
     debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
