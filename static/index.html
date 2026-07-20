@@ -1372,6 +1372,27 @@
         .chat-profile-danger:active {
             background: rgba(220, 53, 69, 0.15);
         }
+
+        /* Поле ввода текста автоответа в профиле */
+        .autoreply-input-row {
+            padding: 8px 12px;
+        }
+
+        .autoreply-input-row label {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .autoreply-input-row input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 
@@ -1500,14 +1521,6 @@
             <span class="chat-id-label" id="chatIdLabel"></span>
         </div>
         <div id="messagesList"></div>
-        <div class="autoreply-row">
-            <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
-        </div>
-        <input type="text" id="autoreplyText" placeholder="Текст автоответа"
-            style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
-        <div class="autoreply-row">
-            <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано»</label>
-        </div>
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
@@ -2116,12 +2129,22 @@
             </button>
         `;
 
+            // Текст автоответа (поле ввода внутри профиля)
+            optionsContainer.innerHTML += `
+            <div class="autoreply-input-row">
+                <label>Текст автоответа:</label>
+                <input type="text" id="profileAutoreplyText" value="${escapeHtml(ars.text || '')}" 
+                       placeholder="Введите текст автоответа" 
+                       onchange="saveProfileAutoreplyText(this.value)">
+            </div>
+        `;
+
             // Ghost read
             const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
             optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="toggleChatOption('ghost')">
                 <span class="opt-icon">👻</span>
-                <span class="opt-label">Не показывать «прочитано»</span>
+                <span class="opt-label">Не отправлять «прочитано»</span>
                 <span class="opt-toggle">
                     <div class="toggle-switch ${gr[chat.id] ? 'active' : ''}" id="toggleGhost">
                         <div class="toggle-knob"></div>
@@ -2152,6 +2175,14 @@
             document.body.style.overflow = '';
         }
 
+        function saveProfileAutoreplyText(value) {
+            if (!currentChatId) return;
+            const s = getAutoreplySettings(currentChatId);
+            s.text = value;
+            saveAutoreplySettings(currentChatId, s);
+            log('✅ Текст автоответа сохранён', 'success');
+        }
+
         function toggleChatOption(type) {
             if (!currentChatId) return;
 
@@ -2159,7 +2190,6 @@
                 const s = getAutoreplySettings(currentChatId);
                 s.enabled = !s.enabled;
                 saveAutoreplySettings(currentChatId, s);
-                document.getElementById('autoreplyEnabled').checked = s.enabled;
                 const toggle = document.getElementById('toggleAutoreply');
                 if (toggle) toggle.classList.toggle('active');
                 log(`🤖 Автоответ ${s.enabled ? 'включён' : 'выключен'}`, 'info');
@@ -2169,7 +2199,6 @@
                 const all = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
                 all[currentChatId] = !all[currentChatId];
                 localStorage.setItem('maxclient_ghost_read', JSON.stringify(all));
-                document.getElementById('ghostReadEnabled').checked = all[currentChatId];
                 const toggle = document.getElementById('toggleGhost');
                 if (toggle) toggle.classList.toggle('active');
                 log(`👻 Ghost read ${all[currentChatId] ? 'включён' : 'выключен'}`, 'info');
@@ -2284,7 +2313,7 @@
         function chatAvatarUrl(chat) {
             if (chat.type === 'DIALOG' && chat.id === 0) {
                 // Возвращаем корректную data URL для Избранного
-                return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsCAYAAAB5fY51AAAQAElEQVR4Aeyd37XkRhGHtR2BiQCbEJwANg4B3oEDIcAD+MHmgTdCwMc4AEIAmwQgA7wRABksqpnVvVNdUo/+dXe1+tsjjdTVra7qr6Tf1Z0tr8Pwu3fvht8ndvrhw/2xfA/wfCyzkfvmZD5heDOk/9APnxQB7o8UnYHna0j/2Xj/hPRs9EIAAhDwQwDB8pML9khwAIHWCUYpCWMAAAAABJRU5ErkJggg==";
+                return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsCAYAAAB5fY51AAAQAElEQVR4Aeyd37XkRhOHtR2BiQCbEJwANg4B3oEDIcAD+MHmgTdCwMc4AEIAmwQgA7wRABksqpnVvVNdUo/+dXe1+tsjjdTVra7qr6Tf1Z0tr8Pwu3fvht8ndvrhw/2xfA/wfCyzkfvmZD5heDOk/9APnxQB7o8UnYHna0j/2Xj/hPRs9EIAAhDwQwDB8pML9khwAIHWCUYpCWMAAAAABJRU5ErkJggg==";
             }
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
@@ -2523,11 +2552,8 @@
             avatarContainer.dataset.initials = initial;
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
-            const ars = getAutoreplySettings(chatId);
-            document.getElementById('autoreplyEnabled').checked = ars.enabled;
-            document.getElementById('autoreplyText').value = ars.text || '';
-            const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
-            document.getElementById('ghostReadEnabled').checked = gr[chatId] || false;
+
+            // Загружаем сообщения
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 50, getMessages: true });
         }
 
@@ -3020,7 +3046,11 @@
                         password: 'verifyPassword',
                         messageText: 'sendMessageBtn'
                     };
-                    document.getElementById(map[el.id])?.click();
+                    const btnId = map[el.id];
+                    if (btnId) {
+                        const btn = document.getElementById(btnId);
+                        if (btn && !btn.disabled) btn.click();
+                    }
                 }
             };
         });
@@ -3037,27 +3067,6 @@
             all[chatId] = settings;
             localStorage.setItem('maxclient_autoreply', JSON.stringify(all));
         }
-
-        document.getElementById('autoreplyEnabled').onchange = (e) => {
-            if (!currentChatId) return;
-            const s = getAutoreplySettings(currentChatId);
-            s.enabled = e.target.checked;
-            saveAutoreplySettings(currentChatId, s);
-        };
-
-        document.getElementById('autoreplyText').onchange = (e) => {
-            if (!currentChatId) return;
-            const s = getAutoreplySettings(currentChatId);
-            s.text = e.target.value;
-            saveAutoreplySettings(currentChatId, s);
-        };
-
-        document.getElementById('ghostReadEnabled').onchange = (e) => {
-            if (!currentChatId) return;
-            const all = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
-            all[currentChatId] = e.target.checked;
-            localStorage.setItem('maxclient_ghost_read', JSON.stringify(all));
-        };
 
         async function checkAuth() {
             try {
