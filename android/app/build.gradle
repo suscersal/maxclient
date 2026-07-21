@@ -1,0 +1,69 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'com.example.maxclient'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.example.maxclient"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        // Ограничиваем ABI, чтобы не тащить лишние бинарники Python
+        // и сократить время сборки / размер APK.
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+
+        python {
+            // Python-версия внутри APK.
+            version "3.11"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    // Python-исходники и статика (index.html, avatars.json, manifest.json)
+    // лежат в app/src/main/python — это дефолтный путь Chaquopy,
+    // указываем явно для наглядности.
+    sourceSets {
+        main {
+            python.srcDirs = ["src/main/python"]
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        pip {
+            install "flask"
+            install "flask-sock"
+            install "lz4"
+            // msgpack сознательно НЕ ставим через pip — см. README-ANDROID.md.
+            // Используется чистый Python-модуль msgpack_lite.py.
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core-ktx:1.13.1'
+}

@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build/
+/captures/
+.cxx/
+app/build/
+
+# НИКОГДА не коммитить токен сессии
+session.json
+app/src/main/python/session.json
+*.keystore
+*.jks
