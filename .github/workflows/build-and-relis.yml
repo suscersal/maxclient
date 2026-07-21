@@ -2,6 +2,7 @@ name: Build & Release
 
 on:
   push:
+    branches: [ main ]
     tags:
       - 'v*'
   workflow_dispatch: {}
@@ -44,12 +45,13 @@ jobs:
         id: tag
         working-directory: .
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Ручной запуск без полей ввода — тег генерируется сам:
-            # build-<номер запуска>, например build-17
-            echo "tag=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          else
+          # Если запуск из-за пуша тега (v1.0.0 и т.п.) — используем его как есть.
+          # Во всех остальных случаях (пуш в main, ручной запуск) —
+          # генерируем тег сами: build-<номер запуска>, например build-17.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release

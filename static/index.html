@@ -1465,12 +1465,13 @@
     <div id="loginSection" class="section">
         <h3>📱 Авторизация</h3>
         <div class="input-group">
-            <input type="text" id="phone" placeholder="Номер телефона" value="+7">
+            <input type="tel" id="phone" placeholder="Номер телефона" value="+7" inputmode="tel" autocomplete="tel">
             <button id="requestOtp">Отправить код</button>
             <button id="resendCode" style="background: #6c757d;">Повторно</button>
         </div>
         <div class="input-group">
-            <input type="text" id="code" placeholder="Код из SMS">
+            <input type="text" id="code" placeholder="Код из SMS" inputmode="numeric" pattern="[0-9]*"
+                autocomplete="one-time-code">
             <button id="verifyCode" class="success">Подтвердить</button>
         </div>
         <div id="passwordSection" class="hidden">
@@ -1506,7 +1507,8 @@
         <input type="text" id="autoreplyText" placeholder="Текст автоответа"
             style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
         <div class="autoreply-row">
-            <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано» в этом чате</label>
+            <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано» в этом
+                чате</label>
         </div>
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
