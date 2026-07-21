@@ -1372,27 +1372,6 @@
         .chat-profile-danger:active {
             background: rgba(220, 53, 69, 0.15);
         }
-
-        /* Поле ввода текста автоответа в профиле */
-        .autoreply-input-row {
-            padding: 8px 12px;
-        }
-
-        .autoreply-input-row label {
-            font-size: 13px;
-            color: #888;
-            margin-bottom: 4px;
-            display: block;
-        }
-
-        .autoreply-input-row input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
     </style>
 </head>
 
@@ -1521,6 +1500,14 @@
             <span class="chat-id-label" id="chatIdLabel"></span>
         </div>
         <div id="messagesList"></div>
+        <div class="autoreply-row">
+            <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
+        </div>
+        <input type="text" id="autoreplyText" placeholder="Текст автоответа"
+            style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <div class="autoreply-row">
+            <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано» в этом чате</label>
+        </div>
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
@@ -1533,49 +1520,6 @@
     </div>
 
     <script>
-    // --- Уведомления ---
-function showNotification(title, body, chatId, messageId) {
-    if (!("Notification" in window)) {
-        console.log("Браузер не поддерживает уведомления");
-        return;
-    }
-
-    if (Notification.permission === "granted") {
-        sendNotification(title, body, chatId, messageId);
-    } else if (Notification.permission !== "denied") {
-        Notification.requestPermission().then(permission => {
-            if (permission === "granted") {
-                sendNotification(title, body, chatId, messageId);
-            }
-        });
-    }
-}
-
-function sendNotification(title, body, chatId, messageId) {
-    const notification = new Notification(title, {
-        body: body,
-        icon: '/favicon.ico', // или любая другая иконка
-        silent: false,
-        tag: `chat-${chatId}-${messageId}`,
-    });
-
-    // При клике на уведомление открываем чат
-    notification.onclick = function() {
-        window.focus();
-        this.close();
-        if (chatId) {
-            // Если чат свёрнут, разворачиваем
-            document.getElementById('chatsSection').classList.remove('hidden');
-            document.getElementById('chatDetailSection').classList.add('hidden');
-            openChat(chatId);
-        }
-    };
-}
-
-// Запрашиваем разрешение при загрузке
-if (Notification.permission === "default") {
-    Notification.requestPermission();
-}
         // ========================================
         // ПЛЕЕР (сокращён)
         // ========================================
@@ -1586,10 +1530,6 @@ if (Notification.permission === "default") {
         let isMuted = false;
         let controlsTimeout = null;
         let isControlsVisible = true;
-        let isLoadingMore = false;
-let hasMoreMessages = true;
-let earliestMessageTime = null;
-const MESSAGES_PER_PAGE = 10;
 
         const video = document.getElementById('videoPlayer');
         const modal = document.getElementById('videoModal');
@@ -1730,42 +1670,6 @@ const MESSAGES_PER_PAGE = 10;
                 toggleMute();
             }
         });
-        function loadMoreMessages() {
-    if (isLoadingMore || !hasMoreMessages || !currentChatId) return;
-    if (!earliestMessageTime) {
-        // Если нет времени самого раннего сообщения, просто загружаем последние 10
-        earliestMessageTime = Date.now();
-    }
-
-    isLoadingMore = true;
-    const list = document.getElementById('messagesList');
-    
-    // Показываем индикатор загрузки
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.id = 'loadingMore';
-    loadingIndicator.className = 'msg-bubble';
-    loadingIndicator.style.textAlign = 'center';
-    loadingIndicator.style.color = '#888';
-    loadingIndicator.style.fontSize = '12px';
-    loadingIndicator.textContent = '⏳ Загрузка...';
-    list.prepend(loadingIndicator);
-
-    // Отправляем запрос на получение старых сообщений
-    send(49, {
-        chatId: currentChatId,
-        from: earliestMessageTime - 1, // чуть раньше самого раннего сообщения
-        forward: 0,
-        backward: MESSAGES_PER_PAGE,
-        getMessages: true
-    });
-
-    // Устанавливаем таймаут, чтобы снять флаг загрузки если ответ не пришёл
-    setTimeout(() => {
-        isLoadingMore = false;
-        const indicator = document.getElementById('loadingMore');
-        if (indicator) indicator.remove();
-    }, 5000);
-}
 
         async function inlineVideoTap(uid) {
             const container = document.getElementById(uid);
@@ -2091,6 +1995,8 @@ const MESSAGES_PER_PAGE = 10;
         let contactsById = {};
         let chatsById = {};
         let currentChatId = null;
+        let earliestMessageTime = null;
+        let isLoadingMore = false;
         let metadataOverride = {};
         let presenceById = {};
 
@@ -2214,10 +2120,11 @@ const MESSAGES_PER_PAGE = 10;
 
             // Текст автоответа (поле ввода внутри профиля)
             optionsContainer.innerHTML += `
-            <div class="autoreply-input-row">
-                <label>Текст автоответа:</label>
+            <div class="chat-profile-option" style="flex-direction:column;align-items:stretch;gap:8px;padding:8px 12px;">
+                <div style="font-size:13px;color:#888;margin-bottom:2px;">Текст автоответа:</div>
                 <input type="text" id="profileAutoreplyText" value="${escapeHtml(ars.text || '')}" 
                        placeholder="Введите текст автоответа" 
+                       style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
                        onchange="saveProfileAutoreplyText(this.value)">
             </div>
         `;
@@ -2396,7 +2303,7 @@ const MESSAGES_PER_PAGE = 10;
         function chatAvatarUrl(chat) {
             if (chat.type === 'DIALOG' && chat.id === 0) {
                 // Возвращаем корректную data URL для Избранного
-                return "data:image/png;base64,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";
+                return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsCAYAAAB5fY51AAAQAElEQVR4Aeyd37XkRhOHtR2BiQCbEJwANg4B3oEDIcAD+MHmgTdCwMc4AEIAmwQgA7wRABksqpnVvVNdUo/+dXe1+tsjjdTVra7qr6Tf1Z0tr8Pwu3fvht8ndvrhw/2xfA/wfCyzkfvmZD5heDOk/9APnxQB7o8UnYHna0j/2Xj/hPRs9EIAAhDwQwDB8pML9khwAIHWCUYpCWMAAAAABJRU5ErkJggg==";
             }
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
@@ -2635,114 +2542,62 @@ const MESSAGES_PER_PAGE = 10;
             avatarContainer.dataset.initials = initial;
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
-
-            // Сброс пагинации при открытии чата
-    hasMoreMessages = true;
-    earliestMessageTime = null;
-    isLoadingMore = false;
-
-    // Убираем старый обработчик, если был
-    const list = document.getElementById('messagesList');
-    list.removeEventListener('scroll', handleScroll);
-    list.addEventListener('scroll', handleScroll);
-
-    // Загружаем сообщения
-    send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: MESSAGES_PER_PAGE, getMessages: true });
-}
-
-// Обработчик скролла
-function handleScroll() {
-    const list = document.getElementById('messagesList');
-    if (list.scrollTop < 50) { // Когда доходим до верха
-        loadMoreMessages();
-    }
-}
-
-        function renderMessages(payload) {
-    const list = document.getElementById('messagesList');
-    
-    // Убираем индикатор загрузки
-    const loadingIndicator = document.getElementById('loadingMore');
-    if (loadingIndicator) loadingIndicator.remove();
-
-    // Проверяем, есть ли ещё сообщения
-    const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
-    
-    if (messages.length === 0) {
-        hasMoreMessages = false;
-        isLoadingMore = false;
-        // Показываем, что больше нет сообщений
-        if (list.children.length === 0) {
-            const emptyMsg = document.createElement('div');
-            emptyMsg.className = 'msg-bubble';
-            emptyMsg.style.textAlign = 'center';
-            emptyMsg.style.color = '#888';
-            emptyMsg.style.fontSize = '13px';
-            emptyMsg.style.padding = '20px';
-            emptyMsg.textContent = '💬 Нет сообщений. Напишите первое!';
-            list.appendChild(emptyMsg);
+            earliestMessageTime = null;
+            isLoadingMore = false;
+            const ars = getAutoreplySettings(chatId);
+            document.getElementById('autoreplyEnabled').checked = ars.enabled;
+            document.getElementById('autoreplyText').value = ars.text || '';
+            const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
+            document.getElementById('ghostReadEnabled').checked = gr[chatId] || false;
+            send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
         }
-        return;
-    }
 
-    // Сохраняем самое раннее время для следующей загрузки
-    const earliestMsg = messages[0];
-    if (earliestMsg && earliestMsg.time) {
-        earliestMessageTime = earliestMsg.time;
-    }
-
-    // Фильтруем уже существующие сообщения, чтобы не было дублей
-    const existingIds = new Set();
-    list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
-        existingIds.add(el.dataset.msgId);
-    });
-
-    const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
-
-    if (newMessages.length > 0) {
-        // Если мы загружаем старые сообщения (подгрузка вверх)
-        const isLoadMore = list.children.length > 0 && messages.length > 0;
-        
-        if (isLoadMore) {
-            // Сохраняем текущую позицию скролла
-            const scrollHeight = list.scrollHeight;
-            const scrollTop = list.scrollTop;
-            
-            // Добавляем новые сообщения в начало
-            newMessages.forEach(m => {
-                const el = createMessageElement(m);
-                list.prepend(el);
+        function renderMessages(payload, prepend) {
+            const list = document.getElementById('messagesList');
+            const existingIds = new Set();
+            list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
+                existingIds.add(el.dataset.msgId);
             });
-            
-            // Восстанавливаем позицию скролла
-            const newScrollHeight = list.scrollHeight;
-            list.scrollTop = scrollTop + (newScrollHeight - scrollHeight);
-        } else {
-            // Просто добавляем в конец (новые сообщения)
-            newMessages.forEach(m => {
-                const el = createMessageElement(m);
-                list.appendChild(el);
-            });
-        }
-        
-        // Если загрузили меньше, чем запрашивали - значит больше нет
-        if (messages.length < MESSAGES_PER_PAGE) {
-            hasMoreMessages = false;
-        }
-    } else {
-        // Если новых сообщений нет, но запрос был на загрузку старых - значит больше нет
-        if (payload.backward > 0) {
-            hasMoreMessages = false;
-        }
-    }
+            const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+            const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
 
-    isLoadingMore = false;
-    
-    // Прокручиваем вниз только если это не загрузка старых сообщений
-    if (!payload.backward || payload.backward === 0) {
-        list.scrollTop = list.scrollHeight;
-    }
-}
+            if (newMessages.length === 0) {
+                isLoadingMore = false;
+                return;
+            }
+
+            const batchMinTime = Math.min(...newMessages.map(m => m.time || Infinity));
+            if (earliestMessageTime == null || batchMinTime < earliestMessageTime) {
+                earliestMessageTime = batchMinTime;
+            }
+
+            if (prepend) {
+                const prevScrollHeight = list.scrollHeight;
+                const prevScrollTop = list.scrollTop;
+                const frag = document.createDocumentFragment();
+                newMessages.forEach(m => frag.appendChild(createMessageElement(m)));
+                list.insertBefore(frag, list.firstChild);
+                // Сохраняем позицию скролла, чтобы подгрузка не "прыгала" вниз
+                list.scrollTop = prevScrollTop + (list.scrollHeight - prevScrollHeight);
+                isLoadingMore = false;
+            } else {
+                newMessages.forEach(m => list.appendChild(createMessageElement(m)));
+                list.scrollTop = list.scrollHeight;
+            }
+        }
+
+        document.getElementById('messagesList').addEventListener('scroll', function () {
+            if (this.scrollTop < 50 && !isLoadingMore && earliestMessageTime != null && currentChatId != null) {
+                isLoadingMore = true;
+                send(49, {
+                    chatId: currentChatId,
+                    from: earliestMessageTime - 1,
+                    forward: 0,
+                    backward: 10,
+                    getMessages: true,
+                });
+            }
+        });
 
         function connect() {
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -2837,41 +2692,17 @@ function handleScroll() {
                         return;
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
-                        renderMessages(data.payload);
+                        renderMessages(data.payload, isLoadingMore);
                         return;
                     }
                     if (data.opcode === 64 && data.cmd === 256) {
-    // Обновляем список сообщений
-    document.getElementById('messageText').value = '';
-    send(49, {
-        chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
-        getMessages: true
-    });
-
-    // === НОВОЕ: Уведомление ===
-    const payload = data.payload || {};
-    const message = payload.message || {};
-    const chatId = payload.chatId;
-
-    // Если чат не открыт ИЛИ открыт другой чат
-    if (chatId && chatId !== currentChatId) {
-        const chat = chatsById[chatId];
-        if (chat) {
-            const senderId = message.sender;
-            const senderName = chatDisplayName(chat);
-            const text = message.text || 'Новое сообщение';
-            
-            // Показываем уведомление
-            showNotification(
-                senderName,
-                text.length > 50 ? text.slice(0, 50) + '…' : text,
-                chatId,
-                message.id
-            );
-        }
-    }
-    return;
-}
+                        document.getElementById('messageText').value = '';
+                        send(49, {
+                            chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
+                            getMessages: true
+                        });
+                        return;
+                    }
                     if (data.opcode === 130 && data.payload) {
                         const p = data.payload;
                         if (p.chatId != null && p.userId != null && p.mark != null) {
@@ -2915,6 +2746,40 @@ function handleScroll() {
                         }
                         return;
                     }
+
+                    // notifMessage — новое входящее сообщение в реальном времени
+                    if (data.opcode === 128 && data.payload) {
+                        const msg = data.payload.message || data.payload;
+                        const chatId = data.payload.chatId ?? msg.chatId;
+                        if (chatId == null) return;
+
+                        if (chatsById[chatId]) {
+                            chatsById[chatId].lastMessage = msg;
+                            chatsById[chatId].lastEventTime = msg.time || Date.now();
+                        }
+
+                        const chatDetailOpen = !document.getElementById('chatDetailSection').classList.contains('hidden');
+                        if (chatId === currentChatId && chatDetailOpen) {
+                            const el = createMessageElement(msg);
+                            document.getElementById('messagesList').appendChild(el);
+                            document.getElementById('messagesList').scrollTop = document.getElementById('messagesList').scrollHeight;
+                        } else if (msg.sender !== selfId) {
+                            // Чат не открыт — показываем системное уведомление
+                            const chat = chatsById[chatId];
+                            const senderName = chat ? chatDisplayName(chat) : 'Новое сообщение';
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                const n = new Notification(senderName, {
+                                    body: msg.text || '📎 Вложение',
+                                    icon: chat ? (chatAvatarUrl(chat) || undefined) : undefined,
+                                });
+                                n.onclick = () => {
+                                    window.focus();
+                                    if (chatsById[chatId]) openChat(chatId);
+                                };
+                            }
+                        }
+                        return;
+                    }
                 } catch (err) {
                     console.error('[ws error]', err);
                 }
@@ -2953,25 +2818,18 @@ function handleScroll() {
         }
 
         function addSettingRow(key = '', value = '') {
-            const page = document.getElementById('page-vars');
-            if (!page) return;
-            // Удаляем сообщение "Нет переменных", если оно есть
-            const empty = page.querySelector('.settings-empty');
+            const container = document.getElementById('settingsRowsContainer');
+            if (!container) return;
+            const empty = container.querySelector('.settings-empty');
             if (empty) empty.remove();
-
             const row = document.createElement('div');
             row.className = 'settings-row';
             row.innerHTML = `
-        <input class="setting-key" placeholder="Название" value="${escapeHtml(key)}">
-        <input class="setting-value" placeholder="Значение" value="${escapeHtml(value)}">
-    `;
-            // Вставляем перед последним элементом (футер с кнопками)
-            const footer = page.querySelector('.settings-content-footer');
-            if (footer) {
-                page.insertBefore(row, footer);
-            } else {
-                page.appendChild(row);
-            }
+            <input class="setting-key" placeholder="Название" value="${escapeHtml(key)}">
+            <input class="setting-value" placeholder="Значение" value="${escapeHtml(value)}">
+        `;
+            container.appendChild(row);
+            settingsMenu.refreshPage('vars');
         }
 
         function saveSettings() {
@@ -3247,11 +3105,7 @@ function handleScroll() {
                         password: 'verifyPassword',
                         messageText: 'sendMessageBtn'
                     };
-                    const btnId = map[el.id];
-                    if (btnId) {
-                        const btn = document.getElementById(btnId);
-                        if (btn && !btn.disabled) btn.click();
-                    }
+                    document.getElementById(map[el.id])?.click();
                 }
             };
         });
@@ -3283,6 +3137,10 @@ function handleScroll() {
 
         applySettingsVars(loadSettingsVars());
         checkAuth();
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
         connect();
 
         window.onbeforeunload = () => { if (ws) ws.close(); };
