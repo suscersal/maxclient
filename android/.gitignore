@@ -13,3 +13,12 @@ session.json
 app/src/main/python/session.json
 *.keystore
 *.jks
+
+# Эти файлы теперь копируются автоматически из корня репозитория
+# скриптом scripts/sync-android-python.sh (см. корневой README) —
+# редактировать их здесь вручную больше не нужно, единственный
+# источник правды — bridge.py и static/* в корне репозитория.
+app/src/main/python/bridge.py
+app/src/main/python/index.html
+app/src/main/python/avatars.json
+app/src/main/python/manifest.json

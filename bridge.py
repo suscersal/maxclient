@@ -345,18 +345,27 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
 
 
 # --- Flask приложение ---
-app = Flask(__name__, static_folder="static")
+# Проверяем систему: если рядом с bridge.py есть папка static/ (десктоп-версия) —
+# раздаём файлы из неё; если нет (Android-сборка, где index.html лежит прямо
+# рядом с bridge.py) — раздаём файлы из папки самого bridge.py.
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_STATIC_CANDIDATE = os.path.join(_BASE_DIR, "static")
+STATIC_DIR = _STATIC_CANDIDATE if os.path.isdir(
+    _STATIC_CANDIDATE) else _BASE_DIR
+logger.info(f"[static] Serving frontend files from: {STATIC_DIR}")
+
+app = Flask(__name__, static_folder=STATIC_DIR)
 sock = Sock(app)
 
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/<path:filename>")
 def static_files(filename):
-    return send_from_directory("static", filename)
+    return send_from_directory(STATIC_DIR, filename)
 
 
 @app.route("/img")
