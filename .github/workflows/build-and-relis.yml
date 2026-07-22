@@ -11,7 +11,28 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  # Единая точка, где вычисляется тег релиза — чтобы во всех job'ах
+  # (android/linux/windows) он был одинаковым.
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          # Если запуск из-за пуша тега (v1.0.0 и т.п.) — используем его как есть.
+          # Во всех остальных случаях (пуш в main, ручной запуск) —
+          # генерируем тег сами: build-<номер запуска>, например build-17.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------- Android (APK через Chaquopy) ----------
+  build-android:
+    needs: resolve-tag
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,6 +54,14 @@ jobs:
         with:
           gradle-version: 8.7
 
+      - name: Refuse to build if session.json leaked into the repo
+        working-directory: .
+        run: |
+          if find . -iname "session.json" | grep -q .; then
+            echo "::error::Found session.json in the checkout — it must never be committed (contains a live auth token). Aborting build."
+            exit 1
+          fi
+
       - name: Sync bridge.py + static assets into Android Chaquopy folder
         working-directory: .
         run: bash scripts/sync-android-python.sh
@@ -41,23 +70,115 @@ jobs:
         working-directory: android
         run: gradle assembleDebug --stacktrace
 
-      - name: Resolve release tag
-        id: tag
-        working-directory: .
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: max-client-android
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  # ---------- Linux (единый бинарник через PyInstaller) ----------
+  build-linux:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
         run: |
-          # Если запуск из-за пуша тега (v1.0.0 и т.п.) — используем его как есть.
-          # Во всех остальных случаях (пуш в main, ручной запуск) —
-          # генерируем тег сами: build-<номер запуска>, например build-17.
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          python -m pip install --upgrade pip
+          pip install flask flask-sock msgpack lz4 pyinstaller
+
+      - name: Refuse to build if session.json leaked into the repo
+        run: |
+          if find . -iname "session.json" | grep -q .; then
+            echo "::error::Found session.json in the checkout — it must never be committed (contains a live auth token). Aborting build."
+            exit 1
           fi
+
+      - name: Build standalone binary
+        run: |
+          # Явно перечисляем только нужные фронтенду файлы (whitelist),
+          # а не всю папку static/ целиком — чтобы туда случайно
+          # не попал session.json с токеном, если кто-то положит его рядом.
+          pyinstaller --onefile --name max-client-linux \
+            --add-data "static/index.html:static" \
+            --add-data "static/avatars.json:static" \
+            --add-data "static/manifest.json:static" \
+            bridge.py
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: max-client-linux
+          path: dist/max-client-linux
+          if-no-files-found: error
+
+  # ---------- Windows (единый .exe через PyInstaller) ----------
+  build-windows:
+    needs: resolve-tag
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flask flask-sock msgpack lz4 pyinstaller
+
+      - name: Refuse to build if session.json leaked into the repo
+        shell: bash
+        run: |
+          if find . -iname "session.json" | grep -q .; then
+            echo "::error::Found session.json in the checkout — it must never be committed (contains a live auth token). Aborting build."
+            exit 1
+          fi
+
+      - name: Build standalone binary
+        run: |
+          # Явно перечисляем только нужные фронтенду файлы (whitelist),
+          # а не всю папку static/ целиком — чтобы туда случайно
+          # не попал session.json с токеном, если кто-то положит его рядом.
+          pyinstaller --onefile --name max-client-windows `
+            --add-data "static/index.html;static" `
+            --add-data "static/avatars.json;static" `
+            --add-data "static/manifest.json;static" `
+            bridge.py
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: max-client-windows
+          path: dist/max-client-windows.exe
+          if-no-files-found: error
+
+  # ---------- Единый релиз со всеми тремя сборками сразу ----------
+  release:
+    needs: [ resolve-tag, build-android, build-linux, build-windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: MAX Client ${{ steps.tag.outputs.tag }}
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          name: MAX Client ${{ needs.resolve-tag.outputs.tag }}
           generate_release_notes: true
+          files: |
+            dist-artifacts/max-client-android/app-debug.apk
+            dist-artifacts/max-client-linux/max-client-linux
+            dist-artifacts/max-client-windows/max-client-windows.exe
