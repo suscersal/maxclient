@@ -908,7 +908,8 @@ def web_app_init():
     if chat_id is not None:
         payload["chatId"] = int(chat_id)
 
-    logger.info(f"[web-app-init] botId={bot_id}, chatId={chat_id}, startParam={start_param!r}")
+    logger.info(
+        f"[web-app-init] botId={bot_id}, chatId={chat_id}, startParam={start_param!r}")
 
     try:
         packet = fetch_once(160, payload, wait_opcode=160, timeout=15)
@@ -924,7 +925,8 @@ def web_app_init():
             "localizedMessage", "Не удалось открыть мини-приложение")
         return jsonify({"error": error_msg}), 502
 
-    url = packet.get("payload", {}).get("url") if isinstance(packet.get("payload"), dict) else None
+    url = packet.get("payload", {}).get("url") if isinstance(
+        packet.get("payload"), dict) else None
     if not url:
         return jsonify({"error": "Сервер не вернул адрес приложения"}), 502
 

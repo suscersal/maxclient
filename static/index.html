@@ -283,6 +283,36 @@
             margin-left: 4px;
         }
 
+        .bot-webapp-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 11px 16px;
+            margin: 0 0 8px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #ecf6ff 0%, #e3f1fc 100%);
+            color: #2481cc;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(36, 129, 204, 0.12);
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .bot-webapp-bar:active {
+            background: #d9ebfa;
+            transform: scale(0.99);
+        }
+
+        .bot-webapp-bar .bot-webapp-icon {
+            font-size: 17px;
+            line-height: 1;
+            opacity: 0.9;
+        }
+
         #messagesList {
             display: flex;
             flex-direction: column;
@@ -1598,6 +1628,10 @@
             <span class="chat-id-label" id="chatIdLabel"></span>
         </div>
         <div id="messagesList"></div>
+        <button type="button" id="botWebAppBtn" class="bot-webapp-bar hidden" onclick="openBotWebApp()">
+            <span class="bot-webapp-icon">⊞</span>
+            <span id="botWebAppBtnText">Открыть приложение</span>
+        </button>
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
@@ -2247,6 +2281,16 @@
             </button>
         `;
 
+            const webAppInfo = getBotWebAppInfo(chat);
+            if (webAppInfo) {
+                optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="closeChatProfile(); openBotWebApp();">
+                <span class="opt-icon">⊞</span>
+                <span class="opt-label">${escapeHtml(webAppInfo.title)}</span>
+            </button>
+        `;
+            }
+
             // Закрепить чат (заглушка)
             optionsContainer.innerHTML += `
             <hr class="chat-profile-divider">
@@ -2394,6 +2438,58 @@
             return '<span class="bot-badge">Бот</span>';
         }
 
+        function stripHtml(html) {
+            const d = document.createElement('div');
+            d.innerHTML = html;
+            return (d.textContent || d.innerText || '').trim();
+        }
+
+        function getBotWebAppInfo(chat) {
+            if (!chat || chat.type !== 'DIALOG' || !isBotChat(chat)) return null;
+            const botId = otherParticipantId(chat);
+            if (!botId) return null;
+            const contact = contactsById[botId] || {};
+            const webApp = contact.webApp || contact.web_app;
+            const menuBtn = contact.menuButton || contact.menu_button;
+            const menuText = (menuBtn && typeof menuBtn === 'object' ? menuBtn.text : null)
+                || contact.menuButtonText
+                || contact.webAppTitle;
+            const deeplink = parseWebAppDeeplink(webApp);
+            let title = menuText;
+            if (!title) {
+                const botName = stripHtml(chatDisplayName(chat));
+                title = botName ? `Открыть «${botName}»` : 'Открыть приложение';
+            }
+            return {
+                botId,
+                title,
+                startParam: deeplink.startParam || '',
+                chatId: chat.id,
+            };
+        }
+
+        function updateBotWebAppButton(chat) {
+            const btn = document.getElementById('botWebAppBtn');
+            const info = chat ? getBotWebAppInfo(chat) : null;
+            if (!info) {
+                btn.classList.add('hidden');
+                return;
+            }
+            document.getElementById('botWebAppBtnText').textContent = info.title;
+            btn.classList.remove('hidden');
+        }
+
+        function openBotWebApp() {
+            const chat = chatsById[currentChatId];
+            const info = getBotWebAppInfo(chat);
+            if (!info) return;
+            openMiniAppViaServer(info.botId, {
+                title: info.title,
+                startParam: info.startParam,
+                chatId: info.chatId,
+            });
+        }
+
         function chatDisplayName(chat) {
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
@@ -2499,9 +2595,9 @@
                 } else {
                     avatarHtml = initial;
                 }
-            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
-            const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
-            const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
+                const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+                const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
+                const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
@@ -2517,6 +2613,9 @@
             });
             settingsMenu.refreshPage('account');
             log(`📋 Загружено ${chats.length} чатов`, 'success');
+            if (currentChatId != null && !document.getElementById('chatDetailSection').classList.contains('hidden')) {
+                updateBotWebAppButton(chatsById[currentChatId]);
+            }
         }
 
         function chatPreview(chat) {
@@ -2599,6 +2698,7 @@
             el.className = 'msg-bubble' + (isOwn ? ' own' : '');
             el.dataset.msgId = m.id;
             let attachesHtml = '';
+            let keyboardHtml = '';
             (m.attaches || []).forEach(a => {
                 if (a._type === 'PHOTO') {
                     let src = a.baseRawUrl || a.baseUrl;
@@ -2635,7 +2735,7 @@
                     return;
                 }
                 if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
-                    attachesHtml += renderKeyboardAttach(a, m.id);
+                    keyboardHtml += renderKeyboardAttach(a, m.id);
                     return;
                 }
                 // Неизвестный тип attach — не рендерим, но логируем, чтобы можно было
@@ -2654,7 +2754,7 @@
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
             const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = attachesHtml + textHtml + reactionsHtml + timeHtml;
+            el.innerHTML = attachesHtml + textHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
         }
 
@@ -2821,6 +2921,10 @@
         }
 
         function openMiniApp(url, meta) {
+            if (url.includes('digital-id.max.ru')) {
+                window.open(url, '_blank');
+                return;
+            }
             const overlay = document.getElementById('miniappOverlay');
             const iframe = document.getElementById('miniappIframe');
             const titleEl = document.getElementById('miniappTitle');
@@ -2972,6 +3076,7 @@
             earliestMessageTime = null;
             isLoadingMore = false;
             document.getElementById('messageText').value = getDrafts()[chatId] || '';
+            updateBotWebAppButton(chat);
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
         }
 
@@ -3510,6 +3615,7 @@
 
         document.getElementById('backBtn').onclick = () => {
             currentChatId = null;
+            updateBotWebAppButton(null);
             document.getElementById('chatDetailSection').classList.add('hidden');
             document.getElementById('chatsSection').classList.remove('hidden');
         };
