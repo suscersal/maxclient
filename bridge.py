@@ -892,6 +892,88 @@ def video_sources():
     return jsonify({"sources": sources})
 
 
+@app.route("/api/web-app-init", methods=["POST"])
+def web_app_init():
+    """Получает signed URL мини-приложения (opcode 160, WEB_APP_INIT_DATA)."""
+    data = request.get_json(force=True)
+    bot_id = data.get("botId")
+    if bot_id is None:
+        return jsonify({"error": "botId обязателен"}), 400
+
+    payload = {"botId": int(bot_id)}
+    start_param = data.get("startParam")
+    if start_param:
+        payload["startParam"] = start_param
+    chat_id = data.get("chatId")
+    if chat_id is not None:
+        payload["chatId"] = int(chat_id)
+
+    logger.info(f"[web-app-init] botId={bot_id}, chatId={chat_id}, startParam={start_param!r}")
+
+    try:
+        packet = fetch_once(160, payload, wait_opcode=160, timeout=15)
+    except Exception as e:
+        logger.warning(f"[web-app-init] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+
+    if packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось открыть мини-приложение")
+        return jsonify({"error": error_msg}), 502
+
+    url = packet.get("payload", {}).get("url") if isinstance(packet.get("payload"), dict) else None
+    if not url:
+        return jsonify({"error": "Сервер не вернул адрес приложения"}), 502
+
+    return jsonify({"url": url})
+
+
+@app.route("/api/button-callback", methods=["POST"])
+def button_callback():
+    """Отправляет нажатие inline-кнопки боту (opcode 118, MSG_SEND_CALLBACK)."""
+    data = request.get_json(force=True)
+    chat_id = data.get("chatId")
+    message_id = data.get("messageId")
+    callback_id = data.get("callbackId")
+
+    if chat_id is None or message_id is None or not callback_id:
+        return jsonify({"error": "chatId, messageId и callbackId обязательны"}), 400
+
+    payload = {
+        "chatId": int(chat_id),
+        "messageId": int(message_id),
+        "callbackId": callback_id,
+    }
+    btn_payload = data.get("payload")
+    if btn_payload is not None and btn_payload != "":
+        payload["payload"] = btn_payload
+
+    logger.info(
+        f"[button-callback] chatId={chat_id}, messageId={message_id}, callbackId={callback_id!r}")
+
+    try:
+        packet = fetch_once(118, payload, wait_opcode=118, timeout=15)
+    except Exception as e:
+        logger.warning(f"[button-callback] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+
+    if packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось отправить нажатие кнопки")
+        return jsonify({"error": error_msg}), 502
+
+    answer = packet.get("payload")
+    if isinstance(answer, dict):
+        return jsonify(answer)
+    return jsonify({})
+
+
 @app.route("/api/download", methods=["POST"])
 def download_file():
     data = request.get_json(force=True)

@@ -1397,6 +1397,18 @@
             content: " ↗";
         }
 
+        .bot-badge {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+            background: #e8f0fe;
+            color: #1a73e8;
+            vertical-align: middle;
+        }
+
         /* --- Мини-приложение (bot web app) --- */
         .miniapp-overlay {
             position: fixed;
@@ -2186,8 +2198,12 @@
             }
 
             const otherId = otherParticipantId(chat);
-            const isOnline = otherId != null && presenceById[otherId]?.online;
-            document.getElementById('chatProfileSub').textContent = isOnline ? '🟢 в сети' : '⚪ не в сети';
+            if (isBotChat(chat)) {
+                document.getElementById('chatProfileSub').textContent = '🤖 Бот';
+            } else {
+                const isOnline = otherId != null && presenceById[otherId]?.online;
+                document.getElementById('chatProfileSub').textContent = isOnline ? '🟢 в сети' : '⚪ не в сети';
+            }
 
             const optionsContainer = document.getElementById('chatProfileOptions');
             optionsContainer.innerHTML = '';
@@ -2356,6 +2372,28 @@
             return ids[0];
         }
 
+        function contactOptions(contact) {
+            return Array.isArray(contact?.options) ? contact.options : [];
+        }
+
+        function isBotContact(contact) {
+            return contactOptions(contact).includes('BOT');
+        }
+
+        function isBotChat(chat) {
+            if (!chat) return false;
+            if (Array.isArray(chat.options) && chat.options.includes('BOT')) return true;
+            if (chat.type === 'DIALOG') {
+                const otherId = otherParticipantId(chat);
+                return isBotContact(contactsById[otherId]);
+            }
+            return false;
+        }
+
+        function botBadgeHtml() {
+            return '<span class="bot-badge">Бот</span>';
+        }
+
         function chatDisplayName(chat) {
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
@@ -2385,7 +2423,8 @@
             const optionsSource = chat.type === 'DIALOG' ? contactsById[otherId]?.options : chat.options;
             const officialFromServer = Array.isArray(optionsSource) && optionsSource.includes('OFFICIAL');
             const verified = officialFromServer || (meta && meta.verified === true);
-            return name + (verified ? ' <span class="verified-badge" style="display: inline-flex; align-items: center; vertical-align: middle;"><svg xmlns="http://w3.org" fill="none" viewBox="0 0 12 12" style="width: 14px; height: 14px;"><g clip-path="url(#clip0_71_614)"><path fill="#1d9bf0" fill-rule="evenodd" d="M.269 5.27a1.125 1.125 0 0 0 0 1.46l.8.938c.153.18.246.404.264.64l.098 1.229c.044.55.482.988 1.032 1.032l1.229.098c.236.018.46.111.64.265l.938.8c.42.358 1.04.358 1.46 0l.938-.8c.18-.154.404-.247.64-.265l1.229-.098c.55-.044.988-.482 1.032-1.032l.098-1.229c.018-.236.111-.46.265-.64l.8-.938a1.125 1.125 0 0 0 0-1.46l-.8-.938a1.12 1.12 0 0 1-.265-.64l-.098-1.229a1.125 1.125 0 0 0-1.032-1.032l-1.229-.098a1.13 1.13 0 0 1-.64-.265l-.938-.8a1.125 1.125 0 0 0-1.46 0l-.938.8c-.18.154-.404.247-.64.265l-1.229.098c-.55.044-.988.482-1.032 1.032l-.098 1.229c-.018.236-.111.46-.265.64z" clip-rule="evenodd"></path><path fill="#fff" d="M8.957 4.168a.603.603 0 0 1 0 .852L5.582 8.395a.603.603 0 0 1-.852 0L3.163 6.828a.603.603 0 1 1 .852-.852l1.14 1.14 2.95-2.948a.603.603 0 0 1 .852 0"></path></g><defs><clipPath id="clip0_71_614"><path fill="#fff" d="M0 0h12v12H0z"></path></clipPath></defs></svg></span>' : '');
+            const botMark = isBotChat(chat) ? botBadgeHtml() : '';
+            return name + botMark + (verified ? ' <span class="verified-badge" style="display: inline-flex; align-items: center; vertical-align: middle;"><svg xmlns="http://w3.org" fill="none" viewBox="0 0 12 12" style="width: 14px; height: 14px;"><g clip-path="url(#clip0_71_614)"><path fill="#1d9bf0" fill-rule="evenodd" d="M.269 5.27a1.125 1.125 0 0 0 0 1.46l.8.938c.153.18.246.404.264.64l.098 1.229c.044.55.482.988 1.032 1.032l1.229.098c.236.018.46.111.64.265l.938.8c.42.358 1.04.358 1.46 0l.938-.8c.18-.154.404-.247.64-.265l1.229-.098c.55-.044.988-.482 1.032-1.032l.098-1.229c.018-.236.111-.46.265-.64l.8-.938a1.125 1.125 0 0 0 0-1.46l-.8-.938a1.12 1.12 0 0 1-.265-.64l-.098-1.229a1.125 1.125 0 0 0-1.032-1.032l-1.229-.098a1.13 1.13 0 0 1-.64-.265l-.938-.8a1.125 1.125 0 0 0-1.46 0l-.938.8c-.18.154-.404.247-.64.265l-1.229.098c-.55.044-.988.482-1.032 1.032l-.098 1.229c-.018.236-.111.46-.265.64z" clip-rule="evenodd"></path><path fill="#fff" d="M8.957 4.168a.603.603 0 0 1 0 .852L5.582 8.395a.603.603 0 0 1-.852 0L3.163 6.828a.603.603 0 1 1 .852-.852l1.14 1.14 2.95-2.948a.603.603 0 0 1 .852 0"></path></g><defs><clipPath id="clip0_71_614"><path fill="#fff" d="M0 0h12v12H0z"></path></clipPath></defs></svg></span>' : '');
 
         }
 
@@ -2460,9 +2499,9 @@
                 } else {
                     avatarHtml = initial;
                 }
-                const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
-                const isOnline = otherId != null && presenceById[otherId]?.online;
-                const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+            const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
+            const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
@@ -2629,8 +2668,36 @@
         // статическим анализом APK — код написан защитно (проверяет несколько
         // возможных путей к массиву кнопок) и логирует непонятные структуры,
         // чтобы их можно было быстро доопределить по реальному трафику.
+        function normalizeButtonType(type) {
+            return String(type || 'callback').toUpperCase();
+        }
+
+        function parseWebAppDeeplink(webApp) {
+            if (!webApp) return {};
+            try {
+                const u = new URL(webApp);
+                return {
+                    startParam: u.searchParams.get('startapp') || u.searchParams.get('startApp') || '',
+                    chatId: u.searchParams.get('chat_id') ? parseInt(u.searchParams.get('chat_id'), 10) : null,
+                };
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function extractWebAppDataFromUrl(url) {
+            if (!url) return null;
+            try {
+                const u = new URL(url);
+                return u.searchParams.get('WebAppData') || u.searchParams.get('webAppData');
+            } catch (e) {
+                const match = url.match(/WebAppData=([^&#]+)/i);
+                return match ? decodeURIComponent(match[1]) : null;
+            }
+        }
+
         function renderKeyboardAttach(attach, msgId) {
-            const rows = attach.buttons || attach.payload?.buttons || attach.keyboard?.buttons || [];
+            const rows = attach.keyboard?.buttons || attach.buttons || attach.payload?.buttons || [];
             if (!Array.isArray(rows) || !rows.length) {
                 console.log('[maxclient] клавиатура без кнопок, структура:', attach);
                 return '';
@@ -2640,65 +2707,111 @@
                 const buttons = Array.isArray(row) ? row : [row];
                 html += `<div class="msg-keyboard-row">`;
                 buttons.forEach((btn, btnIdx) => {
-                    const type = btn.type || 'callback';
+                    const type = normalizeButtonType(btn.type);
                     const label = escapeHtml(btn.text || btn.label || '...');
-                    const cls = type === 'link' || type === 'open_app' ? 'link-btn' : '';
-                    // Кнопку описываем данными в data-*, а не инлайн JS с сериализацией текста,
-                    // чтобы не ловить проблемы с экранированием кавычек в url/payload.
+                    const cls = type === 'LINK' || type === 'OPEN_APP' ? 'link-btn' : '';
                     html += `<div class="msg-keyboard-btn ${cls}" data-row="${rowIdx}" data-btn="${btnIdx}" data-msg-id="${msgId}" onclick="handleKeyboardButtonClick(this)">${label}</div>`;
                 });
                 html += `</div>`;
             });
             html += `</div>`;
-            // Кэшируем сырые данные кнопок, чтобы достать их по клику без повторного парсинга DOM
-            keyboardAttachCache[msgId] = rows;
+            keyboardAttachCache[msgId] = {
+                rows,
+                callbackId: attach.callbackId || attach.callback_id || null,
+            };
             return html;
         }
 
         const keyboardAttachCache = {};
 
-        function handleKeyboardButtonClick(el) {
+        async function handleKeyboardButtonClick(el) {
             const msgId = el.dataset.msgId;
             const rowIdx = +el.dataset.row;
             const btnIdx = +el.dataset.btn;
-            const rows = keyboardAttachCache[msgId];
-            if (!rows) return;
-            const row = Array.isArray(rows[rowIdx]) ? rows[rowIdx] : [rows[rowIdx]];
+            const cache = keyboardAttachCache[msgId];
+            if (!cache) return;
+            const row = Array.isArray(cache.rows[rowIdx]) ? cache.rows[rowIdx] : [cache.rows[rowIdx]];
             const btn = row[btnIdx];
             if (!btn) return;
-            const type = btn.type || 'callback';
-            if (type === 'link') {
-                window.open(btn.url, '_blank');
+            const type = normalizeButtonType(btn.type);
+
+            if (type === 'LINK') {
+                const url = btn.url;
+                if (url) window.open(url, '_blank');
                 return;
             }
-            if (type === 'open_app') {
-                const url = btn.url || btn.webApp?.url || btn.web_app?.url;
-                if (!url) {
-                    console.log('[maxclient] у кнопки open_app нет url:', btn);
+
+            if (type === 'OPEN_APP') {
+                const botId = btn.contactId ?? btn.contact_id ?? btn.botId ?? btn.bot_id;
+                if (!botId) {
+                    log('❌ Не удалось определить botId для мини-приложения', 'error');
                     return;
                 }
-                openMiniApp(url, {
+                const deeplink = parseWebAppDeeplink(btn.webApp || btn.web_app || btn.url);
+                await openMiniAppViaServer(botId, {
                     title: btn.text || 'Мини-приложение',
-                    startParam: btn.startParam || btn.start_param || '',
-                    botId: btn.botId || btn.bot_id || null,
+                    startParam: btn.payload || btn.startParam || btn.start_param || deeplink.startParam || '',
+                    chatId: deeplink.chatId ?? currentChatId,
                 });
                 return;
             }
-            if (type === 'request_contact' || type === 'request_geo_location') {
-                console.log(`[maxclient] кнопка "${type}" пока не реализована на клиенте`);
+
+            if (type === 'REQUEST_CONTACT' || type === 'REQUEST_GEO_LOCATION') {
+                log(`ℹ️ Кнопка "${type}" пока не реализована`, 'info');
                 return;
             }
-            // callback / message — обычная кнопка, шлём payload обратно как нажатие.
-            // Опкод для callback-ответа боту не подтверждён (нет в статическом анализе) —
-            // подставь реальный, когда увидишь его в трафике. Пока просто логируем намерение.
-            console.log('[maxclient] нажатие кнопки (callback), нужно отправить боту:', {
-                msgId, chatId: currentChatId, payload: btn.payload ?? btn.callback_data ?? btn.text,
-            });
+
+            const callbackId = cache.callbackId;
+            if (!callbackId) {
+                log('❌ У клавиатуры нет callbackId', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/button-callback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chatId: currentChatId,
+                        messageId: msgId,
+                        callbackId,
+                        payload: btn.payload ?? btn.callback_data ?? btn.text ?? '',
+                    }),
+                });
+                const answer = await res.json();
+                if (!res.ok) throw new Error(answer.error || 'Ошибка callback');
+                if (answer.url) {
+                    window.open(answer.url, '_blank');
+                    return;
+                }
+                if (answer.text) {
+                    log('ℹ️ ' + answer.text, 'info');
+                }
+            } catch (e) {
+                log('❌ ' + e.message, 'error');
+            }
         }
 
-        // --- Мини-приложение: overlay + iframe + хост-мост window.WebApp ---
         let miniAppBackHandler = null;
         let miniAppClosingConfirmation = false;
+
+        async function openMiniAppViaServer(botId, meta) {
+            try {
+                const res = await fetch('/api/web-app-init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        botId,
+                        startParam: meta?.startParam || undefined,
+                        chatId: meta?.chatId ?? currentChatId,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Не удалось открыть мини-приложение');
+                openMiniApp(data.url, meta);
+            } catch (e) {
+                log('❌ ' + e.message, 'error');
+            }
+        }
 
         function openMiniApp(url, meta) {
             const overlay = document.getElementById('miniappOverlay');
@@ -2708,13 +2821,9 @@
             miniAppBackHandler = null;
             miniAppClosingConfirmation = false;
             document.getElementById('miniappBackBtn').classList.remove('visible');
-            let fullUrl = url;
-            if (meta?.startParam) {
-                fullUrl += (url.includes('?') ? '&' : '?') + 'startapp=' + encodeURIComponent(meta.startParam);
-            }
-            iframe.src = fullUrl;
+            iframe.src = url;
             overlay.classList.remove('hidden');
-            installMiniAppHostBridge(iframe, meta);
+            installMiniAppHostBridge(iframe, url, meta);
         }
 
         function closeMiniApp() {
@@ -2735,25 +2844,12 @@
 
         let miniAppMessageListener = null;
 
-        // ВАЖНО: это реализация "по аналогии" с открытой моделью Telegram WebApp
-        // (та же схема HMAC-валидации initData подтверждена сторонними источниками
-        // как идентичная у MAX), а НЕ подтверждённый реверс-инжинирингом протокол
-        // моста MAX (max-web-app.js закрыт для автоматического скачивания — robots.txt).
-        // Поэтому:
-        //   1) initData здесь собран из данных нашей уже авторизованной сессии, но
-        //      БЕЗ настоящей подписи (hash) — её может посчитать только сервер бота,
-        //      зная секретный token бота, которого у нас нет и быть не может.
-        //      Мини-приложения, которые на своём бэкенде строго проверяют hash,
-        //      с этим мостом не заработают "по-настоящему" (не пройдут валидацию),
-        //      но UI большинства мини-приложений всё равно должен отрисоваться.
-        //   2) Набор событий (eventType) ниже — стандартный минимум, который есть
-        //      почти в любой такой библиотеке. Всё, что реально пришлёт конкретное
-        //      мини-приложение и на что нет ответа, будет видно в консоли
-        //      (см. else-ветку) — так проще всего дополнить список по факту.
-        function installMiniAppHostBridge(iframe, meta) {
+        function installMiniAppHostBridge(iframe, launchUrl, meta) {
             if (miniAppMessageListener) {
                 window.removeEventListener('message', miniAppMessageListener);
             }
+
+            const serverInitData = extractWebAppDataFromUrl(launchUrl);
             const initDataUnsafe = {
                 query_id: 'AA' + Date.now(),
                 user: {
@@ -2765,10 +2861,10 @@
                 start_param: meta?.startParam || '',
                 auth_date: Math.floor(Date.now() / 1000),
             };
-            // Строка initData без hash (см. комментарий выше) — сериализуем то, что есть
-            const initDataStr = Object.entries(initDataUnsafe)
+            const fallbackInitData = Object.entries(initDataUnsafe)
                 .map(([k, v]) => `${k}=${encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v)}`)
                 .join('&');
+            const initDataStr = serverInitData || fallbackInitData;
 
             function postToApp(eventType, eventData) {
                 iframe.contentWindow?.postMessage(JSON.stringify({ eventType, eventData: eventData ?? {} }), '*');
@@ -2816,21 +2912,15 @@
                         closeMiniApp();
                         break;
                     case 'web_app_data_send':
-                        // Мини-приложение отправляет данные обратно боту — по офиц. схеме это
-                        // должно уйти в чат как служебное сообщение. Опкод не подтверждён,
-                        // логируем, чтобы можно было домаппить на реальный вызов send(...).
                         console.log('[maxclient] web_app_data_send:', eventData);
                         break;
                     case 'web_app_expand':
                     case 'web_app_set_header_color':
                     case 'web_app_set_background_color':
-                        // Косметика, безопасно игнорировать
                         break;
                     case 'web_app_request_phone':
                     case 'web_app_request_write_access':
                     case 'web_app_invoke_custom_method':
-                        // Требуют реальной подписи/нативного UI, которого у нас нет —
-                        // отвечаем ошибкой в формате, близком к официальному
                         postToApp(eventType + '_failed', { error: 'client.method_unavailable' });
                         break;
                     default:
@@ -2840,7 +2930,9 @@
             window.addEventListener('message', miniAppMessageListener);
 
             iframe.onload = () => {
-                postToApp('set_init_data', { initData: initDataStr, initDataUnsafe, platform: 'web', version: '1.0' });
+                if (!serverInitData) {
+                    postToApp('set_init_data', { initData: initDataStr, initDataUnsafe, platform: 'web', version: '1.0' });
+                }
             };
         }
 
@@ -2851,7 +2943,11 @@
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.remove('hidden');
             document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
-            document.getElementById('chatDetailStatus').textContent = '';
+            if (isBotChat(chat)) {
+                document.getElementById('chatDetailStatus').textContent = '🤖 Бот';
+            } else {
+                document.getElementById('chatDetailStatus').textContent = '';
+            }
             document.getElementById('chatIdLabel').textContent = 'ID: ' + chatId;
             const avatarUrl = chatAvatarUrl(chat);
             const initial = chatDisplayName(chat).charAt(0).toUpperCase();
