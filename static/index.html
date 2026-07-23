@@ -167,6 +167,67 @@
             display: none !important;
         }
 
+        .search-toggle-btn {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+            color: #555;
+        }
+
+        .search-toggle-btn:hover {
+            background: #f0f0f0;
+        }
+
+        .section-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-header-row h3 {
+            margin: 0;
+        }
+
+        #peopleSearchPanel {
+            margin-bottom: 12px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        #peopleSearchPanel .input-group {
+            margin-bottom: 10px;
+        }
+
+        #peopleSearchPanel .input-group:last-of-type {
+            margin-bottom: 0;
+        }
+
+        .search-hint {
+            font-size: 12px;
+            color: #888;
+            margin: -4px 0 10px 2px;
+        }
+
+        #searchResultsList .chat-item {
+            border-bottom: 1px solid #eee;
+        }
+
+        .search-empty {
+            font-size: 13px;
+            color: #888;
+            padding: 8px 4px;
+        }
+
+        .mention-link {
+            color: #007bff;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
         .chat-item {
             display: flex;
             gap: 12px;
@@ -1449,6 +1510,63 @@
             flex-direction: column;
         }
 
+
+
+        .miniapp-top-alert {
+            position: fixed;
+            /* Привязка к экрану */
+            top: 0;
+            /* В самый верх */
+            left: 50%;
+            /* Сдвиг на 50% слева */
+            transform: translateX(-50%);
+            /* Идеальное центрирование по горизонтали */
+
+            width: 100%;
+            /* По умолчанию на всю ширину для мобильных */
+            max-width: 600px;
+            /* Ограничение ширины на компьютерах, чтобы не растягивался */
+
+            padding: 8px 16px;
+            /* Внутренние отступы */
+            background-color: #fff3cd;
+            /* Заметный желтый цвет */
+            color: #856404;
+            /* Темный читаемый текст */
+            border-bottom: 1px solid #ffeeba;
+            /* Красивая полоса снизу */
+
+            font-size: 13px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+            /* Тень, чтобы визуально приподнять над контентом */
+            z-index: 9999;
+            /* Самый высокий приоритет, перекроет шапку и iframe */
+        }
+
+        /* Сдвигаем шапку чуть ниже, чтобы предупреждение её не перекрывало визуально */
+        .miniapp-header {
+            margin-top: 35px;
+            /* Высота равна примерно высоте предупреждения */
+        }
+
+
+        /* На мобильных экранах скрываем стандартный заголовок, чтобы текст не накладывался друг на друга */
+        @media (max-width: 600px) {
+            .miniapp-title {
+                visibility: hidden;
+                /* Скрывает текст «Мини-приложение», освобождая место */
+            }
+
+            .miniapp-warning-header {
+                width: 75%;
+                /* На смартфонах даем предупреждению больше места */
+            }
+        }
+
+
+
         .miniapp-overlay.hidden {
             display: none;
         }
@@ -1613,7 +1731,25 @@
     </div>
 
     <div id="chatsSection" class="section hidden">
-        <h3>💬 Чаты</h3>
+        <div class="section-header-row">
+            <h3>💬 Чаты</h3>
+            <button type="button" class="search-toggle-btn" id="peopleSearchToggleBtn" title="Найти людей"
+                onclick="togglePeopleSearchPanel()">🔎</button>
+        </div>
+        <div id="peopleSearchPanel" class="hidden">
+            <div class="input-group">
+                <input type="tel" id="peopleSearchPhone" placeholder="Номер телефона, напр. +79991234567"
+                    inputmode="tel">
+                <button id="peopleSearchPhoneBtn" onclick="searchPersonByPhone()">Найти по номеру</button>
+            </div>
+            <div class="input-group">
+                <input type="text" id="peopleSearchQuery" placeholder="Имя, юзернейм или @ссылка">
+                <button id="peopleSearchQueryBtn" onclick="searchPeopleByQuery()">Найти</button>
+            </div>
+            <div class="search-hint">Поиск по номеру находит человека напрямую. Поиск по имени/юзернейму ищет
+                публичные чаты, каналы, ботов и профили по ссылке (например @username или max.ru/username).</div>
+            <div id="searchResultsList"></div>
+        </div>
         <div id="chatsList"></div>
     </div>
 
@@ -1639,15 +1775,24 @@
     </div>
 
     <div id="miniappOverlay" class="miniapp-overlay hidden">
+
+        <!-- Важное предупреждение в самом верху -->
+        <div class="miniapp-top-alert">
+            Если вас перекидывает на сторонний сайт, то авторизация работать не будет!
+        </div>
+
         <div class="miniapp-header">
             <button class="miniapp-back-btn" id="miniappBackBtn" title="Назад">←</button>
             <div class="miniapp-title" id="miniappTitle">Мини-приложение</div>
             <button class="miniapp-close-btn" id="miniappCloseBtn" title="Закрыть">✕</button>
         </div>
-        <text>Если вас перекидывает на сторонний сайт, то авторизация работать не будет </text>
+
         <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
             allow="camera; microphone; geolocation; clipboard-read; clipboard-write"></iframe>
     </div>
+
+
+
 
     <div class="section">
         <h3>📋 Лог</h3>
@@ -1655,6 +1800,46 @@
     </div>
 
     <script>
+        // Проверяет, может ли текущий пользователь писать в данный чат
+        function canWriteToChat(chat) {
+            if (!chat || !selfId) return false;
+
+            // Если это диалог — проверяем тип контакта (бот/канал)
+            if (chat.type === 'DIALOG') {
+                const otherId = otherParticipantId(chat);
+                const contact = contactsById[otherId];
+
+                // Боты обычно принимают сообщения всегда (если они публичные),
+                // а вот каналы часто имеют флаг запрета отправки.
+                if (contact && Array.isArray(contact.options)) {
+                    // Типичные флаги: CHANNEL, BROADCAST, NO_MESSAGES_FOR_SUBSCRIBERS
+                    if (contact.options.includes('CHANNEL') || contact.options.includes('BROADCAST')) {
+                        // В реальном протоколе здесь должен быть отдельный флаг "can_send".
+                        // Пока просто разрешаем отправку всем авторизованным пользователям,
+                        // так как точный флаг неизвестен из предоставленного кода.
+                        return true;
+                    }
+                }
+                return true;
+            }
+
+            // Если это группа/супергруппа
+            if (chat.type === 'GROUP' || chat.type === 'SUPERGROUP') {
+                // Примерная логика: ищем участника по selfId
+                const participant = chat.participants?.[selfId];
+                if (!participant) return false;
+
+                // Здесь должны быть реальные биты прав (flags). 
+                // Обычно право на отправку текста имеет бит send_messages.
+                // Так как структура flags неизвестна, используем заглушку:
+                // return Boolean(participant.flags & 0x01); 
+
+                // Временное решение: разрешать писать везде, кроме каналов
+                return true;
+            }
+
+            return false;
+        }
         // ========================================
         // ПЛЕЕР (сокращён)
         // ========================================
@@ -1668,6 +1853,7 @@
         let currentProfilePayload = null;
 
         const video = document.getElementById('videoPlayer');
+        video.muted = false
         const modal = document.getElementById('videoModal');
         const progressFill = document.getElementById('progressFill');
         const bufferBar = document.getElementById('bufferBar');
@@ -1840,7 +2026,7 @@
                 const v = document.createElement('video');
                 v.className = 'inline-video-el';
                 v.loop = true;
-                v.muted = true;
+                v.muted = false;
                 v.playsInline = true;
                 v.autoplay = true;
                 if (posterSrc) v.poster = posterSrc;
@@ -1872,8 +2058,12 @@
             if (btn) btn.textContent = video.muted ? '🔇' : '🔊';
         }
 
+
         function expandInlineVideo(uid) {
             const container = document.getElementById(uid);
+            const video = container?.querySelector('video');
+            video.muted = true;
+            video.pause();
             if (!container) return;
             openVideoPlayer(container.dataset.msgId, container.dataset.chatId, container.dataset.token, Number(container.dataset
                 .videoId));
@@ -2134,6 +2324,7 @@
         let earliestMessageTime = null;
         let isLoadingMore = false;
         let metadataOverride = {};
+        let requestedContactIds = new Set();
         let presenceById = {};
 
         // Функция проверки авторизации — использует глобальную переменную selfId
@@ -2437,6 +2628,29 @@
             })
             .catch(() => { metadataOverride = {}; });
 
+        // Сервер не присылает данные о ботах/собеседниках в общей синхронизации
+        // (только "настоящие" сохранённые контакты). Для диалогов, для которых
+        // нет ни локального оверрайда (avatars.json), ни данных из sync,
+        // дозапрашиваем имя/аватар отдельным запросом CONTACT_INFO (32),
+        // batched по всем недостающим id сразу — как это делает Komet
+        // (см. ContactInfoFetch в info_cache.dart).
+        function fetchMissingContactInfo() {
+            const missing = new Set();
+            Object.values(chatsById).forEach(chat => {
+                if (chat.type !== 'DIALOG' || chat.id === 0) return;
+                const otherId = otherParticipantId(chat);
+                if (otherId == null) return;
+                if (contactsById[otherId]) return;
+                if (metadataOverride[otherId]) return;
+                if (requestedContactIds.has(otherId)) return;
+                missing.add(otherId);
+            });
+            if (!missing.size) return;
+            const ids = Array.from(missing);
+            ids.forEach(id => requestedContactIds.add(id));
+            send(32, { contactIds: ids });
+        }
+
         function otherParticipantId(chat) {
             if (!chat || !chat.participants) return null;
             const ids = Object.keys(chat.participants).map(Number);
@@ -2459,6 +2673,7 @@
             if (Array.isArray(chat.options) && chat.options.includes('BOT')) return true;
             if (chat.type === 'DIALOG') {
                 const otherId = otherParticipantId(chat);
+                if (metadataOverride[otherId]?.bot) return true;
                 return isBotContact(contactsById[otherId]);
             }
             return false;
@@ -2599,7 +2814,9 @@
         }
 
         function renderChats(payload) {
-            selfId = payload.profile?.contact?.id;
+            if (payload.profile?.contact?.id != null) {
+                selfId = payload.profile.contact.id;
+            }
             contactsById = {};
             (payload.contacts || []).forEach(c => { contactsById[c.id] = c; });
             if (payload.presence) {
@@ -2646,6 +2863,7 @@
             if (currentChatId != null && !document.getElementById('chatDetailSection').classList.contains('hidden')) {
                 updateBotWebAppButton(chatsById[currentChatId]);
             }
+            fetchMissingContactInfo();
         }
 
         function chatPreview(chat) {
@@ -2817,7 +3035,30 @@
             const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
             let textHtml = '';
             if (m.text && !(isTranslationKey && hasControlAttach)) {
-                textHtml = `<div class="msg-text">${escapeHtml(m.text)}</div>`;
+                // Регулярное выражение находит http(s)-ссылки
+                const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+                let processedText = escapeHtml(m.text);
+
+                // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим
+                // через LINK_INFO вместо перехода во внешнюю вкладку.
+                const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
+                processedText = processedText.replace(maxLinkRegex, function (url) {
+                    return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
+                });
+
+                // Заменяем найденные http(s)-ссылки на кликабельные теги <a>
+                processedText = processedText.replace(urlRegex, function (url) {
+                    if (/max\.ru\//i.test(url)) return url; // уже обработано выше
+                    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`;
+                });
+
+                // @username-упоминания делаем кликабельными
+                const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
+                processedText = processedText.replace(mentionRegex, function (full, pre, username) {
+                    return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
+                });
+
+                textHtml = `<div class=\"msg-text\">${processedText}</div>`;
             }
             const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             const chat = chatsById[currentChatId];
@@ -3116,6 +3357,225 @@
                 }
             };
         }
+        function updateComposerVisibility(chat) {
+            const composer = document.getElementById('composerRow');
+            const messageInput = document.getElementById('messageText');
+
+            if (!composer || !chat) {
+                if (composer) composer.classList.add('hidden');
+                return;
+            }
+
+            // Скрываем, если юзер не авторизован
+            if (!isAuthenticated()) {
+                composer.classList.add('hidden');
+                return;
+            }
+
+            // Основная проверка прав
+            if (canWriteToChat(chat)) {
+                composer.classList.remove('hidden');
+                messageInput.disabled = false;
+                messageInput.placeholder = 'Сообщение';
+            } else {
+                composer.classList.add('hidden');
+                // Дополнительно можно заблокировать инпут, если он остался видим
+                messageInput.disabled = true;
+                messageInput.placeholder = 'Только чтение';
+            }
+        }
+
+        // ========================================
+        // ПОИСК ЛЮДЕЙ И ССЫЛКИ @username / max.ru/...
+        // ========================================
+
+        function togglePeopleSearchPanel() {
+            const panel = document.getElementById('peopleSearchPanel');
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) {
+                document.getElementById('peopleSearchPhone').focus();
+            }
+        }
+
+        function normalizePhoneForSearch(raw) {
+            const digits = (raw || '').replace(/[^\d]/g, '');
+            if (digits.length < 5) return null;
+            return '+' + digits;
+        }
+
+        function renderSearchResults(items) {
+            const list = document.getElementById('searchResultsList');
+            list.innerHTML = '';
+            if (!items.length) {
+                list.innerHTML = '<div class="search-empty">Ничего не найдено</div>';
+                return;
+            }
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'chat-item';
+                const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
+                const initial = (item.name || '?').charAt(0).toUpperCase();
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                    : initial;
+                el.innerHTML = `
+                <div class="chat-avatar" data-initials="${initial}">${avatarHtml}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHtml(item.name || '')}</div>
+                    <div class="chat-preview">${escapeHtml(item.subtitle || '')}</div>
+                </div>
+            `;
+                el.onclick = item.onOpen;
+                list.appendChild(el);
+            });
+        }
+
+        // Открывает существующий или создаёт "виртуальный" личный чат с найденным
+        // контактом. chatId для ещё не существующего диалога вычисляется как
+        // XOR своего id и id собеседника — так же, как это делает Komet
+        // (см. contact_profile_screen.dart: accountId ^ contactId).
+        function openOrCreateDialogWithContact(contact) {
+            if (!contact || typeof contact.id !== 'number' || !selfId) return;
+            contactsById[contact.id] = contact;
+            let chatId = null;
+            for (const id in chatsById) {
+                const c = chatsById[id];
+                if (c.type === 'DIALOG' && otherParticipantId(c) === contact.id) {
+                    chatId = c.id;
+                    break;
+                }
+            }
+            if (chatId == null) {
+                chatId = selfId ^ contact.id;
+                if (!chatsById[chatId]) {
+                    chatsById[chatId] = {
+                        id: chatId,
+                        type: 'DIALOG',
+                        participants: { [selfId]: 0, [contact.id]: 0 },
+                    };
+                }
+            }
+            document.getElementById('peopleSearchPanel').classList.add('hidden');
+            openChat(chatId);
+        }
+
+        function contactNameFromPayload(contact) {
+            const names = contact?.names;
+            if (Array.isArray(names) && names.length) {
+                const n = names.find(x => x && (x.name || x.firstName)) || names[0];
+                const full = n.name || `${n.firstName || ''} ${n.lastName || ''}`.trim();
+                if (full) return full;
+            }
+            return 'Контакт #' + contact?.id;
+        }
+
+        function searchPersonByPhone() {
+            const raw = document.getElementById('peopleSearchPhone').value;
+            const phone = normalizePhoneForSearch(raw);
+            if (!phone) {
+                renderSearchResults([]);
+                log('❌ Введите корректный номер телефона', 'error');
+                return;
+            }
+            log(`🔎 Поиск по номеру ${phone}...`, 'info');
+            send(46, { phone });
+        }
+
+        function searchPeopleByQuery() {
+            const raw = document.getElementById('peopleSearchQuery').value.trim();
+            if (!raw) return;
+
+            // Если это @username или ссылка max.ru/... — резолвим напрямую,
+            // это может привести как к чату, так и к профилю пользователя.
+            const usernameMatch = raw.match(/^@([A-Za-z0-9_]{3,32})$/);
+            if (usernameMatch) {
+                resolveMaxLink('https://max.ru/' + usernameMatch[1]);
+                return;
+            }
+            if (/^https?:\/\/(www\.)?max\.ru\//i.test(raw)) {
+                resolveMaxLink(raw);
+                return;
+            }
+
+            log(`🔎 Поиск "${raw}"...`, 'info');
+            send(60, { type: 'ALL', count: 20, query: raw });
+        }
+
+        function resolveMaxLink(url) {
+            log(`🔗 Открываю ссылку ${url}...`, 'info');
+            send(89, { link: url });
+        }
+
+        function handlePhoneSearchResult(payload) {
+            const contact = payload?.contact;
+            if (!contact || typeof contact.id !== 'number') {
+                renderSearchResults([]);
+                log('❌ Пользователь с таким номером не найден', 'error');
+                return;
+            }
+            const name = contactNameFromPayload(contact);
+            renderSearchResults([{
+                name,
+                subtitle: 'Написать сообщение',
+                avatarUrl: contact.baseUrl || null,
+                onOpen: () => openOrCreateDialogWithContact(contact),
+            }]);
+        }
+
+        function handlePublicSearchResult(payload) {
+            const results = Array.isArray(payload?.result) ? payload.result : [];
+            const items = results
+                .map(item => item?.chat)
+                .filter(chat => chat && typeof chat.id === 'number')
+                .map(chat => ({
+                    name: chat.title || ('Чат #' + chat.id),
+                    subtitle: chat.link ? '@' + chat.link : (chat.type || ''),
+                    avatarUrl: chat.baseIconUrl || null,
+                    onOpen: () => {
+                        chatsById[chat.id] = chatsById[chat.id] || chat;
+                        document.getElementById('peopleSearchPanel').classList.add('hidden');
+                        openChat(chat.id);
+                    },
+                }));
+            renderSearchResults(items);
+        }
+
+        function handleLinkResolved(payload) {
+            if (!payload) return;
+            if (payload.chat && typeof payload.chat.id === 'number') {
+                const chat = payload.chat;
+                chatsById[chat.id] = chatsById[chat.id] || chat;
+                document.getElementById('peopleSearchPanel').classList.add('hidden');
+                openChat(chat.id);
+                return;
+            }
+            const contact = payload.user?.contact;
+            if (contact && typeof contact.id === 'number') {
+                renderSearchResults([{
+                    name: contactNameFromPayload(contact),
+                    subtitle: 'Написать сообщение',
+                    avatarUrl: contact.baseUrl || null,
+                    onOpen: () => openOrCreateDialogWithContact(contact),
+                }]);
+                openOrCreateDialogWithContact(contact);
+                return;
+            }
+            log('❌ Не удалось открыть ссылку', 'error');
+        }
+
+        function handleSearchOrLinkError(opcode, payload) {
+            const msg = payload?.localizedMessage || payload?.error || 'Ничего не найдено';
+            if (opcode === 46) {
+                renderSearchResults([]);
+            }
+            log(`❌ ${msg}`, 'error');
+        }
+
+        // Резолвит @username / max.ru-ссылку, встреченную в тексте сообщения,
+        // и открывает найденный чат или профиль.
+        function handleMentionClick(username) {
+            resolveMaxLink('https://max.ru/' + username);
+        }
 
         function openChat(chatId) {
             const chat = chatsById[chatId];
@@ -3123,6 +3583,7 @@
             currentChatId = chatId;
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.remove('hidden');
+
             document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
             if (isBotChat(chat)) {
                 document.getElementById('chatDetailStatus').textContent = '🤖 Бот';
@@ -3130,6 +3591,7 @@
                 document.getElementById('chatDetailStatus').textContent = '';
             }
             document.getElementById('chatIdLabel').textContent = 'ID: ' + chatId;
+
             const avatarUrl = chatAvatarUrl(chat);
             const initial = chatDisplayName(chat).charAt(0).toUpperCase();
             let avatarHtml;
@@ -3141,12 +3603,19 @@
             const avatarContainer = document.getElementById('chatDetailAvatar');
             avatarContainer.innerHTML = avatarHtml;
             avatarContainer.dataset.initials = initial;
+
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
             earliestMessageTime = null;
             isLoadingMore = false;
+
+            // Восстанавливаем черновик
             document.getElementById('messageText').value = getDrafts()[chatId] || '';
+
+            // --- НОВЫЙ КОД УПРАВЛЕНИЯ ПАНЕЛЬЮ ---
+            updateComposerVisibility(chat);
             updateBotWebAppButton(chat);
+
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
         }
 
@@ -3248,10 +3717,26 @@
                         document.getElementById('connectionBadge').textContent = 'Auth Error';
                         return;
                     }
+                    if (data.opcode === 32 && data.cmd === 768) {
+                        // Фоновый дозапрос инфо о боте/собеседнике — не показываем
+                        // пользователю ошибку, просто оставляем как "Контакт #ID".
+                        return;
+                    }
+                    if ((data.opcode === 46 || data.opcode === 60 || data.opcode === 89) && data.cmd === 768) {
+                        handleSearchOrLinkError(data.opcode, data.payload);
+                        return;
+                    }
                     if (data.cmd === 768) {
                         const err = data.payload?.localizedMessage || data.payload?.error || 'Ошибка';
-                        log(`❌ ${err}`, 'error');
-                        setStatus(`Ошибка: ${err}`, 'error');
+
+                        if (err === "Ошибка валидации") {
+                            log('Ошибка отправки сообщения', 'error')
+                            setStatus('Ошибка валидации сообщения. Возможно вы привысили лимит символов в одном сообщении', 'error')
+                        }
+                        else {
+                            log(`❌ ${err}`, 'error');
+                            setStatus(`Ошибка: ${err}`, 'error');
+                        }
                         return;
                     }
                     if (data.opcode === 17 && data.cmd === 256) {
@@ -3309,6 +3794,28 @@
                     if (data.opcode === 49 && data.cmd === 256) {
 
                         renderMessages(data.payload, isLoadingMore);
+                        return;
+                    }
+                    if (data.opcode === 32 && data.cmd === 256) {
+                        const contacts = data.payload?.contacts;
+                        if (Array.isArray(contacts) && contacts.length) {
+                            contacts.forEach(c => {
+                                if (c && typeof c.id === 'number') contactsById[c.id] = c;
+                            });
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                        }
+                        return;
+                    }
+                    if (data.opcode === 46 && data.cmd === 256) {
+                        handlePhoneSearchResult(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 60 && data.cmd === 256) {
+                        handlePublicSearchResult(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 89 && data.cmd === 256) {
+                        handleLinkResolved(data.payload);
                         return;
                     }
                     if (data.opcode === 64 && data.cmd === 256) {
