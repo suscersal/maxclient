@@ -89,10 +89,18 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install system dependencies (pywebview / GTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-0 \
+            libwebkit2gtk-4.1-0 \
+            gir1.2-webkit2-4.1
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flask flask-sock msgpack lz4 pyinstaller
+          pip install flask flask-sock msgpack lz4 pyinstaller "pywebview[gtk]"
 
       - name: Refuse to build if session.json leaked into the repo
         run: |
@@ -101,16 +109,19 @@ jobs:
             exit 1
           fi
 
-      - name: Build standalone binary
+      - name: Build standalone desktop app
         run: |
+          # desktop_launcher.py: Flask в фоне + окно с UI (как Android WebView).
           # Явно перечисляем только нужные фронтенду файлы (whitelist),
           # а не всю папку static/ целиком — чтобы туда случайно
           # не попал session.json с токеном, если кто-то положит его рядом.
-          pyinstaller --onefile --name max-client-linux \
+          pyinstaller --onefile --windowed --name max-client-linux \
+            --hidden-import=webview \
+            --collect-all webview \
             --add-data "static/index.html:static" \
             --add-data "static/avatars.json:static" \
             --add-data "static/manifest.json:static" \
-            bridge.py
+            desktop_launcher.py
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -134,7 +145,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flask flask-sock msgpack lz4 pyinstaller
+          pip install flask flask-sock msgpack lz4 pyinstaller pywebview
 
       - name: Refuse to build if session.json leaked into the repo
         shell: bash
@@ -144,16 +155,19 @@ jobs:
             exit 1
           fi
 
-      - name: Build standalone binary
+      - name: Build standalone desktop app
         run: |
+          # desktop_launcher.py: Flask в фоне + окно с UI (как Android WebView).
           # Явно перечисляем только нужные фронтенду файлы (whitelist),
           # а не всю папку static/ целиком — чтобы туда случайно
           # не попал session.json с токеном, если кто-то положит его рядом.
-          pyinstaller --onefile --name max-client-windows `
+          pyinstaller --onefile --windowed --name max-client-windows `
+            --hidden-import=webview `
+            --collect-all webview `
             --add-data "static/index.html;static" `
             --add-data "static/avatars.json;static" `
             --add-data "static/manifest.json;static" `
-            bridge.py
+            desktop_launcher.py
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
