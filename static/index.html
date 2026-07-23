@@ -661,14 +661,6 @@
             font-size: 13px;
         }
 
-        .autoreply-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 8px;
-            font-size: 13px;
-        }
-
         .verified-badge {
             color: #4da3ff;
             font-size: 16px;
@@ -1372,6 +1364,104 @@
         .chat-profile-danger:active {
             background: rgba(220, 53, 69, 0.15);
         }
+
+        /* --- Клавиатура бота (inline_keyboard) --- */
+        .msg-keyboard {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+            width: 100%;
+        }
+
+        .msg-keyboard-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        .msg-keyboard-btn {
+            flex: 1;
+            padding: 8px 10px;
+            border: 1px solid #007bff;
+            border-radius: 8px;
+            background: #fff;
+            color: #007bff;
+            font-size: 13px;
+            text-align: center;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .msg-keyboard-btn:active {
+            background: #eaf3ff;
+        }
+
+        .msg-keyboard-btn.link-btn::after {
+            content: " ↗";
+        }
+
+        /* --- Мини-приложение (bot web app) --- */
+        .miniapp-overlay {
+            position: fixed;
+            inset: 0;
+            background: #fff;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .miniapp-overlay.hidden {
+            display: none;
+        }
+
+        .miniapp-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #f7f7f8;
+            flex-shrink: 0;
+        }
+
+        .miniapp-header .miniapp-back-btn {
+            display: none;
+            border: none;
+            background: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+
+        .miniapp-header .miniapp-back-btn.visible {
+            display: inline-block;
+        }
+
+        .miniapp-header .miniapp-title {
+            flex: 1;
+            font-weight: 600;
+            font-size: 15px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .miniapp-header .miniapp-close-btn {
+            border: none;
+            background: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            color: #888;
+        }
+
+        .miniapp-iframe {
+            flex: 1;
+            width: 100%;
+            border: none;
+        }
     </style>
 </head>
 
@@ -1501,19 +1591,20 @@
             <span class="chat-id-label" id="chatIdLabel"></span>
         </div>
         <div id="messagesList"></div>
-        <div class="autoreply-row">
-            <label><input type="checkbox" id="autoreplyEnabled"> Автоответ на первое сообщение:</label>
-        </div>
-        <input type="text" id="autoreplyText" placeholder="Текст автоответа"
-            style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ddd;border-radius:6px;">
-        <div class="autoreply-row">
-            <label><input type="checkbox" id="ghostReadEnabled"> 🕵️ Не отправлять отметку «прочитано» в этом
-                чате</label>
-        </div>
         <div class="input-group" id="composerRow">
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
+    </div>
+
+    <div id="miniappOverlay" class="miniapp-overlay hidden">
+        <div class="miniapp-header">
+            <button class="miniapp-back-btn" id="miniappBackBtn" title="Назад">←</button>
+            <div class="miniapp-title" id="miniappTitle">Мини-приложение</div>
+            <button class="miniapp-close-btn" id="miniappCloseBtn" title="Закрыть">✕</button>
+        </div>
+        <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
+            sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals"></iframe>
     </div>
 
     <div class="section">
@@ -2394,6 +2485,8 @@
         }
 
         function chatPreview(chat) {
+            const draft = getDrafts()[chat.id];
+            if (draft) return `✏️ Черновик: ${escapeHtml(draft.slice(0, 80))}`;
             const m = chat.lastMessage;
             if (!m) return '';
             const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
@@ -2506,6 +2599,14 @@
                         `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
                     return;
                 }
+                if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
+                    attachesHtml += renderKeyboardAttach(a, m.id);
+                    return;
+                }
+                // Неизвестный тип attach — не рендерим, но логируем, чтобы можно было
+                // опознать реальное имя типа (например для клавиатуры бота) по живому трафику
+                // и добавить обработчик выше.
+                console.log('[maxclient] неизвестный attach._type:', a._type, a);
             });
             const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
             const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
@@ -2520,6 +2621,231 @@
             const reactionsHtml = buildReactionsHtml(m);
             el.innerHTML = attachesHtml + textHtml + reactionsHtml + timeHtml;
             return el;
+        }
+
+        // ========================================
+        // БОТЫ: клавиатура (inline_keyboard) и мини-приложения (WebApp)
+        // ========================================
+        //
+        // Схема кнопок ориентируется на официальный Bot API MAX (dev.max.ru),
+        // т.к. приватный протокол мессенджера почти наверняка использует ту же
+        // модель данных. Точные имена полей у приватного протокола не подтверждены
+        // статическим анализом APK — код написан защитно (проверяет несколько
+        // возможных путей к массиву кнопок) и логирует непонятные структуры,
+        // чтобы их можно было быстро доопределить по реальному трафику.
+        function renderKeyboardAttach(attach, msgId) {
+            const rows = attach.buttons || attach.payload?.buttons || attach.keyboard?.buttons || [];
+            if (!Array.isArray(rows) || !rows.length) {
+                console.log('[maxclient] клавиатура без кнопок, структура:', attach);
+                return '';
+            }
+            let html = `<div class="msg-keyboard" data-msg-id="${msgId}">`;
+            rows.forEach((row, rowIdx) => {
+                const buttons = Array.isArray(row) ? row : [row];
+                html += `<div class="msg-keyboard-row">`;
+                buttons.forEach((btn, btnIdx) => {
+                    const type = btn.type || 'callback';
+                    const label = escapeHtml(btn.text || btn.label || '...');
+                    const cls = type === 'link' || type === 'open_app' ? 'link-btn' : '';
+                    // Кнопку описываем данными в data-*, а не инлайн JS с сериализацией текста,
+                    // чтобы не ловить проблемы с экранированием кавычек в url/payload.
+                    html += `<div class="msg-keyboard-btn ${cls}" data-row="${rowIdx}" data-btn="${btnIdx}" data-msg-id="${msgId}" onclick="handleKeyboardButtonClick(this)">${label}</div>`;
+                });
+                html += `</div>`;
+            });
+            html += `</div>`;
+            // Кэшируем сырые данные кнопок, чтобы достать их по клику без повторного парсинга DOM
+            keyboardAttachCache[msgId] = rows;
+            return html;
+        }
+
+        const keyboardAttachCache = {};
+
+        function handleKeyboardButtonClick(el) {
+            const msgId = el.dataset.msgId;
+            const rowIdx = +el.dataset.row;
+            const btnIdx = +el.dataset.btn;
+            const rows = keyboardAttachCache[msgId];
+            if (!rows) return;
+            const row = Array.isArray(rows[rowIdx]) ? rows[rowIdx] : [rows[rowIdx]];
+            const btn = row[btnIdx];
+            if (!btn) return;
+            const type = btn.type || 'callback';
+            if (type === 'link') {
+                window.open(btn.url, '_blank');
+                return;
+            }
+            if (type === 'open_app') {
+                const url = btn.url || btn.webApp?.url || btn.web_app?.url;
+                if (!url) {
+                    console.log('[maxclient] у кнопки open_app нет url:', btn);
+                    return;
+                }
+                openMiniApp(url, {
+                    title: btn.text || 'Мини-приложение',
+                    startParam: btn.startParam || btn.start_param || '',
+                    botId: btn.botId || btn.bot_id || null,
+                });
+                return;
+            }
+            if (type === 'request_contact' || type === 'request_geo_location') {
+                console.log(`[maxclient] кнопка "${type}" пока не реализована на клиенте`);
+                return;
+            }
+            // callback / message — обычная кнопка, шлём payload обратно как нажатие.
+            // Опкод для callback-ответа боту не подтверждён (нет в статическом анализе) —
+            // подставь реальный, когда увидишь его в трафике. Пока просто логируем намерение.
+            console.log('[maxclient] нажатие кнопки (callback), нужно отправить боту:', {
+                msgId, chatId: currentChatId, payload: btn.payload ?? btn.callback_data ?? btn.text,
+            });
+        }
+
+        // --- Мини-приложение: overlay + iframe + хост-мост window.WebApp ---
+        let miniAppBackHandler = null;
+        let miniAppClosingConfirmation = false;
+
+        function openMiniApp(url, meta) {
+            const overlay = document.getElementById('miniappOverlay');
+            const iframe = document.getElementById('miniappIframe');
+            const titleEl = document.getElementById('miniappTitle');
+            titleEl.textContent = meta?.title || 'Мини-приложение';
+            miniAppBackHandler = null;
+            miniAppClosingConfirmation = false;
+            document.getElementById('miniappBackBtn').classList.remove('visible');
+            let fullUrl = url;
+            if (meta?.startParam) {
+                fullUrl += (url.includes('?') ? '&' : '?') + 'startapp=' + encodeURIComponent(meta.startParam);
+            }
+            iframe.src = fullUrl;
+            overlay.classList.remove('hidden');
+            installMiniAppHostBridge(iframe, meta);
+        }
+
+        function closeMiniApp() {
+            if (miniAppClosingConfirmation) {
+                if (!confirm('Закрыть мини-приложение? Несохранённые данные будут потеряны.')) return;
+            }
+            const overlay = document.getElementById('miniappOverlay');
+            const iframe = document.getElementById('miniappIframe');
+            overlay.classList.add('hidden');
+            iframe.src = 'about:blank';
+            window.removeEventListener('message', miniAppMessageListener);
+        }
+
+        document.getElementById('miniappCloseBtn').onclick = closeMiniApp;
+        document.getElementById('miniappBackBtn').onclick = () => {
+            if (miniAppBackHandler) miniAppBackHandler();
+        };
+
+        let miniAppMessageListener = null;
+
+        // ВАЖНО: это реализация "по аналогии" с открытой моделью Telegram WebApp
+        // (та же схема HMAC-валидации initData подтверждена сторонними источниками
+        // как идентичная у MAX), а НЕ подтверждённый реверс-инжинирингом протокол
+        // моста MAX (max-web-app.js закрыт для автоматического скачивания — robots.txt).
+        // Поэтому:
+        //   1) initData здесь собран из данных нашей уже авторизованной сессии, но
+        //      БЕЗ настоящей подписи (hash) — её может посчитать только сервер бота,
+        //      зная секретный token бота, которого у нас нет и быть не может.
+        //      Мини-приложения, которые на своём бэкенде строго проверяют hash,
+        //      с этим мостом не заработают "по-настоящему" (не пройдут валидацию),
+        //      но UI большинства мини-приложений всё равно должен отрисоваться.
+        //   2) Набор событий (eventType) ниже — стандартный минимум, который есть
+        //      почти в любой такой библиотеке. Всё, что реально пришлёт конкретное
+        //      мини-приложение и на что нет ответа, будет видно в консоли
+        //      (см. else-ветку) — так проще всего дополнить список по факту.
+        function installMiniAppHostBridge(iframe, meta) {
+            if (miniAppMessageListener) {
+                window.removeEventListener('message', miniAppMessageListener);
+            }
+            const initDataUnsafe = {
+                query_id: 'AA' + Date.now(),
+                user: {
+                    id: selfId,
+                    first_name: contactsById[selfId]?.firstName || contactsById[selfId]?.name || '',
+                    last_name: contactsById[selfId]?.lastName || '',
+                },
+                chat_instance: String(currentChatId || ''),
+                start_param: meta?.startParam || '',
+                auth_date: Math.floor(Date.now() / 1000),
+            };
+            // Строка initData без hash (см. комментарий выше) — сериализуем то, что есть
+            const initDataStr = Object.entries(initDataUnsafe)
+                .map(([k, v]) => `${k}=${encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v)}`)
+                .join('&');
+
+            function postToApp(eventType, eventData) {
+                iframe.contentWindow?.postMessage(JSON.stringify({ eventType, eventData: eventData ?? {} }), '*');
+            }
+
+            miniAppMessageListener = (event) => {
+                if (event.source !== iframe.contentWindow) return;
+                let msg;
+                try {
+                    msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                } catch (e) {
+                    return;
+                }
+                const { eventType, eventData } = msg || {};
+                switch (eventType) {
+                    case 'web_app_ready':
+                        postToApp('viewport_changed', { height: iframe.clientHeight, is_expanded: true, is_state_stable: true });
+                        break;
+                    case 'web_app_request_theme':
+                        postToApp('theme_changed', { theme_params: {} });
+                        break;
+                    case 'web_app_request_viewport':
+                        postToApp('viewport_changed', { height: iframe.clientHeight, is_expanded: true, is_state_stable: true });
+                        break;
+                    case 'web_app_setup_back_button':
+                        if (eventData?.is_visible) {
+                            document.getElementById('miniappBackBtn').classList.add('visible');
+                            miniAppBackHandler = () => postToApp('back_button_pressed');
+                        } else {
+                            document.getElementById('miniappBackBtn').classList.remove('visible');
+                            miniAppBackHandler = null;
+                        }
+                        break;
+                    case 'web_app_setup_closing_behavior':
+                        miniAppClosingConfirmation = !!eventData?.need_confirmation;
+                        break;
+                    case 'web_app_open_link':
+                        window.open(eventData?.url, '_blank');
+                        break;
+                    case 'web_app_open_max_link':
+                    case 'web_app_open_tg_link':
+                        window.open(eventData?.path_full || eventData?.url, '_blank');
+                        break;
+                    case 'web_app_close':
+                        closeMiniApp();
+                        break;
+                    case 'web_app_data_send':
+                        // Мини-приложение отправляет данные обратно боту — по офиц. схеме это
+                        // должно уйти в чат как служебное сообщение. Опкод не подтверждён,
+                        // логируем, чтобы можно было домаппить на реальный вызов send(...).
+                        console.log('[maxclient] web_app_data_send:', eventData);
+                        break;
+                    case 'web_app_expand':
+                    case 'web_app_set_header_color':
+                    case 'web_app_set_background_color':
+                        // Косметика, безопасно игнорировать
+                        break;
+                    case 'web_app_request_phone':
+                    case 'web_app_request_write_access':
+                    case 'web_app_invoke_custom_method':
+                        // Требуют реальной подписи/нативного UI, которого у нас нет —
+                        // отвечаем ошибкой в формате, близком к официальному
+                        postToApp(eventType + '_failed', { error: 'client.method_unavailable' });
+                        break;
+                    default:
+                        console.log('[maxclient] неизвестное событие от мини-приложения:', eventType, eventData);
+                }
+            };
+            window.addEventListener('message', miniAppMessageListener);
+
+            iframe.onload = () => {
+                postToApp('set_init_data', { initData: initDataStr, initDataUnsafe, platform: 'web', version: '1.0' });
+            };
         }
 
         function openChat(chatId) {
@@ -2546,11 +2872,7 @@
             list.innerHTML = '';
             earliestMessageTime = null;
             isLoadingMore = false;
-            const ars = getAutoreplySettings(chatId);
-            document.getElementById('autoreplyEnabled').checked = ars.enabled;
-            document.getElementById('autoreplyText').value = ars.text || '';
-            const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
-            document.getElementById('ghostReadEnabled').checked = gr[chatId] || false;
+            document.getElementById('messageText').value = getDrafts()[chatId] || '';
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
         }
 
@@ -3096,7 +3418,30 @@
             if (!text || !currentChatId) return;
             send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
             document.getElementById('messageText').value = '';
+            saveDraft(currentChatId, '');
         };
+
+        document.getElementById('messageText').addEventListener('input', (e) => {
+            if (currentChatId) saveDraft(currentChatId, e.target.value);
+        });
+
+        function getDrafts() {
+            try {
+                return JSON.parse(localStorage.getItem('maxclient_drafts') || '{}');
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function saveDraft(chatId, text) {
+            const drafts = getDrafts();
+            if (text) {
+                drafts[chatId] = text;
+            } else {
+                delete drafts[chatId];
+            }
+            localStorage.setItem('maxclient_drafts', JSON.stringify(drafts));
+        }
 
         document.querySelectorAll('input').forEach(el => {
             el.onkeypress = (e) => {

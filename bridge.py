@@ -4,6 +4,7 @@ import os
 import queue
 import random
 import re
+import secrets
 import socket
 import ssl
 import struct
@@ -18,6 +19,8 @@ import lz4.block
 import urllib.request
 import urllib.error
 import urllib.parse
+import base64
+import hashlib
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -27,9 +30,58 @@ HOST = os.getenv("MAX_HOST", "api.oneme.ru")
 PORT = int(os.getenv("MAX_PORT", "443"))
 SESSION_FILE = os.getenv("SESSION_FILE", os.path.join(
     os.path.dirname(__file__), "session.json"))
+SESSION_KEY_FILE = os.path.join(os.path.dirname(SESSION_FILE), "session.key")
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
+
+
+# --- Шифрование session.json на диске ---
+# Без сторонних пакетов (не хотим тащить cryptography в Android-сборку через
+# Chaquopy — рискованно) — простой, но настоящий потоковый шифр на hashlib.
+# Ключ лежит в отдельном файле session.key рядом с session.json; если кто-то
+# получит доступ к папке приложения целиком, оба файла всё равно будут видны —
+# это защита от случайного просмотра/утечки одного файла, не от root-доступа.
+def _get_or_create_encryption_key() -> bytes:
+    if os.path.exists(SESSION_KEY_FILE):
+        with open(SESSION_KEY_FILE, "rb") as f:
+            return f.read()
+    key = secrets.token_bytes(32)
+    with open(SESSION_KEY_FILE, "wb") as f:
+        f.write(key)
+    try:
+        os.chmod(SESSION_KEY_FILE, 0o600)
+    except Exception:
+        pass
+    return key
+
+
+def _keystream(key: bytes, length: int) -> bytes:
+    out = bytearray()
+    counter = 0
+    while len(out) < length:
+        out += hashlib.sha256(key + counter.to_bytes(8, "big")).digest()
+        counter += 1
+    return bytes(out[:length])
+
+
+def _xor_bytes(data: bytes, key: bytes) -> bytes:
+    ks = _keystream(key, len(data))
+    return bytes(a ^ b for a, b in zip(data, ks))
+
+
+def _encrypt_session_dict(data: dict) -> str:
+    key = _get_or_create_encryption_key()
+    raw = json.dumps(data).encode("utf-8")
+    cipher = _xor_bytes(raw, key)
+    return base64.b64encode(cipher).decode("ascii")
+
+
+def _decrypt_session_blob(blob: str) -> dict:
+    key = _get_or_create_encryption_key()
+    cipher = base64.b64decode(blob.encode("ascii"))
+    raw = _xor_bytes(cipher, key)
+    return json.loads(raw.decode("utf-8"))
 
 
 # --- Работа с сессией ---
@@ -37,15 +89,27 @@ def load_session():
     if os.path.exists(SESSION_FILE):
         try:
             with open(SESSION_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
+                content = f.read()
+            # Поддержка старого формата (обычный plaintext JSON) для плавного
+            # перехода — если файл ещё не зашифрован, читаем как есть и при
+            # следующем save_session он уже сохранится зашифрованным.
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return _decrypt_session_blob(content)
+        except Exception as e:
+            logger.warning(f"[session] failed to load: {e}")
     return {}
 
 
 def save_session(data: dict):
+    encrypted = _encrypt_session_dict(data)
     with open(SESSION_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        f.write(encrypted)
+    try:
+        os.chmod(SESSION_FILE, 0o600)
+    except Exception:
+        pass
 
 
 def get_or_create_device_id() -> str:

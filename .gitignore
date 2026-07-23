@@ -1,0 +1,4 @@
+session.json
+session.key
+__pycache__/
+*.pyc
