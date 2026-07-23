@@ -1644,6 +1644,7 @@
             <div class="miniapp-title" id="miniappTitle">Мини-приложение</div>
             <button class="miniapp-close-btn" id="miniappCloseBtn" title="Закрыть">✕</button>
         </div>
+        <text>Если вас перекидывает на сторонний сайт, то авторизация работать не будет </text>
         <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
             allow="camera; microphone; geolocation; clipboard-read; clipboard-write"></iframe>
     </div>
@@ -1664,6 +1665,7 @@
         let isMuted = false;
         let controlsTimeout = null;
         let isControlsVisible = true;
+        let currentProfilePayload = null;
 
         const video = document.getElementById('videoPlayer');
         const modal = document.getElementById('videoModal');
@@ -2172,33 +2174,61 @@
 
         function renderAccountPage() {
             const authed = isAuthenticated() || !!getSavedAuthToken();
-            const phone = document.getElementById('phone')?.value || 'Не указан';
-            const userId = selfId || '—';
+
+            // Читаем строго из кэша opcode 19
+            const profile = currentProfilePayload || {};
+
+            // Имя ищем по приоритетам ONEME -> CUSTOM (как в основном приложении)
+            let displayName = '—';
+            if (profile.names && Array.isArray(profile.names)) {
+                const nameRecord = profile.names.find(n => n.type === 'ONEME' || n.type === 'CUSTOM');
+                if (nameRecord) {
+                    displayName = nameRecord.name;
+                }
+            }
+
             return `
-            <div style="padding:4px 0;">
-                <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eee;">
-                    <span style="font-size:32px;">👤</span>
-                    <div>
-                        <div style="font-weight:600;font-size:16px;">${authed ? '✅ Аккаунт активен' : '❌ Не авторизован'}</div>
-                        <div style="font-size:13px;color:#888;">${authed ? 'Сессия действительна' : 'Войдите в аккаунт'}</div>
-                        ${authed ? `<div style="font-size:12px;color:#666;margin-top:4px;">ID: ${userId}</div>` : ''}
-                        ${authed && phone ? `<div style="font-size:12px;color:#666;">Телефон: ${phone}</div>` : ''}
-                    </div>
+        <div style="padding:4px 0;">
+            <!-- Блок с аватаром и основной информацией -->
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eee;">
+                <!-- Фото профиля вместо иконки -->
+                ${profile.baseUrl
+                    ? `<img src="${escapeHtml('/img?url=' + encodeURIComponent(profile.baseUrl))}" alt="" onerror="this.style.display='none'" style="width:64px;height:64px;border-radius:50%;object-fit:cover;">`
+                    : `<span style="font-size:32px;">👤</span>`
+                }
+                
+                <div>
+                    <div style="font-weight:600;font-size:16px;">${authed ? '✅ Аккаунт активен' : '❌ Не авторизован'}</div>
+                    
+                    <!-- Вместо "Сессия действительна" теперь выводится Ник -->
+                    <div style="font-size:13px;color:#888;">${authed ? escapeHtml(displayName) : 'Войдите в аккаунт'}</div>
+                    
+                    ${authed
+                    ? `
+                            <div style="font-size:12px;color:#666;margin-top:4px;">ID: ${escapeHtml(String(profile.id || '—'))}</div>
+                            <div style="font-size:12px;color:#666;margin-top:2px;">Телефон: ${profile.phone ? '+' + String(profile.phone).replace(/[^\d]/g, '') : 'Не указан'}</div>
+                            <div style="font-size:12px;color:#666;margin-top:2px;">Страна: ${escapeHtml(profile.country || 'RU')}</div>
+                        `
+                    : ''
+                }
                 </div>
-                ${authed ? `
-                    <div style="margin-top:16px;">
-                        <button class="settings-logout-btn" onclick="handleLogout()">
-                            🚪 Выйти из аккаунта
-                        </button>
-                    </div>
-                ` : `
-                    <div style="margin-top:16px;padding:16px;background:#fff3cd;border-radius:10px;text-align:center;color:#856404;">
-                        🔑 Войдите в аккаунт через форму авторизации выше
-                    </div>
-                `}
             </div>
-        `;
+
+            <!-- Кнопка выхода остается без изменений -->
+            <div style="margin-top:16px;">
+                ${authed
+                    ? `<button class="settings-logout-btn" onclick="handleLogout()">🚪 Выйти из аккаунта</button>`
+                    : `
+                        <div style="padding:16px;background:#fff3cd;border-radius:10px;text-align:center;color:#856404;">
+                            🔑 Войдите в аккаунт через форму авторизации выше
+                        </div>
+                    `
+                }
+            </div>
+        </div>
+    `;
         }
+
 
         const settingsMenu = new SettingsMenu();
         settingsMenu
@@ -2719,10 +2749,50 @@
                     return;
                 }
                 if (a._type === 'FILE') {
+                    log(JSON.stringify(a, null, 2) + " 📎дебаг. ищи по эмодзи");
+
                     const fileName = a.name || 'файл';
-                    attachesHtml += `<div class="msg-attach msg-file">📎 ${escapeHtml(fileName)}</div>`;
+
+                    // 1. Красиво форматируем размер файла (из байт в КБ или МБ)
+                    let sizeText = '';
+                    if (a.size) {
+                        if (a.size >= 1024 * 1024) {
+                            sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
+                        } else {
+                            sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
+                        }
+                    }
+
+                    // 2. Конструируем ссылку для скачивания по стандарту Komet / MAX API
+                    let fileUrl = '';
+                    if (a.fileId && a.token) {
+                        fileUrl = `https://fd.oneme.ru/getfile?r=${encodeURIComponent(a.token)}`;
+                    }
+
+                    // 3. Выбираем иконку (если PDF — ставим лист бумаги, иначе — скрепку)
+                    const isPdf = /\.pdf$/i.test(fileName);
+                    const fileIcon = isPdf ? '📄' : '📎';
+
+                    // 4. Генерируем HTML-разметку
+                    if (fileUrl) {
+                        attachesHtml += `
+          <div class="msg-attach msg-file">
+            <a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener noreferrer" class="msg-file-link" download="${escapeHtml(fileName)}" style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
+              <span class="file-icon">${fileIcon}</span> 
+              <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
+              <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
+            </a>
+          </div>`;
+                    } else {
+                        attachesHtml += `
+          <div class="msg-attach msg-file" style="color: #888;">
+            ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
+          </div>`;
+                    }
                     return;
                 }
+
+
                 if (a._type === 'CALL') {
                     attachesHtml +=
                         `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
@@ -3081,6 +3151,7 @@
         }
 
         function renderMessages(payload, prepend) {
+            // log(JSON.stringify(payload, null, 2)) полезно для дебага содержимого сообщений
             const list = document.getElementById('messagesList');
             const existingIds = new Set();
             list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
@@ -3216,10 +3287,27 @@
                         return;
                     }
                     if (data.opcode === 19 && data.cmd === 256) {
+
+
+                        console.log(JSON.stringify(data.payload, null, 2))
+
+                        if (data.payload?.profile?.contact) {
+                            currentProfilePayload = data.payload.profile.contact;
+
+                            // Обновляем selfId для совместимости со старым кодом
+                            selfId = currentProfilePayload.id;
+
+                            // Также сразу кладем себя в справочник контактов, 
+                            // чтобы функции аватаров могли найти нас по contactsById[selfId]
+                            contactsById[selfId] = currentProfilePayload;
+                        }
+
+
                         renderChats(data.payload);
                         return;
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
+
                         renderMessages(data.payload, isLoadingMore);
                         return;
                     }
@@ -3286,29 +3374,46 @@
                             chatsById[chatId].lastEventTime = msg.time || Date.now();
                         }
 
+                        // Функция для очистки текста от HTML-тегов
+                        const stripHtml = (html) => {
+                            const tmp = document.createElement("DIV");
+                            tmp.innerHTML = html;
+                            return tmp.textContent || tmp.innerText || "";
+                        };
+
                         const chatDetailOpen = !document.getElementById('chatDetailSection').classList.contains('hidden');
+
                         if (chatId === currentChatId && chatDetailOpen) {
                             const el = createMessageElement(msg);
                             document.getElementById('messagesList').appendChild(el);
                             document.getElementById('messagesList').scrollTop = document.getElementById('messagesList').scrollHeight;
                         } else if (msg.sender !== selfId) {
-                            // Чат не открыт — показываем системное уведомление
+                            // Чат не открыт — показываем системное уведомление 
                             const chat = chatsById[chatId];
                             const senderName = chat ? chatDisplayName(chat) : 'Новое сообщение';
+
                             if ('Notification' in window && Notification.permission === 'granted') {
                                 const avatar = chat ? chatAvatarUrl(chat) : null;
                                 const icon = avatar && avatar.startsWith('http') ? avatar : undefined;
-                                const n = new Notification(senderName, {
-                                    body: msg.text || '📎 Вложение',
+
+                                // Очищаем имя и текст сообщения от тегов перед отправкой в Notification
+                                const cleanSenderName = stripHtml(senderName);
+                                const cleanBodyText = msg.text ? stripHtml(msg.text) : '📎 Вложение';
+
+                                const n = new Notification(cleanSenderName, {
+                                    body: cleanBodyText,
                                     icon,
                                 });
+
                                 n.onclick = () => {
                                     window.focus();
                                     if (chatsById[chatId]) openChat(chatId);
                                 };
                             }
                         }
+
                         return;
+
                     }
                 } catch (err) {
                     console.error('[ws error]', err);
