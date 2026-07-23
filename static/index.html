@@ -1611,7 +1611,7 @@
             <button class="miniapp-close-btn" id="miniappCloseBtn" title="Закрыть">✕</button>
         </div>
         <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
-            sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
+            allow="camera; microphone; geolocation; clipboard-read; clipboard-write"></iframe>
     </div>
 
     <div class="section">
@@ -2689,11 +2689,18 @@
             if (!url) return null;
             try {
                 const u = new URL(url);
-                return u.searchParams.get('WebAppData') || u.searchParams.get('webAppData');
+                const fromQuery = u.searchParams.get('WebAppData') || u.searchParams.get('webAppData');
+                if (fromQuery) return decodeURIComponent(fromQuery);
+                if (u.hash.length > 1) {
+                    const hashParams = new URLSearchParams(u.hash.slice(1));
+                    const fromHash = hashParams.get('WebAppData') || hashParams.get('webAppData');
+                    if (fromHash) return decodeURIComponent(fromHash);
+                }
             } catch (e) {
-                const match = url.match(/WebAppData=([^&#]+)/i);
-                return match ? decodeURIComponent(match[1]) : null;
+                // fall through to regex
             }
+            const match = url.match(/[#&?]WebAppData=([^&#]+)/i);
+            return match ? decodeURIComponent(match[1]) : null;
         }
 
         function renderKeyboardAttach(attach, msgId) {
@@ -3184,9 +3191,11 @@
                             const chat = chatsById[chatId];
                             const senderName = chat ? chatDisplayName(chat) : 'Новое сообщение';
                             if ('Notification' in window && Notification.permission === 'granted') {
+                                const avatar = chat ? chatAvatarUrl(chat) : null;
+                                const icon = avatar && avatar.startsWith('http') ? avatar : undefined;
                                 const n = new Notification(senderName, {
                                     body: msg.text || '📎 Вложение',
-                                    icon: chat ? (chatAvatarUrl(chat) || undefined) : undefined,
+                                    icon,
                                 });
                                 n.onclick = () => {
                                     window.focus();
