@@ -1604,7 +1604,7 @@
             <button class="miniapp-close-btn" id="miniappCloseBtn" title="Закрыть">✕</button>
         </div>
         <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
-            sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals"></iframe>
+            sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
     </div>
 
     <div class="section">
@@ -2567,7 +2567,7 @@
             (m.attaches || []).forEach(a => {
                 if (a._type === 'PHOTO') {
                     let src = a.baseRawUrl || a.baseUrl;
-                    if (src) src = '/img?url=' + encodeURIComponent(src);
+                    if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
                     if (!src && a.previewData) {
                         src = hexPreviewToDataUrl(a.previewData);
                     }
