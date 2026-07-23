@@ -1093,6 +1093,11 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
             packet["cmd"])
         logger.info(
             f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
+        if packet["cmd"] == 768:
+            logger.info(f"  error payload: {packet.get('payload')!r}")
+        if packet["cmd"] == 256 and packet["opcode"] in (46, 60, 89):
+            logger.info(
+                f"  payload: {json.dumps(packet.get('payload'), ensure_ascii=False, indent=2)}")
 
         # Обработка ошибки авторизации
         if packet["opcode"] == 19 and packet["cmd"] == 768:
