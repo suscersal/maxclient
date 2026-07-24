@@ -344,6 +344,17 @@
             margin-left: 4px;
         }
 
+        .msg-enc-badge {
+            font-size: 11px;
+            color: #4caf50;
+            opacity: 0.75;
+            margin-top: 2px;
+        }
+
+        .msg-enc-badge-error {
+            color: #e53935;
+        }
+
         .bot-webapp-bar {
             display: flex;
             align-items: center;
@@ -1762,6 +1773,11 @@
                 <div id="chatDetailStatus" style="font-size:12px;color:#888;"></div>
             </div>
             <span class="chat-id-label" id="chatIdLabel"></span>
+            <label id="e2eToggleWrap" title="Шифрование сообщений"
+                style="display:flex;align-items:center;gap:4px;margin-left:8px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="e2eCheckbox" onchange="onE2eCheckboxChange()" style="cursor:pointer;">
+                <span id="e2eStatusIcon" style="font-size:16px;">🔓</span>
+            </label>
         </div>
         <div id="messagesList"></div>
         <button type="button" id="botWebAppBtn" class="bot-webapp-bar hidden" onclick="openBotWebApp()">
@@ -2792,6 +2808,41 @@
             d.textContent = s;
             return d.innerHTML;
         }
+        async function downloadFileAttach(linkEl) {
+            const fileId = linkEl.dataset.fileId;
+            const messageId = linkEl.dataset.msgId2;
+            const chatId = linkEl.dataset.chatId;
+            const fileName = linkEl.querySelector('.file-name')?.textContent || 'file';
+
+            const originalHtml = linkEl.innerHTML;
+            linkEl.innerHTML = '<span class="file-name">⏳ Получаю ссылку...</span>';
+
+            try {
+                const res = await fetch('/api/file-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fileId, messageId, chatId })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.url) {
+                    log('❌ Не удалось получить ссылку на файл: ' + (data.error || res.status), 'error');
+                    linkEl.innerHTML = originalHtml;
+                    return;
+                }
+                const a = document.createElement('a');
+                a.href = data.url;
+                a.download = fileName;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } catch (e) {
+                log('❌ Ошибка получения ссылки на файл: ' + e, 'error');
+            } finally {
+                linkEl.innerHTML = originalHtml;
+            }
+        }
 
         function handleAvatarError(img) {
             img.style.display = 'none';
@@ -2940,6 +2991,33 @@
             }
         }
 
+        // Кэш, чтобы не дёргать /lottie повторно для одного и того же стикера
+        const lottieJsonCache = {};
+        async function loadLottieSticker(holderId, lottieUrl) {
+            try {
+                if (typeof lottie === 'undefined') return; // библиотека не подключилась — остаётся статичный fallback
+                let animData = lottieJsonCache[lottieUrl];
+                if (!animData) {
+                    const res = await fetch('/lottie?url=' + encodeURIComponent(lottieUrl));
+                    if (!res.ok) return;
+                    animData = await res.json();
+                    lottieJsonCache[lottieUrl] = animData;
+                }
+                const holder = document.getElementById(holderId);
+                if (!holder) return; // сообщение уже могло уйти со экрана (смена чата и т.п.)
+                holder.innerHTML = '';
+                lottie.loadAnimation({
+                    container: holder,
+                    renderer: 'svg',
+                    loop: true,
+                    autoplay: true,
+                    animationData: animData
+                });
+            } catch (e) {
+                console.log('[maxclient] lottie load failed:', e);
+            }
+        }
+
         function createMessageElement(m) {
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
@@ -2947,6 +3025,16 @@
             el.dataset.msgId = m.id;
             let attachesHtml = '';
             let keyboardHtml = '';
+            let encBadgeHtml = '';
+            if (m.__e2e && m.__e2e.encrypted) {
+                if (m.__e2e.ok) {
+                    m.text = m.__e2e.text;
+                    encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
+                } else {
+                    m.text = '🔒 Не удалось расшифровать сообщение';
+                    encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
+                }
+            }
             (m.attaches || []).forEach(a => {
                 if (a._type === 'PHOTO') {
                     let src = a.baseRawUrl || a.baseUrl;
@@ -2967,11 +3055,8 @@
                     return;
                 }
                 if (a._type === 'FILE') {
-                    log(JSON.stringify(a, null, 2) + " 📎дебаг. ищи по эмодзи");
-
                     const fileName = a.name || 'файл';
 
-                    // 1. Красиво форматируем размер файла (из байт в КБ или МБ)
                     let sizeText = '';
                     if (a.size) {
                         if (a.size >= 1024 * 1024) {
@@ -2981,21 +3066,16 @@
                         }
                     }
 
-                    // 2. Конструируем ссылку для скачивания по стандарту Komet / MAX API
-                    let fileUrl = '';
-                    if (a.fileId && a.token) {
-                        fileUrl = `https://fd.oneme.ru/getfile?r=${encodeURIComponent(a.token)}`;
-                    }
-
-                    // 3. Выбираем иконку (если PDF — ставим лист бумаги, иначе — скрепку)
                     const isPdf = /\.pdf$/i.test(fileName);
                     const fileIcon = isPdf ? '📄' : '📎';
 
-                    // 4. Генерируем HTML-разметку
-                    if (fileUrl) {
+                    if (a.fileId) {
                         attachesHtml += `
           <div class="msg-attach msg-file">
-            <a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener noreferrer" class="msg-file-link" download="${escapeHtml(fileName)}" style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
+            <a href="javascript:void(0)" class="msg-file-link"
+               data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
+               onclick="downloadFileAttach(this)"
+               style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
               <span class="file-icon">${fileIcon}</span> 
               <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
               <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
@@ -3008,6 +3088,28 @@
           </div>`;
                     }
                     return;
+                }
+                if (a._type === 'STICKER') {
+                    const w = a.width || 170;
+                    const h = a.height || 170;
+                    const stickerSrc = a.url ? '/img?url=' + encodeURIComponent(a.url) : null;
+                    const fallbackImgHtml = stickerSrc
+                        ? `<img src="${stickerSrc}" alt="${escapeHtml((a.tags || []).join(' ') || 'Стикер')}" loading="lazy" style="width:100%;height:auto;display:block;" onerror="this.parentElement.innerHTML='😀 Стикер (недоступен)'">`
+                        : `😀 Стикер`;
+
+                    if (a.lottieUrl && a.stickerType === 'LOTTIE') {
+                        const holderId = 'lottie_' + m.id + '_' + Math.random().toString(36).slice(2, 8);
+                        attachesHtml +=
+                            `<div class="msg-attach msg-sticker" data-lottie-url="${escapeHtml(a.lottieUrl)}" data-holder-id="${holderId}" style="max-width:${w}px;">
+                <div id="${holderId}" style="width:100%;aspect-ratio:${w}/${h};">${fallbackImgHtml}</div>
+            </div>`;
+                        // Не вызываем loadLottieSticker здесь – вызов будет после вставки в DOM
+                    } else if (stickerSrc) {
+                        attachesHtml +=
+                            `<div class="msg-attach msg-sticker" style="max-width:${w}px;">${fallbackImgHtml}</div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
+                    }
                 }
 
 
@@ -3065,7 +3167,7 @@
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
             const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = attachesHtml + textHtml + reactionsHtml + keyboardHtml + timeHtml
+            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
         }
 
@@ -3616,11 +3718,14 @@
             updateComposerVisibility(chat);
             updateBotWebAppButton(chat);
 
+            e2eSetUiStatus(chatId, 'none');
+            e2eRestoreForChat(chatId).then(status => e2eSetUiStatus(chatId, status));
+
             send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
         }
 
-        function renderMessages(payload, prepend) {
-            // log(JSON.stringify(payload, null, 2)) полезно для дебага содержимого сообщений
+
+        async function renderMessages(payload, prepend) {
             const list = document.getElementById('messagesList');
             const existingIds = new Set();
             list.querySelectorAll('.msg-bubble[data-msg-id]').forEach(el => {
@@ -3634,6 +3739,8 @@
                 return;
             }
 
+            await e2ePreprocessMessages(newMessages, currentChatId);
+
             const batchMinTime = Math.min(...newMessages.map(m => m.time || Infinity));
             if (earliestMessageTime == null || batchMinTime < earliestMessageTime) {
                 earliestMessageTime = batchMinTime;
@@ -3645,13 +3752,25 @@
                 const frag = document.createDocumentFragment();
                 newMessages.forEach(m => frag.appendChild(createMessageElement(m)));
                 list.insertBefore(frag, list.firstChild);
-                // Сохраняем позицию скролла, чтобы подгрузка не "прыгала" вниз
                 list.scrollTop = prevScrollTop + (list.scrollHeight - prevScrollHeight);
                 isLoadingMore = false;
             } else {
                 newMessages.forEach(m => list.appendChild(createMessageElement(m)));
                 list.scrollTop = list.scrollHeight;
             }
+
+            // --------------------------------------------
+            // ЗАГРУЖАЕМ Lottie-стикеры для всех сообщений
+            // (повторный вызов не перезагружает, если уже загружено)
+            // --------------------------------------------
+            const stickerContainers = list.querySelectorAll('.msg-attach.msg-sticker[data-lottie-url]');
+            stickerContainers.forEach(container => {
+                const url = container.dataset.lottieUrl;
+                const holderId = container.dataset.holderId;
+                if (url && holderId) {
+                    loadLottieSticker(holderId, url);
+                }
+            });
         }
 
         document.getElementById('messagesList').addEventListener('scroll', function () {
@@ -3690,7 +3809,7 @@
                     }
                 }, 25000);
             };
-            ws.onmessage = (e) => {
+            ws.onmessage = async (e) => {
                 try {
                     const data = JSON.parse(e.data);
                     if (data.opcode === 0 && data.payload?.pong) return;
@@ -3875,6 +3994,8 @@
                         const msg = data.payload.message || data.payload;
                         const chatId = data.payload.chatId ?? msg.chatId;
                         if (chatId == null) return;
+
+                        await e2ePreprocessMessage(msg, chatId);
 
                         if (chatsById[chatId]) {
                             chatsById[chatId].lastMessage = msg;
@@ -4232,10 +4353,28 @@
             document.getElementById('chatsSection').classList.remove('hidden');
         };
 
-        document.getElementById('sendMessageBtn').onclick = () => {
+        document.getElementById('sendMessageBtn').onclick = async () => {
             const text = document.getElementById('messageText').value.trim();
             if (!text || !currentChatId) return;
-            send(64, { chatId: currentChatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+            let outText = text;
+            const session = e2eSessions[currentChatId];
+            if (session && session.status === 'active') {
+                try {
+                    outText = await e2eEncryptText(session.aesKey, text);
+                } catch (err) {
+                    log('❌ Ошибка шифрования сообщения: ' + err, 'error');
+                    return;
+                }
+            }
+            send(64, {
+                chatId: currentChatId,
+                message: {
+                    text: outText,
+                    cid: Date.now(),
+                    attaches: []
+                },
+                notify: true
+            });
             document.getElementById('messageText').value = '';
             saveDraft(currentChatId, '');
         };
@@ -4300,6 +4439,215 @@
                 showLoginUI();
             }
         }
+        // ========================================
+        // E2E-ШИФРОВАНИЕ (ECDH P-256 + AES-256-GCM)
+        // ========================================
+        const e2eSessions = {}; // chatId -> { status: 'pending'|'active', keyPair?, aesKey? }
+
+        const E2E_HS_START = '\u2063\u2063\u2063\u2063'; // invisible separator x4 — начало служебных данных
+        const E2E_HS_END = '\u2064\u2064\u2064\u2064';   // invisible plus x4 — конец служебных данных
+        const E2E_MSG_PREFIX = '⛨E2E:';
+
+        function e2eBytesToBase64(bytes) {
+            let bin = '';
+            bytes.forEach(b => bin += String.fromCharCode(b));
+            return btoa(bin);
+        }
+        function e2eBase64ToBytes(b64) {
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes;
+        }
+
+        // Кодируем произвольные байты невидимыми символами (ZWSP/ZWNJ = биты 0/1)
+        function e2eBytesToInvisible(bytes) {
+            let out = '';
+            for (const b of bytes) {
+                for (let i = 7; i >= 0; i--) {
+                    out += (b >> i) & 1 ? '\u200C' : '\u200B';
+                }
+            }
+            return out;
+        }
+        function e2eInvisibleToBytes(str) {
+            const bytes = [];
+            for (let i = 0; i + 8 <= str.length; i += 8) {
+                let byte = 0;
+                for (let j = 0; j < 8; j++) {
+                    byte = (byte << 1) | (str[i + j] === '\u200C' ? 1 : 0);
+                }
+                bytes.push(byte);
+            }
+            return new Uint8Array(bytes);
+        }
+
+        // Прячем служебный JSON (запрос/подтверждение шифрования) в конец видимого текста
+        function e2eEmbedPayload(visibleText, payloadObj) {
+            const bytes = new TextEncoder().encode(JSON.stringify(payloadObj));
+            return visibleText + E2E_HS_START + e2eBytesToInvisible(bytes) + E2E_HS_END;
+        }
+        function e2eExtractPayload(text) {
+            if (!text) return null;
+            const si = text.indexOf(E2E_HS_START);
+            const ei = text.indexOf(E2E_HS_END);
+            if (si === -1 || ei === -1 || ei <= si) return null;
+            try {
+                const bytes = e2eInvisibleToBytes(text.slice(si + E2E_HS_START.length, ei));
+                return JSON.parse(new TextDecoder().decode(bytes));
+            } catch (e) { return null; }
+        }
+        function e2eStripPayload(text) {
+            const si = text.indexOf(E2E_HS_START);
+            const ei = text.indexOf(E2E_HS_END);
+            if (si === -1 || ei === -1) return text;
+            return (text.slice(0, si) + text.slice(ei + E2E_HS_END.length)).trim();
+        }
+
+        // --- Персистентность активных сессий (localStorage) ---
+        function e2eLoadPersisted() {
+            try { return JSON.parse(localStorage.getItem('maxclient_e2e') || '{}'); } catch (e) { return {}; }
+        }
+        function e2eSavePersistedMap(map) {
+            localStorage.setItem('maxclient_e2e', JSON.stringify(map));
+        }
+        async function e2ePersistActive(chatId, aesKey) {
+            const raw = new Uint8Array(await crypto.subtle.exportKey('raw', aesKey));
+            const map = e2eLoadPersisted();
+            map[chatId] = { status: 'active', k: e2eBytesToBase64(raw) };
+            e2eSavePersistedMap(map);
+        }
+        async function e2eRestoreForChat(chatId) {
+            const entry = e2eLoadPersisted()[chatId];
+            if (entry && entry.status === 'active' && entry.k) {
+                try {
+                    const aesKey = await crypto.subtle.importKey(
+                        'raw', e2eBase64ToBytes(entry.k), { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+                    e2eSessions[chatId] = { status: 'active', aesKey };
+                    return 'active';
+                } catch (e) { /* повреждённый ключ — сбрасываем */ }
+            }
+            delete e2eSessions[chatId];
+            return 'none';
+        }
+
+        // --- UI ---
+        function e2eSetUiStatus(chatId, status) {
+            if (chatId !== currentChatId) return;
+            const cb = document.getElementById('e2eCheckbox');
+            const icon = document.getElementById('e2eStatusIcon');
+            if (!cb || !icon) return;
+            if (status === 'active') {
+                cb.checked = true; cb.disabled = false;
+                icon.textContent = '🔒'; icon.title = 'Шифрование включено';
+            } else if (status === 'pending') {
+                cb.checked = true; cb.disabled = true;
+                icon.textContent = '⏳'; icon.title = 'Ожидание подтверждения...';
+            } else {
+                cb.checked = false; cb.disabled = false;
+                icon.textContent = '🔓'; icon.title = 'Шифрование выключено';
+            }
+        }
+
+        function onE2eCheckboxChange() {
+            const cb = document.getElementById('e2eCheckbox');
+            if (!currentChatId) { cb.checked = false; return; }
+            if (cb.checked) {
+                e2eStartHandshake(currentChatId);
+            } else {
+                delete e2eSessions[currentChatId];
+                const map = e2eLoadPersisted();
+                delete map[currentChatId];
+                e2eSavePersistedMap(map);
+                e2eSetUiStatus(currentChatId, 'none');
+                log('🔓 Шифрование выключено для чата ' + currentChatId, 'info');
+            }
+        }
+
+        // --- Handshake ---
+        async function e2eStartHandshake(chatId) {
+            const keyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+            e2eSessions[chatId] = { status: 'pending', keyPair };
+            e2eSetUiStatus(chatId, 'pending');
+            const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey));
+            const text = e2eEmbedPayload('🔐 Запрос на включение шифрования', { t: 'req', k: e2eBytesToBase64(pubRaw) });
+            send(64, { chatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+            log('🔐 Отправлен запрос на шифрование для чата ' + chatId, 'info');
+        }
+
+        async function e2eHandleHandshakePayload(chatId, payload) {
+            if (!payload || !payload.t || !payload.k) return;
+            let peerKey;
+            try {
+                peerKey = await crypto.subtle.importKey(
+                    'raw', e2eBase64ToBytes(payload.k), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+            } catch (e) { return; }
+
+            if (payload.t === 'req') {
+                const keyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+                const aesKey = await crypto.subtle.deriveKey(
+                    { name: 'ECDH', public: peerKey }, keyPair.privateKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+                e2eSessions[chatId] = { status: 'active', aesKey };
+                await e2ePersistActive(chatId, aesKey);
+                e2eSetUiStatus(chatId, 'active');
+                const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey));
+                const text = e2eEmbedPayload('🔐 Шифрование включено', { t: 'ack', k: e2eBytesToBase64(pubRaw) });
+                send(64, { chatId, message: { text, cid: Date.now(), attaches: [] }, notify: true });
+                log('🔒 Шифрование установлено для чата ' + chatId, 'success');
+            } else if (payload.t === 'ack') {
+                const session = e2eSessions[chatId];
+                if (!session || session.status !== 'pending' || !session.keyPair) return;
+                const aesKey = await crypto.subtle.deriveKey(
+                    { name: 'ECDH', public: peerKey }, session.keyPair.privateKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+                e2eSessions[chatId] = { status: 'active', aesKey };
+                await e2ePersistActive(chatId, aesKey);
+                e2eSetUiStatus(chatId, 'active');
+                log('🔒 Шифрование установлено для чата ' + chatId, 'success');
+            }
+        }
+
+        // --- Шифрование/расшифровка текста сообщений ---
+        async function e2eEncryptText(aesKey, plaintext) {
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, new TextEncoder().encode(plaintext));
+            const combined = new Uint8Array(iv.length + ctBuf.byteLength);
+            combined.set(iv, 0);
+            combined.set(new Uint8Array(ctBuf), iv.length);
+            return E2E_MSG_PREFIX + e2eBytesToBase64(combined);
+        }
+        async function e2eDecryptText(aesKey, encoded) {
+            const raw = e2eBase64ToBytes(encoded.slice(E2E_MSG_PREFIX.length));
+            const iv = raw.slice(0, 12);
+            const ct = raw.slice(12);
+            const ptBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+            return new TextDecoder().decode(ptBuf);
+        }
+
+        // Обрабатывает одно входящее сообщение: расшифровывает, либо ловит handshake-payload
+        async function e2ePreprocessMessage(m, chatId) {
+            if (!m || typeof m.text !== 'string') return;
+            if (m.text.startsWith(E2E_MSG_PREFIX)) {
+                const session = e2eSessions[chatId];
+                if (session && session.status === 'active') {
+                    try {
+                        m.__e2e = { encrypted: true, ok: true, text: await e2eDecryptText(session.aesKey, m.text) };
+                    } catch (e) {
+                        m.__e2e = { encrypted: true, ok: false };
+                    }
+                } else {
+                    m.__e2e = { encrypted: true, ok: false };
+                }
+                return;
+            }
+            const hs = e2eExtractPayload(m.text);
+            if (hs) {
+                m.text = e2eStripPayload(m.text);
+                e2eHandleHandshakePayload(chatId, hs); // не блокируем рендер
+            }
+        }
+        async function e2ePreprocessMessages(messages, chatId) {
+            for (const m of messages) await e2ePreprocessMessage(m, chatId);
+        }
 
         applySettingsVars(loadSettingsVars());
         checkAuth();
@@ -4310,7 +4658,9 @@
         connect();
 
         window.onbeforeunload = () => { if (ws) ws.close(); };
+
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
 </body>
 
 </html>

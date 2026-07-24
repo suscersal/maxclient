@@ -11,6 +11,7 @@ import struct
 import threading
 import time
 import uuid
+import gzip
 
 import msgpack
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
@@ -430,6 +431,45 @@ def index():
 @app.route("/<path:filename>")
 def static_files(filename):
     return send_from_directory(STATIC_DIR, filename)
+
+
+@app.route("/lottie")
+def proxy_lottie():
+    """Прокси для Lottie-JSON анимированных стикеров (fd.oneme.ru/getfile?rq=...).
+    Нужен отдельно от /img, т.к. отдаёт JSON, а не картинку, и хост другой."""
+    url = request.args.get("url", "")
+    allowed_hosts = ("fd.oneme.ru",)
+
+    if not url.startswith("https://"):
+        return "", 400
+
+    host = urllib.parse.urlparse(url).hostname or ""
+    if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
+        return "", 400
+
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = resp.read()
+
+        # Lottie-стикеры (как и Telegram .tgs) часто приходят gzip-сжатым JSON,
+        # а не просто с Content-Encoding: gzip — распаковываем по магическим байтам.
+        if data[:2] == b"\x1f\x8b":
+            try:
+                data = gzip.decompress(data)
+            except Exception as e:
+                logger.warning(
+                    f"[lottie proxy] gzip decompress failed for {url}: {e}")
+                return "", 502
+
+        return Response(data, content_type="application/json", headers={"Cache-Control": "public, max-age=86400"})
+    except Exception as e:
+        logger.warning(f"[lottie proxy] failed for {url}: {e}")
+        return "", 502
 
 
 @app.route("/img")
@@ -974,6 +1014,47 @@ def button_callback():
     if isinstance(answer, dict):
         return jsonify(answer)
     return jsonify({})
+
+
+@app.route("/api/file-url", methods=["POST"])
+def get_file_url():
+    """Актуальная (подписанная, со сроком действия) ссылка на файл-вложение.
+    Собрать её на клиенте из token нельзя — не хватает r=/expires=, сервер сам
+    выдаёт готовый URL по fileId/chatId/messageId через opcode 88."""
+    data = request.get_json(force=True)
+    file_id = data.get("fileId")
+    chat_id = data.get("chatId")
+    message_id = data.get("messageId")
+
+    if file_id is None or chat_id is None or message_id is None:
+        return jsonify({"error": "fileId, chatId и messageId обязательны"}), 400
+
+    payload = {
+        "fileId": int(file_id),
+        "chatId": int(chat_id),
+        "messageId": int(message_id),
+    }
+
+    try:
+        packet = fetch_once(88, payload, wait_opcode=88, timeout=15)
+    except Exception as e:
+        logger.warning(f"[file-url] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+
+    if packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось получить ссылку на файл")
+        return jsonify({"error": error_msg}), 502
+
+    url = packet.get("payload", {}).get("url") if isinstance(
+        packet.get("payload"), dict) else None
+    if not url:
+        return jsonify({"error": "Сервер не вернул ссылку на файл"}), 502
+
+    return jsonify({"url": url})
 
 
 @app.route("/api/download", methods=["POST"])
