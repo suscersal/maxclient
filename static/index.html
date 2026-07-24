@@ -1360,6 +1360,7 @@
             object-fit: cover;
         }
 
+
         .chat-profile-avatar .name {
             font-size: 18px;
             font-weight: 600;
@@ -1740,7 +1741,21 @@
         </div>
         <div id="authStatus" style="font-size:13px;color:#888;margin-top:4px;"></div>
     </div>
-
+    <symbol id="icon_verification_mini_themed" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 12 12">
+        <g clip-path="url(#clip0_71_614)">
+            <path fill="currentColor" fill-rule="evenodd"
+                d="M.269 5.27a1.125 1.125 0 0 0 0 1.46l.8.938c.153.18.246.404.264.64l.098 1.229c.044.55.482.988 1.032 1.032l1.229.098c.236.018.46.111.64.265l.938.8c.42.358 1.04.358 1.46 0l.938-.8c.18-.154.404-.247.64-.265l1.229-.098c.55-.044.988-.482 1.032-1.032l.098-1.229c.018-.236.111-.46.265-.64l.8-.938a1.125 1.125 0 0 0 0-1.46l-.8-.938a1.12 1.12 0 0 1-.265-.64l-.098-1.229a1.125 1.125 0 0 0-1.032-1.032l-1.229-.098a1.13 1.13 0 0 1-.64-.265l-.938-.8a1.125 1.125 0 0 0-1.46 0l-.938.8c-.18.154-.404.247-.64.265l-1.229.098c-.55.044-.988.482-1.032 1.032l-.098 1.229c-.018.236-.111.46-.265.64z"
+                clip-rule="evenodd"></path>
+            <path fill="#fff"
+                d="M8.957 4.168a.603.603 0 0 1 0 .852L5.582 8.395a.603.603 0 0 1-.852 0L3.163 6.828a.603.603 0 1 1 .852-.852l1.14 1.14 2.95-2.948a.603.603 0 0 1 .852 0">
+            </path>
+        </g>
+        <defs>
+            <clipPath id="clip0_71_614">
+                <path fill="#fff" d="M0 0h12v12H0z"></path>
+            </clipPath>
+        </defs>
+    </symbol>
     <div id="chatsSection" class="section hidden">
         <div class="section-header-row">
             <h3>💬 Чаты</h3>
@@ -2787,9 +2802,9 @@
 
         function chatAvatarUrl(chat) {
             if (chat.type === 'DIALOG' && chat.id === 0) {
-                // Возвращаем корректную data URL для Избранного
-                return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsCAYAAAB5fY51AAAQAElEQVR4Aeyd37XkRhOHtR2BiQCbEJwANg4B3oEDIcAD+MHmgTdCwMc4AEIAmwQgA7wRABksqpnVvVNdUo/+dXe1+tsjjdTVra7qr6Tf1Z0tr8Pwu3fvht8ndvrhw/2xfA/wfCyzkfvmZD5heDOk/9APnxQB7o8UnYHna0j/2Xj/hPRs9EIAAhDwQwDB8pML9khwAIHWCUYpCWMAAAAABJRU5ErkJggg==";
+                return "/assets/favorite.png";
             }
+
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
             if (meta && meta.avatar) {
@@ -3114,8 +3129,22 @@
 
 
                 if (a._type === 'CALL') {
-                    attachesHtml +=
-                        `<div class="msg-attach msg-file">📞 ${a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок'}</div>`;
+                    let callText = a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок';
+                    if (a.duration && a.duration > 0) {
+                        const totalSeconds = Math.floor(a.duration / 1000);
+                        const hours = Math.floor(totalSeconds / 3600);
+                        const minutes = Math.floor((totalSeconds % 3600) / 60);
+                        const seconds = totalSeconds % 60;
+
+                        let durationStr = '';
+                        if (hours > 0) {
+                            durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                        } else {
+                            durationStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+                        }
+                        callText += ` (${durationStr})`;
+                    }
+                    attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
                     return;
                 }
                 if (a._type === 'CONTROL') {
@@ -3911,6 +3940,12 @@
                         return;
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
+
+
+
+                        console.log(JSON.stringify(data.payload, null, 2))
+
+
 
                         renderMessages(data.payload, isLoadingMore);
                         return;
