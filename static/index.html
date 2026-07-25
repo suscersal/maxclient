@@ -21,6 +21,89 @@
             background: #f5f5f5;
         }
 
+        @media (min-width: 900px) {
+            body {
+                max-width: 800px;
+            }
+        }
+
+        @media (min-width: 1300px) {
+            body {
+                max-width: 1000px;
+            }
+        }
+
+        @media (min-width: 1700px) {
+            body {
+                max-width: 1200px;
+            }
+        }
+
+        #loadingOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            padding: 20px;
+            overflow: auto;
+            background: #f5f5f5;
+            transition: opacity 0.25s ease;
+        }
+
+        #loadingOverlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #loadingOverlay img {
+            max-width: 60vw;
+            max-height: 50vh;
+            border-radius: 12px;
+            flex-shrink: 0;
+        }
+
+        #loadingOverlay .loading-label {
+            font-size: 15px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        #loadingOverlay .loading-label .dots span {
+            opacity: 0;
+            animation: loadingDot 1.4s infinite;
+        }
+
+        #loadingOverlay .loading-label .dots span:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        #loadingOverlay .loading-label .dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        #loadingOverlay .loading-label .dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes loadingDot {
+
+            0%,
+            80%,
+            100% {
+                opacity: 0;
+            }
+
+            40% {
+                opacity: 1;
+            }
+        }
+
         h1 {
             font-size: 24px;
             margin-bottom: 16px;
@@ -230,8 +313,9 @@
 
         .chat-item {
             display: flex;
-            gap: 12px;
-            padding: 10px 4px;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 4px;
             border-bottom: 1px solid #eee;
             cursor: pointer;
             transition: background 0.2s;
@@ -246,15 +330,16 @@
         }
 
         .chat-avatar {
-            width: 40px;
-            height: 40px;
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
-            background: #ddd;
+            background: linear-gradient(135deg, #4da3ff, #6a5af9);
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            color: #666;
+            font-size: 26px;
+            color: #fff;
             flex-shrink: 0;
             overflow: hidden;
             position: relative;
@@ -273,11 +358,11 @@
 
         .chat-name {
             font-weight: 600;
-            font-size: 14px;
+            font-size: 17px;
         }
 
         .chat-preview {
-            font-size: 13px;
+            font-size: 15px;
             color: #888;
             white-space: nowrap;
             overflow: hidden;
@@ -285,7 +370,7 @@
         }
 
         .chat-meta {
-            font-size: 11px;
+            font-size: 12px;
             color: #aaa;
             text-align: right;
             flex-shrink: 0;
@@ -767,13 +852,13 @@
 
         .online-dot {
             position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 11px;
-            height: 11px;
+            bottom: 2px;
+            right: 2px;
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
             background: #4caf50;
-            border: 2px solid white;
+            border: 3px solid white;
         }
 
         .msg-reactions {
@@ -1343,13 +1428,13 @@
             width: 72px;
             height: 72px;
             border-radius: 50%;
-            background: #ddd;
+            background: linear-gradient(135deg, #4da3ff, #6a5af9);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 32px;
             font-weight: bold;
-            color: #666;
+            color: #fff;
             overflow: hidden;
             position: relative;
         }
@@ -1633,6 +1718,10 @@
 </head>
 
 <body>
+    <div id="loadingOverlay">
+        <img src="/loading.gif" alt="Загрузка...">
+        <div class="loading-label">Загрузка<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+    </div>
     <div class="video-modal" id="videoModal">
         <div class="video-wrapper" onclick="togglePlay()">
             <video id="videoPlayer" playsinline></video>
@@ -2457,7 +2546,18 @@
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
+            .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .render();
+
+        function renderGifPreviewPage() {
+            return `
+                <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px 0;">
+                    <img src="/loading.gif" alt="Загрузка..." style="max-width:100%;max-height:50vh;border-radius:12px;"
+                         onerror="this.nextElementSibling.style.display='block'">
+                    <div class="settings-empty" style="display:none;">Файл /loading.gif не найден</div>
+                </div>
+            `;
+        }
 
         // ========================================
         // CHAT PROFILE MODAL
@@ -2477,10 +2577,12 @@
             const avatarUrl = chatAvatarUrl(chat);
             const avatarContainer = document.getElementById('chatProfileAvatar');
             if (avatarUrl) {
+                avatarContainer.style.background = '';
                 avatarContainer.innerHTML =
                     `<img src="${avatarUrl}" alt="" onerror="this.style.display='none';this.parentElement.textContent='?'">`;
             } else {
-                avatarContainer.textContent = name.charAt(0).toUpperCase() || '?';
+                avatarContainer.style.background = avatarGradient(chat.id);
+                avatarContainer.textContent = getInitials(name);
             }
 
             const otherId = otherParticipantId(chat);
@@ -2626,6 +2728,10 @@
             el.className = `status ${type}`;
         }
 
+        function hideLoadingOverlay() {
+            document.getElementById('loadingOverlay')?.classList.add('hidden');
+        }
+
         function showAuthenticatedUI() {
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('chatsSection').classList.remove('hidden');
@@ -2641,6 +2747,7 @@
             document.getElementById('authStatus').textContent = '🔄 Требуется авторизация';
             document.getElementById('code').value = '';
             document.getElementById('password').value = '';
+            hideLoadingOverlay();
             settingsMenu.refreshPage('account');
         }
 
@@ -2800,11 +2907,28 @@
 
         }
 
+        function avatarGradient(seed) {
+            const str = String(seed ?? '0');
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = (h * 31 + str.charCodeAt(i)) >>> 0;
+            }
+            const hue1 = h % 360;
+            const hue2 = (hue1 + 45 + (h % 90)) % 360;
+            return `linear-gradient(135deg, hsl(${hue1},85%,62%), hsl(${hue2},85%,46%))`;
+        }
+
+        function getInitials(name) {
+            const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+            if (!parts.length) return '?';
+            if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+            return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+        }
+
         function chatAvatarUrl(chat) {
             if (chat.type === 'DIALOG' && chat.id === 0) {
                 return "/assets/favorite.png";
             }
-
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
             if (meta && meta.avatar) {
@@ -2864,6 +2988,9 @@
             const parent = img.parentElement;
             if (parent && parent.classList.contains('chat-avatar')) {
                 parent.textContent = parent.dataset.initials || '?';
+                if (parent.dataset.avatarSeed) {
+                    parent.style.background = avatarGradient(parent.dataset.avatarSeed);
+                }
             }
         }
 
@@ -2901,12 +3028,14 @@
                 const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
                 const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
                 const avatarUrl = chatAvatarUrl(chat);
-                const initial = name.charAt(0).toUpperCase();
+                const initial = getInitials(name);
                 let avatarHtml;
+                let avatarBg = '';
                 if (avatarUrl) {
                     avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
                 } else {
                     avatarHtml = initial;
+                    avatarBg = `background:${avatarGradient(chat.id)};`;
                 }
                 const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
                 const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
@@ -2914,7 +3043,7 @@
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 el.innerHTML = `
-                <div class="chat-avatar" data-initials="${initial}" style="position:relative;">${avatarHtml}${onlineDot}</div>
+                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
                 <div class="chat-info">
                     <div class="chat-name">${name}</div>
                     <div class="chat-preview">${escapeHtml(preview)}</div>
@@ -3545,12 +3674,13 @@
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
-                const initial = (item.name || '?').charAt(0).toUpperCase();
+                const initial = getInitials(item.name);
                 const avatarHtml = avatarUrl
                     ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
                     : initial;
+                const avatarBg = avatarUrl ? '' : `background:${avatarGradient(item.id)};`;
                 el.innerHTML = `
-                <div class="chat-avatar" data-initials="${initial}">${avatarHtml}</div>
+                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${item.id}" style="${avatarBg}">${avatarHtml}</div>
                 <div class="chat-info">
                     <div class="chat-name">${escapeHtml(item.name || '')}</div>
                     <div class="chat-preview">${escapeHtml(item.subtitle || '')}</div>
@@ -3646,6 +3776,7 @@
             }
             const name = contactNameFromPayload(contact);
             renderSearchResults([{
+                id: contact.id,
                 name,
                 subtitle: 'Написать сообщение',
                 avatarUrl: contact.baseUrl || null,
@@ -3659,6 +3790,7 @@
                 .map(item => item?.chat)
                 .filter(chat => chat && typeof chat.id === 'number')
                 .map(chat => ({
+                    id: chat.id,
                     name: chat.title || ('Чат #' + chat.id),
                     subtitle: chat.link ? '@' + chat.link : (chat.type || ''),
                     avatarUrl: chat.baseIconUrl || null,
@@ -3683,6 +3815,7 @@
             const contact = payload.user?.contact;
             if (contact && typeof contact.id === 'number') {
                 renderSearchResults([{
+                    id: contact.id,
                     name: contactNameFromPayload(contact),
                     subtitle: 'Написать сообщение',
                     avatarUrl: contact.baseUrl || null,
@@ -3724,16 +3857,19 @@
             document.getElementById('chatIdLabel').textContent = 'ID: ' + chatId;
 
             const avatarUrl = chatAvatarUrl(chat);
-            const initial = chatDisplayName(chat).charAt(0).toUpperCase();
+            const initial = getInitials(chatDisplayName(chat));
             let avatarHtml;
+            const avatarContainer = document.getElementById('chatDetailAvatar');
             if (avatarUrl) {
                 avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+                avatarContainer.style.background = '';
             } else {
                 avatarHtml = initial;
+                avatarContainer.style.background = avatarGradient(chatId);
             }
-            const avatarContainer = document.getElementById('chatDetailAvatar');
             avatarContainer.innerHTML = avatarHtml;
             avatarContainer.dataset.initials = initial;
+            avatarContainer.dataset.avatarSeed = chatId;
 
             const list = document.getElementById('messagesList');
             list.innerHTML = '';
@@ -3819,6 +3955,7 @@
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                 log('❌ Достигнут лимит попыток переподключения', 'error');
                 setStatus('Connection lost', 'error');
+                hideLoadingOverlay();
                 return;
             }
             log('Подключение... (попытка ' + (reconnectAttempts + 1) + ')');
@@ -3937,6 +4074,7 @@
 
 
                         renderChats(data.payload);
+                        setTimeout(hideLoadingOverlay, 500);
                         return;
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
