@@ -14,6 +14,11 @@ import java.security.MessageDigest
  * переустановки APK.
  *
  * Логика:
+ *  0. Если versionCode установленного APK вырос с прошлого запуска (значит,
+ *     только что поставили новый полный релиз) — стираем старый hotpatch,
+ *     чтобы он не перекрывал свежий baked-in код (см.
+ *     invalidateHotpatchIfAppWasUpdated). Это нужно, потому что полные
+ *     релизы больше не публикуют version.json — см. пункт про эндпоинт ниже.
  *  1. Скачиваем ota/version.json из САМОГО СВЕЖЕГО GitHub Release репозитория
  *     (его туда кладёт CI — см. .github/workflows/build-and-relis.yml и
  *     scripts/generate-ota-manifest.sh).
@@ -30,16 +35,14 @@ import java.security.MessageDigest
  * /releases/latest их не отдаст, и это приложение перестало бы видеть
  * hot-обновления. Поэтому здесь берём первый (самый новый) элемент из
  * полного списка /releases — туда попадают и обычные, и prerelease-релизы.
- *
- * ВАЖНО: OWNER/REPO ниже — заглушка, впиши сюда свои значения
- * (например "ivanov" / "max-client").
  */
 object OtaUpdater {
 
-    private const val OWNER = "OWNER"   // TODO: заменить на владельца репозитория
-    private const val REPO = "REPO"     // TODO: заменить на имя репозитория
+    private const val OWNER = "suscersal"
+    private const val REPO = "maxclient"
     private const val PREFS = "ota_prefs"
     private const val KEY_VERSION = "hot_version"
+    private const val KEY_APP_VERSION_CODE = "app_version_code"
 
     // per_page=1 — нам нужен только самый свежий релиз (список отсортирован
     // по дате создания, новые первыми).
@@ -62,6 +65,8 @@ object OtaUpdater {
     fun checkAndUpdate(ctx: Context, listener: ProgressListener) {
         try {
             listener.onProgress(0, "Проверка обновлений…")
+
+            invalidateHotpatchIfAppWasUpdated(ctx)
 
             val releasesArray = httpGetJsonArray(RELEASES_LIST_URL)
             if (releasesArray.length() == 0) {
@@ -90,9 +95,11 @@ object OtaUpdater {
             }
 
             if (versionAssetUrl == null) {
-                // В этом релизе нет OTA-пакета (например, самый первый релиз
-                // до внедрения этого механизма) — просто продолжаем со
-                // старой версией, если она уже скачана раньше.
+                // В этом релизе нет OTA-пакета — это нормально для обычных
+                // "полных" релизов (там всё уже запечено в APK/бинарники,
+                // см. build-and-relis.yml). Он есть только у hot-update
+                // релизов. Просто продолжаем со старой версией, если она
+                // уже скачана раньше.
                 listener.onFinished(existingHotpatchOrNull(ctx))
                 return
             }
@@ -153,6 +160,42 @@ object OtaUpdater {
             // уже было скачано раньше (или на версии из APK, если ничего
             // ещё не скачивалось).
             listener.onFinished(existingHotpatchOrNull(ctx))
+        }
+    }
+
+    /**
+     * Полные релизы (build-N) больше не публикуют version.json (см.
+     * build-and-relis.yml — там теперь только APK/Linux/Windows), поэтому
+     * checkAndUpdate() не может узнать "вышел новый полный релиз" по сети.
+     * Вместо этого узнаём это локально: versionCode установленного APK
+     * (см. android/app/build.gradle, ANDROID_VERSION_CODE) растёт только
+     * при полной пересборке и всегда >= версии любого hot-update,
+     * опубликованного до неё. Если он вырос с прошлого запуска — значит,
+     * только что установили новый полный APK, и код внутри него уже как
+     * минимум не старее любого ранее скачанного hot-patch. Стираем
+     * устаревший hotpatch, чтобы он не перекрывал свежий baked-in код
+     * из нового APK (bridge_launcher.py подставляет hotpatch в начало
+     * sys.path, если папка существует).
+     */
+    private fun invalidateHotpatchIfAppWasUpdated(ctx: Context) {
+        val currentVersionCode = try {
+            @Suppress("DEPRECATION")
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode
+        } catch (e: Exception) {
+            return
+        }
+
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val seenVersionCode = prefs.getInt(KEY_APP_VERSION_CODE, -1)
+
+        if (seenVersionCode != -1 && currentVersionCode > seenVersionCode) {
+            hotpatchDir(ctx).deleteRecursively()
+            prefs.edit()
+                .remove(KEY_VERSION)
+                .putInt(KEY_APP_VERSION_CODE, currentVersionCode)
+                .apply()
+        } else if (seenVersionCode == -1) {
+            prefs.edit().putInt(KEY_APP_VERSION_CODE, currentVersionCode).apply()
         }
     }
 

@@ -131,17 +131,6 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Generate OTA manifest (bundled with this release too)
-        working-directory: .
-        run: bash scripts/generate-ota-manifest.sh "${{ needs.resolve-tag.outputs.version_name }}"
-
-      - name: Upload OTA bundle artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: max-client-ota
-          path: ota
-          if-no-files-found: error
-
   # ---------- Linux (единый бинарник через PyInstaller) ----------
   build-linux:
     needs: [ detect-changes, resolve-tag ]
@@ -246,7 +235,11 @@ jobs:
           path: dist/max-client-windows.exe
           if-no-files-found: error
 
-  # ---------- Единый релиз со всеми тремя сборками + OTA-пакетом ----------
+  # ---------- Единый релиз: только 3 исполняемых файла (APK/Linux/Windows) ----------
+  # OTA-пакет (bridge.py, index.html и т.п.) сюда больше не прикладывается —
+  # эти файлы и так запечены внутрь каждой из трёх сборок. Отдельно они
+  # публикуются только в hot-update релизах (см. publish-hot-update ниже),
+  # которые как раз существуют для обновления без пересборки.
   release:
     needs: [ detect-changes, resolve-tag, build-android, build-linux, build-windows ]
     if: needs.detect-changes.outputs.hot_only != 'true'
@@ -274,11 +267,6 @@ jobs:
             dist-artifacts/max-client-android/app-debug.apk
             dist-artifacts/max-client-linux/max-client-linux
             dist-artifacts/max-client-windows/max-client-windows.exe
-            dist-artifacts/max-client-ota/*.py
-            dist-artifacts/max-client-ota/*.html
-            dist-artifacts/max-client-ota/*.json
-            dist-artifacts/max-client-ota/*.gif
-            dist-artifacts/max-client-ota/assets/*
 
   # ---------- Лёгкое OTA-обновление: только когда менялись "горячие" файлы ----------
   # Никакой компиляции — просто публикуем изменившиеся Python/статика-файлы
