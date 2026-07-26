@@ -16,8 +16,14 @@ android {
         // versionName растёт на +0.1 (1.0 -> 1.1 -> 1.2...) с каждой сборкой,
         // по номеру запуска GitHub Actions. При локальной сборке (когда
         // переменных окружения нет) используются значения по умолчанию.
-        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInteger()
-        versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
+        // ВАЖНО: считаем значения в переменные ДО вызова versionCode/versionName —
+        // versionCode(...) это сеттер и ничего не возвращает, поэтому
+        // versionCode(...).toInteger() в одну строку падает с "Value is null".
+        def verCode = (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInteger()
+        def verName = System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
+
+        versionCode verCode
+        versionName verName
 
         // Ограничиваем ABI, чтобы не тащить лишние бинарники Python
         // и сократить время сборки / размер APK.
