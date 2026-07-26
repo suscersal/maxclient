@@ -9,7 +9,7 @@ import java.security.MessageDigest
 
 /**
  * Обновление "горячих" файлов (bridge.py, msgpack_lite.py, index.html,
- * avatars.json, manifest.json, loading.gif, assets/*) без пересборки и
+ * avatars.json, manifest.json, loading.gif, assets/... ) без пересборки и
  * переустановки APK.
  *
  * Логика:
