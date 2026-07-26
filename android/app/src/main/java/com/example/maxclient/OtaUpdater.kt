@@ -33,8 +33,17 @@ import java.security.MessageDigest
  * releases/latest/download/app-debug.apk (та ссылка обязана указывать на
  * релиз, где есть APK). Но раз они prerelease — GitHub-эндпоинт
  * /releases/latest их не отдаст, и это приложение перестало бы видеть
- * hot-обновления. Поэтому здесь берём первый (самый новый) элемент из
- * полного списка /releases — туда попадают и обычные, и prerelease-релизы.
+ * hot-обновления.
+ *
+ * ВАЖНО про сортировку: порядок элементов в /releases НИГДЕ не
+ * гарантирован GitHub'ом (в отличие от /releases/latest, где явно
+ * задокументировано "сортировка по created_at"). На практике он иногда
+ * не совпадает с датой публикации. Поэтому просто брать releases[0] как
+ * "самый новый" — ошибка: он может внезапно оказаться НЕ последним, и
+ * тогда приложение перестаёт видеть новые hot-update'ы (символ этого бага
+ * — "первое обновление подтянулось, следующие — нет"). Вместо этого
+ * забираем небольшое окно последних релизов и сами выбираем среди них
+ * самый новый по полю created_at.
  */
 object OtaUpdater {
 
@@ -44,15 +53,16 @@ object OtaUpdater {
     private const val KEY_VERSION = "hot_version"
     private const val KEY_APP_VERSION_CODE = "app_version_code"
 
-    // per_page=1 — нам нужен только самый свежий релиз (список отсортирован
-    // по дате создания, новые первыми).
+    // Окно последних релизов, среди которых сами ищем самый новый по
+    // created_at — см. пояснение про ненадёжный порядок /releases выше.
     private val RELEASES_LIST_URL =
-        "https://api.github.com/repos/$OWNER/$REPO/releases?per_page=1"
+        "https://api.github.com/repos/$OWNER/$REPO/releases?per_page=10"
 
     interface ProgressListener {
         /** percent от 0 до 100, statusText — что показать пользователю */
         fun onProgress(percent: Int, statusText: String)
-        fun onFinished(hotpatchDir: File?)
+        /** updated — true, если только что реально скачали новые/изменённые файлы */
+        fun onFinished(hotpatchDir: File?, updated: Boolean)
     }
 
     fun hotpatchDir(ctx: Context): File = File(ctx.filesDir, "hotpatch")
@@ -70,13 +80,13 @@ object OtaUpdater {
 
             val releasesArray = httpGetJsonArray(RELEASES_LIST_URL)
             if (releasesArray.length() == 0) {
-                listener.onFinished(existingHotpatchOrNull(ctx))
+                listener.onFinished(existingHotpatchOrNull(ctx), false)
                 return
             }
-            val releaseJson = releasesArray.getJSONObject(0)
+            val releaseJson = pickNewestByCreatedAt(releasesArray)
             val assets = releaseJson.optJSONArray("assets")
             if (assets == null || assets.length() == 0) {
-                listener.onFinished(existingHotpatchOrNull(ctx))
+                listener.onFinished(existingHotpatchOrNull(ctx), false)
                 return
             }
 
@@ -100,7 +110,7 @@ object OtaUpdater {
                 // см. build-and-relis.yml). Он есть только у hot-update
                 // релизов. Просто продолжаем со старой версией, если она
                 // уже скачана раньше.
-                listener.onFinished(existingHotpatchOrNull(ctx))
+                listener.onFinished(existingHotpatchOrNull(ctx), false)
                 return
             }
 
@@ -116,7 +126,7 @@ object OtaUpdater {
             // Даже если версия совпадает, но папки ещё нет (первый запуск
             // после установки) — качаем всё равно.
             if (localVersion == remoteVersion && dir.exists()) {
-                listener.onFinished(dir)
+                listener.onFinished(dir, false)
                 return
             }
 
@@ -139,7 +149,7 @@ object OtaUpdater {
                     continue
                 }
 
-                val downloadUrl = fileAssetUrls[name]
+                val downloadUrl = fileAssetUrls[name] ?: fileAssetUrls[name.substringAfterLast('/')]
                 if (downloadUrl != null) {
                     destFile.parentFile?.mkdirs()
                     downloadToFile(downloadUrl, destFile)
@@ -153,13 +163,13 @@ object OtaUpdater {
             }
 
             prefs.edit().putString(KEY_VERSION, remoteVersion).apply()
-            listener.onFinished(dir)
+            listener.onFinished(dir, true)
         } catch (e: Exception) {
             // Нет сети / GitHub недоступен / репозиторий приватный и т.п. —
             // не блокируем запуск приложения, просто работаем на том, что
             // уже было скачано раньше (или на версии из APK, если ничего
             // ещё не скачивалось).
-            listener.onFinished(existingHotpatchOrNull(ctx))
+            listener.onFinished(existingHotpatchOrNull(ctx), false)
         }
     }
 
@@ -197,6 +207,25 @@ object OtaUpdater {
         } else if (seenVersionCode == -1) {
             prefs.edit().putInt(KEY_APP_VERSION_CODE, currentVersionCode).apply()
         }
+    }
+
+    /**
+     * created_at — формат ISO-8601 UTC ("2026-07-26T12:00:00Z"), поэтому
+     * обычное лексикографическое сравнение строк корректно даёт
+     * хронологический порядок — полноценный парсинг даты не нужен.
+     */
+    private fun pickNewestByCreatedAt(releases: JSONArray): JSONObject {
+        var newest = releases.getJSONObject(0)
+        var newestCreatedAt = newest.optString("created_at", "")
+        for (i in 1 until releases.length()) {
+            val candidate = releases.getJSONObject(i)
+            val createdAt = candidate.optString("created_at", "")
+            if (createdAt > newestCreatedAt) {
+                newest = candidate
+                newestCreatedAt = createdAt
+            }
+        }
+        return newest
     }
 
     private fun existingHotpatchOrNull(ctx: Context): File? {
