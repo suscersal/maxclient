@@ -1,6 +1,7 @@
 package com.example.maxclient
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -13,12 +14,22 @@ import java.security.MessageDigest
  * переустановки APK.
  *
  * Логика:
- *  1. Скачиваем ota/version.json из последнего GitHub Release репозитория
+ *  1. Скачиваем ota/version.json из САМОГО СВЕЖЕГО GitHub Release репозитория
  *     (его туда кладёт CI — см. .github/workflows/build-and-relis.yml и
  *     scripts/generate-ota-manifest.sh).
  *  2. Сравниваем версию с сохранённой локально (SharedPreferences).
  *  3. Если версия новее — качаем изменившиеся файлы (по sha256) в
  *     filesDir/hotpatch и сохраняем новую версию.
+ *
+ * ВАЖНО про выбор эндпоинта: используем /releases (список), а НЕ
+ * /releases/latest. Причина — hot-update релизы (см. workflow,
+ * publish-hot-update) специально помечены prerelease: true, чтобы не быть
+ * "latest release" для README-бейджа "Скачать APK" и для ссылки вида
+ * releases/latest/download/app-debug.apk (та ссылка обязана указывать на
+ * релиз, где есть APK). Но раз они prerelease — GitHub-эндпоинт
+ * /releases/latest их не отдаст, и это приложение перестало бы видеть
+ * hot-обновления. Поэтому здесь берём первый (самый новый) элемент из
+ * полного списка /releases — туда попадают и обычные, и prerelease-релизы.
  *
  * ВАЖНО: OWNER/REPO ниже — заглушка, впиши сюда свои значения
  * (например "ivanov" / "max-client").
@@ -30,8 +41,10 @@ object OtaUpdater {
     private const val PREFS = "ota_prefs"
     private const val KEY_VERSION = "hot_version"
 
-    private val RELEASES_LATEST_URL =
-        "https://api.github.com/repos/$OWNER/$REPO/releases/latest"
+    // per_page=1 — нам нужен только самый свежий релиз (список отсортирован
+    // по дате создания, новые первыми).
+    private val RELEASES_LIST_URL =
+        "https://api.github.com/repos/$OWNER/$REPO/releases?per_page=1"
 
     interface ProgressListener {
         /** percent от 0 до 100, statusText — что показать пользователю */
@@ -50,7 +63,12 @@ object OtaUpdater {
         try {
             listener.onProgress(0, "Проверка обновлений…")
 
-            val releaseJson = httpGetJson(RELEASES_LATEST_URL)
+            val releasesArray = httpGetJsonArray(RELEASES_LIST_URL)
+            if (releasesArray.length() == 0) {
+                listener.onFinished(existingHotpatchOrNull(ctx))
+                return
+            }
+            val releaseJson = releasesArray.getJSONObject(0)
             val assets = releaseJson.optJSONArray("assets")
             if (assets == null || assets.length() == 0) {
                 listener.onFinished(existingHotpatchOrNull(ctx))
@@ -151,6 +169,17 @@ object OtaUpdater {
         conn.inputStream.use { input ->
             val text = input.bufferedReader().readText()
             return JSONObject(text)
+        }
+    }
+
+    private fun httpGetJsonArray(urlStr: String): JSONArray {
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        conn.setRequestProperty("Accept", "application/vnd.github+json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        conn.inputStream.use { input ->
+            val text = input.bufferedReader().readText()
+            return JSONArray(text)
         }
     }
 

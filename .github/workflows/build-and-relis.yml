@@ -263,6 +263,13 @@ jobs:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
           name: MAX Client ${{ needs.resolve-tag.outputs.tag }} (v${{ needs.resolve-tag.outputs.version_name }})
           generate_release_notes: true
+          # ВАЖНО: это должен быть единственный тип релиза, который НЕ помечен
+          # prerelease. Так GitHub-эндпоинт "latest release"
+          # (releases/latest, .../releases/latest/download/<file>, бейдж в
+          # README) всегда указывает на релиз, где точно есть APK.
+          # Hot-update релизы ниже (publish-hot-update) специально помечены
+          # prerelease: true, чтобы не перехватывать этот статус "latest".
+          prerelease: false
           files: |
             dist-artifacts/max-client-android/app-debug.apk
             dist-artifacts/max-client-linux/max-client-linux
@@ -307,6 +314,13 @@ jobs:
             без изменений в нативном Android-коде. Полная пересборка APK
             для этого не запускалась.
           generate_release_notes: false
+          # КРИТИЧНО: не даём этому релизу стать "latest release" в терминах
+          # GitHub API/UI — иначе README-бейдж "Скачать APK" и прямая ссылка
+          # releases/latest/download/app-debug.apk начнут указывать на релиз
+          # без APK. OtaUpdater.kt из-за этого же переведён с
+          # /releases/latest на /releases (полный список, включая
+          # prerelease) — иначе он перестал бы видеть именно эти обновления.
+          prerelease: true
           files: |
             ota/*.py
             ota/*.html

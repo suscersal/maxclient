@@ -1,13 +1,4 @@
 # MAX Client (Flask-версия)
 
-## Установка
+[![Скачать APK (последний релиз)](https://img.shields.io/github/v/release/suscersal/maxclient?label=Download%20APK&logo=android&logoColor=white)](https://github.com/suscersal/maxclient/releases/latest/download/app-debug.apk)
 
-```bash
-pip install flask flask-sock msgpack
-python bridge.py
-```
-
-Открой http://localhost:8080
-
-Если уже есть session.json от прошлой (aiohttp) версии — просто положи его
-в эту же папку, токен подхватится автоматически, логин не потребуется.
