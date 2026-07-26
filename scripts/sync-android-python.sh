@@ -18,10 +18,13 @@ DEST="android/app/src/main/python"
 echo "[sync] Копирую bridge.py -> $DEST/bridge.py"
 cp bridge.py "$DEST/bridge.py"
 
-echo "[sync] Копирую static/*.json и index.html -> $DEST/"
+echo "[sync] Копирую static/*.json и index.html и gifы -> $DEST/"
 cp static/index.html "$DEST/index.html"
 cp static/avatars.json "$DEST/avatars.json"
 cp static/manifest.json "$DEST/manifest.json"
+cp static/loading.gif "$DEST/loading.gif"
+cp -r static/assets/. "$DEST/assets"
+
 
 echo "[sync] Патчу импорт msgpack -> msgpack_lite (Chaquopy не собирает C-расширение msgpack)"
 # Файлы в проекте с CRLF-переносами строк, поэтому учитываем необязательный \r перед концом строки
