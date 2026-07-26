@@ -267,7 +267,6 @@ jobs:
             dist-artifacts/max-client-android/app-debug.apk
             dist-artifacts/max-client-linux/max-client-linux
             dist-artifacts/max-client-windows/max-client-windows.exe
-            dist-artifacts/max-client-ota/version.json
             dist-artifacts/max-client-ota/*.py
             dist-artifacts/max-client-ota/*.html
             dist-artifacts/max-client-ota/*.json
@@ -309,7 +308,6 @@ jobs:
             для этого не запускалась.
           generate_release_notes: false
           files: |
-            ota/version.json
             ota/*.py
             ota/*.html
             ota/*.json
