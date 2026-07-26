@@ -12,8 +12,12 @@ android {
         applicationId "com.example.maxclient"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        // Версия задаётся из CI (см. .github/workflows/build-and-relis.yml) —
+        // versionName растёт на +0.1 (1.0 -> 1.1 -> 1.2...) с каждой сборкой,
+        // по номеру запуска GitHub Actions. При локальной сборке (когда
+        // переменных окружения нет) используются значения по умолчанию.
+        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInteger()
+        versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
 
         // Ограничиваем ABI, чтобы не тащить лишние бинарники Python
         // и сократить время сборки / размер APK.

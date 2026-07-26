@@ -13,6 +13,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -45,12 +46,24 @@ class MainActivity : AppCompatActivity() {
 
         val webView = findViewById<WebView>(R.id.webview)
         val loading = findViewById<ProgressBar>(R.id.loading)
+        val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.webViewClient = object : WebViewClient() {
+            // onPageCommitVisible срабатывает, как только WebView отрисовал
+            // первый видимый кадр страницы — раньше, чем onPageFinished
+            // (который ждёт полной догрузки всех ресурсов). Благодаря этому
+            // нативный спиннер убирается сразу, как только на экране
+            // появляется собственный GUI/лоадер сайта, а не закрывает его
+            // до самого конца загрузки.
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                super.onPageCommitVisible(view, url)
+                loading.visibility = View.GONE
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 loading.visibility = View.GONE
@@ -62,8 +75,24 @@ class MainActivity : AppCompatActivity() {
         // настоящим системным уведомлениям Android через этот мост.
         webView.addJavascriptInterface(AndroidNotificationBridge(this), "AndroidNotification")
 
-        startPythonServerOnce()
-        waitForServerThenLoad(webView)
+        loadingStatus.visibility = View.VISIBLE
+        loading.isIndeterminate = true
+
+        Thread {
+            OtaUpdater.checkAndUpdate(this, object : OtaUpdater.ProgressListener {
+                override fun onProgress(percent: Int, statusText: String) {
+                    runOnUiThread { loadingStatus.text = statusText }
+                }
+
+                override fun onFinished(hotpatchDir: File?) {
+                    runOnUiThread {
+                        loadingStatus.text = "Запуск…"
+                        startPythonServerOnce(hotpatchDir)
+                        waitForServerThenLoad(webView)
+                    }
+                }
+            })
+        }.start()
     }
 
     override fun onRequestPermissionsResult(
@@ -102,16 +131,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun startPythonServerOnce() {
+    private fun startPythonServerOnce(hotpatchDir: File?) {
         if (serverStarted) return
         serverStarted = true
 
         val sessionFile = File(filesDir, "session.json").absolutePath
+        val hotpatchPath = hotpatchDir?.absolutePath ?: ""
 
         Thread {
             val py = Python.getInstance()
             val launcher = py.getModule("bridge_launcher")
-            launcher.callAttr("start_server", sessionFile, port)
+            launcher.callAttr("start_server", sessionFile, port, hotpatchPath)
         }.start()
     }
 

@@ -2,3 +2,5 @@ session.json
 session.key
 __pycache__/
 *.pyc
+Komet-main
+*.zip

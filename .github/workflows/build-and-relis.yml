@@ -11,32 +11,86 @@ permissions:
   contents: write
 
 jobs:
-  # Единая точка, где вычисляется тег релиза — чтобы во всех job'ах
-  # (android/linux/windows) он был одинаковым.
+  # Определяем, какие файлы поменялись в этом пуше: если это ТОЛЬКО
+  # "горячие" файлы (чистый Python + статика фронтенда — не требуют
+  # компиляции), то полную сборку APK/Linux/Windows не запускаем вообще,
+  # а вместо неё публикуем лёгкое OTA-обновление (см. publish-hot-update).
+  # Если поменялось что-то ещё (Kotlin, gradle, манифест, воркфлоу) —
+  # собираем как обычно.
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      hot_only: ${{ steps.filter.outputs.hot_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          set -euo pipefail
+
+          # Для ручного запуска или самого первого пуша сравнивать не с чем —
+          # считаем это "не только горячими" файлами, т.е. собираем всё.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || \
+             [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || \
+             [[ -z "${{ github.event.before }}" ]]; then
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # "Горячие" пути — то, что попадает в scripts/sync-android-python.sh
+          # и не требует пересборки нативного кода.
+          HOT_REGEX='^(bridge\.py|static/.*|android/app/src/main/python/msgpack_lite\.py)$'
+
+          NON_HOT=$(echo "$CHANGED" | grep -Ev "$HOT_REGEX" || true)
+
+          if [[ -z "$NON_HOT" ]]; then
+            echo "hot_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Единая точка, где вычисляется тег релиза и версия — чтобы во всех
+  # job'ах (android/linux/windows/hot-update) они были одинаковыми.
+  # versionName растёт на +0.1 с каждой сборкой (1.0 -> 1.1 -> 1.2...),
+  # используя монотонно растущий номер запуска GitHub Actions —
+  # никаких коммитов версии обратно в репозиторий не требуется.
   resolve-tag:
+    needs: detect-changes
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      version_name: ${{ steps.tag.outputs.version_name }}
+      version_code: ${{ steps.tag.outputs.version_code }}
     steps:
-      - name: Resolve release tag
+      - name: Resolve release tag and version
         id: tag
         run: |
-          # Если запуск из-за пуша тега (v1.0.0 и т.п.) — используем его как есть.
-          # Во всех остальных случаях (пуш в main, ручной запуск) —
-          # генерируем тег сами: build-<номер запуска>, например build-17.
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           fi
+          echo "version_name=1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
   # ---------- Android (APK через Chaquopy) ----------
   build-android:
-    needs: resolve-tag
+    needs: [ detect-changes, resolve-tag ]
+    if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: android
+    env:
+      ANDROID_VERSION_NAME: ${{ needs.resolve-tag.outputs.version_name }}
+      ANDROID_VERSION_CODE: ${{ needs.resolve-tag.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,9 +131,21 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Generate OTA manifest (bundled with this release too)
+        working-directory: .
+        run: bash scripts/generate-ota-manifest.sh "${{ needs.resolve-tag.outputs.version_name }}"
+
+      - name: Upload OTA bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: max-client-ota
+          path: ota
+          if-no-files-found: error
+
   # ---------- Linux (единый бинарник через PyInstaller) ----------
   build-linux:
-    needs: resolve-tag
+    needs: [ detect-changes, resolve-tag ]
+    if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +201,8 @@ jobs:
 
   # ---------- Windows (единый .exe через PyInstaller) ----------
   build-windows:
-    needs: resolve-tag
+    needs: [ detect-changes, resolve-tag ]
+    if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -179,9 +246,10 @@ jobs:
           path: dist/max-client-windows.exe
           if-no-files-found: error
 
-  # ---------- Единый релиз со всеми тремя сборками сразу ----------
+  # ---------- Единый релиз со всеми тремя сборками + OTA-пакетом ----------
   release:
-    needs: [ resolve-tag, build-android, build-linux, build-windows ]
+    needs: [ detect-changes, resolve-tag, build-android, build-linux, build-windows ]
+    if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -193,9 +261,57 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
-          name: MAX Client ${{ needs.resolve-tag.outputs.tag }}
+          name: MAX Client ${{ needs.resolve-tag.outputs.tag }} (v${{ needs.resolve-tag.outputs.version_name }})
           generate_release_notes: true
           files: |
             dist-artifacts/max-client-android/app-debug.apk
             dist-artifacts/max-client-linux/max-client-linux
             dist-artifacts/max-client-windows/max-client-windows.exe
+            dist-artifacts/max-client-ota/version.json
+            dist-artifacts/max-client-ota/*.py
+            dist-artifacts/max-client-ota/*.html
+            dist-artifacts/max-client-ota/*.json
+            dist-artifacts/max-client-ota/*.gif
+            dist-artifacts/max-client-ota/assets/*
+
+  # ---------- Лёгкое OTA-обновление: только когда менялись "горячие" файлы ----------
+  # Никакой компиляции — просто публикуем изменившиеся Python/статика-файлы
+  # как ассеты нового релиза. Приложение на устройстве само их подтянет
+  # (см. OtaUpdater.kt) без переустановки APK.
+  publish-hot-update:
+    needs: [ detect-changes, resolve-tag ]
+    if: needs.detect-changes.outputs.hot_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to publish if session.json leaked into the repo
+        run: |
+          if find . -iname "session.json" | grep -q .; then
+            echo "::error::Found session.json in the checkout — it must never be committed (contains a live auth token). Aborting."
+            exit 1
+          fi
+
+      - name: Sync bridge.py + static assets into Android Chaquopy folder
+        run: bash scripts/sync-android-python.sh
+
+      - name: Generate OTA manifest
+        run: bash scripts/generate-ota-manifest.sh "${{ needs.resolve-tag.outputs.version_name }}"
+
+      - name: Publish hot-update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: hot-${{ github.run_number }}
+          name: "MAX Client — hot update ${{ needs.resolve-tag.outputs.version_name }}"
+          body: |
+            Только обновление Python/статики (bridge.py, index.html и т.п.),
+            без изменений в нативном Android-коде. Полная пересборка APK
+            для этого не запускалась.
+          generate_release_notes: false
+          files: |
+            ota/version.json
+            ota/*.py
+            ota/*.html
+            ota/*.json
+            ota/*.gif
+            ota/assets/*
