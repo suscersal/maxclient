@@ -254,7 +254,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 true
             }
-        }
+        }//заглушка чтобы запустить сборку
 
         @JavascriptInterface
         fun show(title: String, body: String) {
