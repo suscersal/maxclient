@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Синхронизирует единственный "исходник правды" (корневой bridge.py +
+# Синхронизирует единственный "источник правды" (корневой bridge.py +
 # static/*) в папку Chaquopy для Android-сборки.
 #
 # Запускать из корня репозитория:
@@ -25,6 +25,10 @@ cp static/manifest.json "$DEST/manifest.json"
 cp static/loading.gif "$DEST/loading.gif"
 cp -r static/assets/. "$DEST/assets"
 
+DEST_ASSETS="android/app/src/main/assets"
+echo "[sync] Копирую loading.gif -> $DEST_ASSETS/loading.gif (нативный Android assets, читает GifView.kt через context.assets)"
+mkdir -p "$DEST_ASSETS"
+cp static/loading.gif "$DEST_ASSETS/loading.gif"
 
 echo "[sync] Патчу импорт msgpack -> msgpack_lite (Chaquopy не собирает C-расширение msgpack)"
 # Файлы в проекте с CRLF-переносами строк, поэтому учитываем необязательный \r перед концом строки
