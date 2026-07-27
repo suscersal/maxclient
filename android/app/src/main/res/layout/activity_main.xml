@@ -15,11 +15,10 @@
         android:orientation="vertical"
         android:gravity="center">
 
-        <ProgressBar
-            android:id="@+id/loading"
-            style="?android:attr/progressBarStyleLarge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+        <WebView
+            android:id="@+id/loadingGif"
+            android:layout_width="96dp"
+            android:layout_height="96dp" />
 
         <TextView
             android:id="@+id/loadingStatus"
