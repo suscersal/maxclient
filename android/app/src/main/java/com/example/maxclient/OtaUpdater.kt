@@ -134,6 +134,7 @@ object OtaUpdater {
 
             val names = remoteFiles.keys().asSequence().toList()
             var done = 0
+            var downloaded = 0
             for (name in names) {
                 val expectedHash = remoteFiles.getString(name)
                 val destFile = File(dir, name)
@@ -144,7 +145,7 @@ object OtaUpdater {
                     done++
                     listener.onProgress(
                         (done * 100 / names.size),
-                        "Обновление… ($done/${names.size})"
+                        "Проверено $done/${names.size} (без изменений)"
                     )
                     continue
                 }
@@ -153,12 +154,13 @@ object OtaUpdater {
                 if (downloadUrl != null) {
                     destFile.parentFile?.mkdirs()
                     downloadToFile(downloadUrl, destFile)
+                    downloaded++
                 }
 
                 done++
                 listener.onProgress(
                     (done * 100 / names.size),
-                    "Обновление… ($done/${names.size})"
+                    "Скачано $downloaded, проверено $done/${names.size}"
                 )
             }
 
