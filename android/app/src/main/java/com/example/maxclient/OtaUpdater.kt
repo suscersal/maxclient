@@ -1,6 +1,7 @@
 package com.example.maxclient
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -138,10 +139,15 @@ object OtaUpdater {
             for (name in names) {
                 val expectedHash = remoteFiles.getString(name)
                 val destFile = File(dir, name)
+                val actualHash = if (destFile.exists()) sha256(destFile) else null
+                Log.d(
+                    "OtaUpdater",
+                    "check $name: expected=$expectedHash actual=$actualHash exists=${destFile.exists()} size=${destFile.length()}"
+                )
 
                 // Пропускаем файл, если он уже скачан и хэш совпадает —
                 // это ускоряет докачку, когда изменилась только часть файлов.
-                if (destFile.exists() && sha256(destFile) == expectedHash) {
+                if (actualHash == expectedHash) {
                     done++
                     listener.onProgress(
                         (done * 100 / names.size),
@@ -262,6 +268,10 @@ object OtaUpdater {
         conn.connectTimeout = 8000
         conn.readTimeout = 15000
         conn.instanceFollowRedirects = true
+        // HttpURLConnection иногда сам добавляет "Accept-Encoding: gzip" и
+        // прозрачно разжимает ответ — отключаем это явно, чтобы не гадать,
+        // не отсюда ли берётся расхождение в байтах/хэше.
+        conn.setRequestProperty("Accept-Encoding", "identity")
         conn.inputStream.use { input ->
             dest.outputStream().use { output ->
                 input.copyTo(output)
