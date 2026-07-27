@@ -2,9 +2,9 @@ name: Build & Release
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch: {}
 
 permissions:
@@ -82,7 +82,7 @@ jobs:
 
   # ---------- Android (APK через Chaquopy) ----------
   build-android:
-    needs: [detect-changes, resolve-tag]
+    needs: [ detect-changes, resolve-tag ]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     defaults:
@@ -98,7 +98,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -120,9 +120,22 @@ jobs:
         working-directory: .
         run: bash scripts/sync-android-python.sh
 
+      - name: Verify loading.gif landed in the native assets folder
+        working-directory: .
+        run: |
+          ls -la android/app/src/main/assets/
+          file android/app/src/main/assets/loading.gif
+          echo "size: $(stat -c%s android/app/src/main/assets/loading.gif) bytes"
+
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --stacktrace
+
+      - name: Verify loading.gif ended up inside the built APK
+        working-directory: .
+        run: |
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -i "loading.gif" || \
+            (echo "::error::loading.gif is NOT present inside the built APK's assets!" && exit 1)
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -133,7 +146,7 @@ jobs:
 
   # ---------- Linux (единый бинарник через PyInstaller) ----------
   build-linux:
-    needs: [detect-changes, resolve-tag]
+    needs: [ detect-changes, resolve-tag ]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -142,7 +155,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install system dependencies (pywebview / GTK)
         run: |
@@ -190,7 +203,7 @@ jobs:
 
   # ---------- Windows (единый .exe через PyInstaller) ----------
   build-windows:
-    needs: [detect-changes, resolve-tag]
+    needs: [ detect-changes, resolve-tag ]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: windows-latest
     steps:
@@ -199,7 +212,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
@@ -241,8 +254,7 @@ jobs:
   # публикуются только в hot-update релизах (см. publish-hot-update ниже),
   # которые как раз существуют для обновления без пересборки.
   release:
-    needs:
-      [detect-changes, resolve-tag, build-android, build-linux, build-windows]
+    needs: [ detect-changes, resolve-tag, build-android, build-linux, build-windows ]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -274,7 +286,7 @@ jobs:
   # как ассеты нового релиза. Приложение на устройстве само их подтянет
   # (см. OtaUpdater.kt) без переустановки APK.
   publish-hot-update:
-    needs: [detect-changes, resolve-tag]
+    needs: [ detect-changes, resolve-tag ]
     if: needs.detect-changes.outputs.hot_only == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -305,7 +317,12 @@ jobs:
         run: |
           {
             echo "summary<<OTA_SUMMARY_EOF"
-            python3 -c "import json; m=json.load(open('ota/version.json', encoding='utf-8')); [print(f'- \`{n}\`: \`{h}\`') for n, h in sorted(m['files'].items())]"
+            python3 -c "
+import json
+m = json.load(open('ota/version.json', encoding='utf-8'))
+for name, h in sorted(m['files'].items()):
+    print(f'- \`{name}\`: \`{h}\`')
+"
             echo "OTA_SUMMARY_EOF"
           } >> "$GITHUB_OUTPUT"
 
