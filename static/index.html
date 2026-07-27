@@ -2027,6 +2027,73 @@
 </head>
 
 <body>
+    <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
+    <script>
+        (function () {
+            var maxLines = 300;
+            var box = document.createElement('div');
+            box.id = 'debugConsole';
+            box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:32vh;background:rgba(0,0,0,0.92);' +
+                'color:#0f0;font:11px/1.4 monospace;overflow-y:auto;z-index:999999;padding:6px 8px 6px 8px;' +
+                'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
+                'display:none;';
+            var toggle = document.createElement('button');
+            toggle.textContent = '🐞';
+            toggle.style.cssText = 'position:fixed;right:8px;bottom:calc(32vh + 8px);z-index:1000000;width:36px;' +
+                'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
+            toggle.onclick = function () {
+                box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+            };
+
+            function addLine(text, color) {
+                var line = document.createElement('div');
+                if (color) line.style.color = color;
+                line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
+                box.appendChild(line);
+                box.scrollTop = box.scrollHeight;
+                while (box.children.length > maxLines) box.removeChild(box.firstChild);
+            }
+
+            function toText(a) {
+                try {
+                    if (typeof a === 'string') return a;
+                    if (a instanceof Error) return a.stack || a.message;
+                    return JSON.stringify(a);
+                } catch (e) { return String(a); }
+            }
+
+            ['log', 'info', 'warn', 'error'].forEach(function (level) {
+                var orig = console[level];
+                console[level] = function () {
+                    var args = Array.prototype.slice.call(arguments).map(toText).join(' ');
+                    var prefix = level === 'error' ? '❌ ' : (level === 'warn' ? '⚠️ ' : '');
+                    var color = level === 'error' ? '#f66' : (level === 'warn' ? '#fd6' : '#0f0');
+                    addLine(prefix + args, color);
+                    orig.apply(console, arguments);
+                };
+            });
+
+            // Ловим в т.ч. ошибки загрузки ресурсов (сорванные <script src>/<link>/<img>) —
+            // именно это нужно для диагностики офлайн-запуска.
+            window.addEventListener('error', function (e) {
+                var t = e.target;
+                if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
+                    addLine('❌ Не удалось загрузить ресурс: ' + (t.src || t.href), '#f66');
+                } else {
+                    addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#f66');
+                }
+            }, true);
+
+            window.addEventListener('unhandledrejection', function (e) {
+                addLine('❌ Unhandled promise rejection: ' + toText(e.reason), '#f66');
+            });
+
+            document.documentElement.appendChild(box);
+            document.documentElement.appendChild(toggle);
+            addLine('Debug-консоль запущена');
+        })();
+    </script>
+    <!-- ==== КОНЕЦ ВРЕМЕННОЙ DEBUG-КОНСОЛИ ==== -->
     <div id="loadingOverlay">
         <img src="/loading.gif" alt="Загрузка...">
         <div class="loading-label">Загрузка<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
@@ -3414,22 +3481,33 @@
 
         async function showOfflineCachedChats() {
             if (offlineBannerShown) return;
+            // ВАЖНО: раньше оверлей загрузки скрывался только если в кэше
+            // реально были сохранённые чаты — если пользователь уже был
+            // авторизован (валидный токен), но локального кэша чатов ещё
+            // не было (или он пуст), приложение так и оставалось на экране
+            // загрузки навсегда при отсутствии интернета. Теперь оверлей
+            // скрываем и показываем UI в любом случае.
+            hideLoadingOverlay();
             try {
                 const res = await fetch('/api/chats-cache');
                 const json = await res.json();
+                offlineBannerShown = true;
+                isOfflineCacheMode = true;
+                showAuthenticatedUI();
                 if (!json.success || !json.data || !(json.data.chats || []).length) {
                     log('ℹ️ Сохранённых чатов для офлайн-режима нет', 'info');
+                    insertOfflineBanner();
                     return;
                 }
-                isOfflineCacheMode = true;
-                offlineBannerShown = true;
-                hideLoadingOverlay();
-                showAuthenticatedUI();
                 renderChats(json.data);
                 insertOfflineBanner(json.data.savedAt);
                 log('📦 Показаны сохранённые чаты (офлайн-режим)', 'info');
             } catch (e) {
                 log('❌ Не удалось загрузить сохранённые чаты: ' + e.message, 'error');
+                offlineBannerShown = true;
+                isOfflineCacheMode = true;
+                showAuthenticatedUI();
+                insertOfflineBanner();
             }
         }
 
@@ -4331,6 +4409,17 @@
                 showOfflineCachedChats();
                 return;
             }
+            // Если у устройства физически нет сети (самолётный режим, нет
+            // wi-fi/данных) — не долбим /relay безуспешными WS-хендшейками
+            // (это лишь плодит WS-ошибки в консоли и тратит время), а сразу
+            // показываем то, что есть локально.
+            if ('onLine' in navigator && !navigator.onLine) {
+                log('📴 Устройство офлайн — подключение не выполняется', 'info');
+                setStatus('Нет интернета', 'error');
+                hideLoadingOverlay();
+                showOfflineCachedChats();
+                return;
+            }
             log('Подключение... (попытка ' + (reconnectAttempts + 1) + ')');
             setStatus('Подключение...', 'info');
             ws = new WebSocket(`ws://${window.location.host}/relay`);
@@ -4363,7 +4452,7 @@
                         explicitOfflineErrors++;
                         log(`🌐 Нет соединения с сервером MAX: ${data.details}`, 'error');
                         setStatus('Нет интернета', 'error');
-                        if (explicitOfflineErrors >= 2) {
+                        if (explicitOfflineErrors >= 1) {
                             showOfflineCachedChats();
                         }
                         return;
@@ -5230,6 +5319,13 @@
         }
 
         connect();
+
+        window.addEventListener('online', () => {
+            log('🌐 Сеть появилась — переподключаемся', 'info');
+            reconnectAttempts = 0;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (!isConnected) connect();
+        });
 
         window.onbeforeunload = () => { if (ws) ws.close(); };
 

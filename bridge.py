@@ -1179,6 +1179,13 @@ def relay(ws):
     except Exception as e:
         ws.send(json.dumps(
             {"error": "Connection failed", "details": str(e), "offline": True}))
+        # Явно закрываем WS корректным close-фреймом вместо того, чтобы
+        # просто return'ить и полагаться на implicit-закрытие в flask-sock —
+        # так браузер получает чистый close вместо "Invalid frame header".
+        try:
+            ws.close(reason=1000, message="offline")
+        except Exception:
+            pass
         return
 
     t = threading.Thread(target=recv_loop, args=(
