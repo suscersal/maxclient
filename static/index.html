@@ -2808,6 +2808,7 @@
         let ws = null;
         let isConnected = false;
         let isOfflineCacheMode = false;
+        const messagesByChatId = {}; // chatId -> последние сообщения (не более 20), для офлайн-кэша
         let offlineBannerShown = false;
         let explicitOfflineErrors = 0;
         let reconnectAttempts = 0;
@@ -3461,6 +3462,58 @@
                     body: JSON.stringify(data),
                 }).catch(() => { });
             } catch (e) { /* сохранение кэша не критично — молча пропускаем */ }
+        }
+
+        // Держим в памяти последние 20 сообщений на чат и синхронизируем их
+        // на диск (зашифрованно, на бэкенде), чтобы при следующем офлайн-запуске
+        // можно было открыть чат и увидеть хотя бы недавнюю переписку.
+        const MESSAGES_CACHE_LIMIT = 20;
+
+        function updateMessagesCache(chatId, newMessages) {
+            if (!chatId || !newMessages || !newMessages.length) return;
+            const arr = messagesByChatId[chatId] || (messagesByChatId[chatId] = []);
+            const ids = new Set(arr.map(m => String(m.id)));
+            newMessages.forEach(m => {
+                if (!ids.has(String(m.id))) {
+                    arr.push(m);
+                    ids.add(String(m.id));
+                }
+            });
+            arr.sort((a, b) => (a.time || 0) - (b.time || 0));
+            if (arr.length > MESSAGES_CACHE_LIMIT) {
+                arr.splice(0, arr.length - MESSAGES_CACHE_LIMIT);
+            }
+            if (!isOfflineCacheMode) {
+                cacheMessagesToDisk(chatId, arr);
+            }
+        }
+
+        function cacheMessagesToDisk(chatId, messages) {
+            try {
+                fetch('/api/messages-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId, messages }),
+                }).catch(() => { });
+            } catch (e) { /* сохранение кэша не критично — молча пропускаем */ }
+        }
+
+        // Загружает сохранённые сообщения чата с диска, когда мы в офлайн-режиме
+        // и обычный send(49, ...) по вебсокету всё равно ничего не вернёт.
+        async function loadCachedMessagesForChat(chatId) {
+            try {
+                const res = await fetch('/api/messages-cache?chatId=' + encodeURIComponent(chatId));
+                const json = await res.json();
+                if (json.success && json.data && Array.isArray(json.data.messages) && json.data.messages.length) {
+                    messagesByChatId[chatId] = json.data.messages.slice();
+                    await renderMessages({ messages: json.data.messages }, false);
+                    log('📦 Показаны сохранённые сообщения чата ' + chatId + ' (офлайн)', 'info');
+                } else {
+                    log('ℹ️ Нет сохранённых сообщений для этого чата', 'info');
+                }
+            } catch (e) {
+                log('❌ Не удалось загрузить сохранённые сообщения: ' + e.message, 'error');
+            }
         }
 
         function removeOfflineBanner() {
@@ -4336,7 +4389,11 @@
             e2eSetUiStatus(chatId, 'none');
             e2eRestoreForChat(chatId).then(status => e2eSetUiStatus(chatId, status));
 
-            send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+            if (isOfflineCacheMode || !isConnected) {
+                loadCachedMessagesForChat(chatId);
+            } else {
+                send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+            }
         }
 
 
@@ -4355,6 +4412,8 @@
             }
 
             await e2ePreprocessMessages(newMessages, currentChatId);
+
+            updateMessagesCache(currentChatId, newMessages);
 
             const batchMinTime = Math.min(...newMessages.map(m => m.time || Infinity));
             if (earliestMessageTime == null || batchMinTime < earliestMessageTime) {

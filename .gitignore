@@ -5,3 +5,4 @@ __pycache__/
 Komet-main
 *.zip
 chats_cache.json
+messages_cache.json

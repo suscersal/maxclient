@@ -36,6 +36,12 @@ SESSION_KEY_FILE = os.path.join(os.path.dirname(SESSION_FILE), "session.key")
 # и лимит попыток переподключения исчерпан.
 CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
     os.path.dirname(__file__), "chats_cache.json"))
+# Локальный кэш последних сообщений по каждому чату (для офлайн-режима —
+# чтобы при открытии чата без сети показывались хотя бы последние сообщения,
+# а не пустой список). Хранит не более MESSAGES_CACHE_LIMIT сообщений на чат.
+MESSAGES_CACHE_FILE = os.getenv("MESSAGES_CACHE_FILE", os.path.join(
+    os.path.dirname(__file__), "messages_cache.json"))
+MESSAGES_CACHE_LIMIT = 20
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
@@ -122,25 +128,71 @@ def save_session(data: dict):
 
 
 def load_chats_cache():
-    """Читает последний сохранённый на диск список чатов (для офлайн-режима)."""
+    """Читает последний сохранённый на диск список чатов (для офлайн-режима).
+    Файл хранится зашифрованным тем же ключом, что и session.json (см.
+    _encrypt_session_dict/_decrypt_session_blob) — старый формат (обычный
+    plaintext JSON) тоже поддерживается для плавного перехода."""
     if os.path.exists(CHATS_CACHE_FILE):
         try:
             with open(CHATS_CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                content = f.read()
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return _decrypt_session_blob(content)
         except Exception as e:
             logger.warning(f"[chats-cache] failed to load: {e}")
     return None
 
 
 def save_chats_cache(data: dict):
-    """Сохраняет список чатов на диск, чтобы показать их офлайн при отсутствии сети."""
+    """Сохраняет список чатов на диск (зашифрованным, как session.json),
+    чтобы показать их офлайн при отсутствии сети."""
     try:
+        encrypted = _encrypt_session_dict(data)
         tmp_path = CHATS_CACHE_FILE + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+            f.write(encrypted)
         os.replace(tmp_path, CHATS_CACHE_FILE)
+        try:
+            os.chmod(CHATS_CACHE_FILE, 0o600)
+        except Exception:
+            pass
     except Exception as e:
         logger.warning(f"[chats-cache] failed to save: {e}")
+
+
+def load_messages_cache() -> dict:
+    """Читает кэш последних сообщений по чатам (зашифрован так же, как
+    session.json). Формат: {"<chatId>": {"messages": [...], "savedAt": ms}}."""
+    if os.path.exists(MESSAGES_CACHE_FILE):
+        try:
+            with open(MESSAGES_CACHE_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return _decrypt_session_blob(content)
+        except Exception as e:
+            logger.warning(f"[messages-cache] failed to load: {e}")
+    return {}
+
+
+def save_messages_cache(data: dict):
+    """Сохраняет кэш последних сообщений по чатам на диск, зашифрованным
+    тем же ключом, что и session.json."""
+    try:
+        encrypted = _encrypt_session_dict(data)
+        tmp_path = MESSAGES_CACHE_FILE + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(encrypted)
+        os.replace(tmp_path, MESSAGES_CACHE_FILE)
+        try:
+            os.chmod(MESSAGES_CACHE_FILE, 0o600)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"[messages-cache] failed to save: {e}")
 
 
 def get_or_create_device_id() -> str:
@@ -859,6 +911,39 @@ def post_chats_cache():
     """Сохраняет присланный список чатов на диск (для показа офлайн)."""
     payload = request.get_json(force=True, silent=True) or {}
     save_chats_cache(payload)
+    return jsonify({"success": True})
+
+
+@app.route("/api/messages-cache", methods=["GET"])
+def get_messages_cache():
+    """Отдаёт последние сохранённые сообщения одного чата (для офлайн-режима).
+    ?chatId= обязателен."""
+    chat_id = request.args.get("chatId", "")
+    if not chat_id:
+        return jsonify({"success": False, "error": "chatId required"}), 400
+    cache = load_messages_cache()
+    entry = cache.get(chat_id)
+    if entry is None:
+        return jsonify({"success": False})
+    return jsonify({"success": True, "data": entry})
+
+
+@app.route("/api/messages-cache", methods=["POST"])
+def post_messages_cache():
+    """Сохраняет последние сообщения одного чата на диск (не более
+    MESSAGES_CACHE_LIMIT штук — самые свежие по полю time)."""
+    payload = request.get_json(force=True, silent=True) or {}
+    chat_id = str(payload.get("chatId", ""))
+    messages = payload.get("messages")
+    if not chat_id or not isinstance(messages, list):
+        return jsonify({"success": False, "error": "chatId and messages required"}), 400
+
+    trimmed = sorted(messages, key=lambda m: m.get(
+        "time", 0))[-MESSAGES_CACHE_LIMIT:]
+
+    cache = load_messages_cache()
+    cache[chat_id] = {"messages": trimmed, "savedAt": int(time.time() * 1000)}
+    save_messages_cache(cache)
     return jsonify({"success": True})
 
 
