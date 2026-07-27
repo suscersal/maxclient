@@ -39,6 +39,10 @@ CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
+# Сколько ждём подключения к серверу MAX, прежде чем считать, что интернета
+# нет, и сообщить об этом клиенту, а не зависать навсегда (см. connect() и
+# relay() ниже — раньше socket.create_connection() не имел таймаута вовсе).
+CONNECT_TIMEOUT = int(os.getenv("CONNECT_TIMEOUT", "7"))
 
 
 # --- Шифрование session.json на диске ---
@@ -306,7 +310,7 @@ class MaxClient:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        raw = socket.create_connection((HOST, PORT))
+        raw = socket.create_connection((HOST, PORT), timeout=CONNECT_TIMEOUT)
         self.sock = ctx.wrap_socket(raw, server_hostname=HOST)
         self.sock.settimeout(TIMEOUT)
         self._connected = True
@@ -1134,6 +1138,35 @@ def download_file():
     )
 
 
+def _connect_with_timeout(client: "MaxClient", existing_token, timeout: float):
+    """Подключается к серверу MAX в отдельном потоке с жёстким таймаутом.
+
+    socket.create_connection(timeout=...) ограничивает только сам TCP-connect,
+    а не DNS-резолвинг перед ним — если интернета вообще нет, getaddrinfo()
+    иногда всё равно виснет намного дольше. Поэтому запускаем connect() в
+    отдельном потоке и не ждём его дольше timeout секунд: если не успел —
+    считаем, что сети нет, и отдаём управление обратно (сам поток-неудачник
+    просто умрёт демоном, когда/если ОС всё-таки вернёт ошибку).
+    """
+    result = {}
+
+    def _worker():
+        try:
+            client.connect(existing_token=existing_token)
+            result["ok"] = True
+        except Exception as e:
+            result["error"] = e
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(
+            "Нет ответа от сервера — проверьте подключение к интернету")
+    if "error" in result:
+        raise result["error"]
+
+
 @sock.route("/relay")
 def relay(ws):
     saved_token = get_saved_auth_token()
@@ -1142,9 +1175,10 @@ def relay(ws):
     stop_event = threading.Event()
 
     try:
-        client.connect(existing_token=saved_token)
+        _connect_with_timeout(client, saved_token, CONNECT_TIMEOUT)
     except Exception as e:
-        ws.send(json.dumps({"error": "Connection failed", "details": str(e)}))
+        ws.send(json.dumps(
+            {"error": "Connection failed", "details": str(e), "offline": True}))
         return
 
     t = threading.Thread(target=recv_loop, args=(

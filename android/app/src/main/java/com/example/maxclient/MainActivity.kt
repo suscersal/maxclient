@@ -97,6 +97,31 @@ class MainActivity : AppCompatActivity() {
 
         loadingStatus.visibility = View.VISIBLE
 
+        // OtaUpdater.checkAndUpdate сама ловит сетевые ошибки и не должна
+        // зависать дольше своих HTTP-таймаутов (~8-16 сек), но если сети нет
+        // вообще (DNS-резолвинг иногда виснет дольше connectTimeout) —
+        // подстраховываемся отдельным таймером, чтобы приложение в любом
+        // случае стартовало на уже скачанном ранее hotpatch'е (или на коде
+        // из APK, если ничего ещё не скачивалось), а не стояло на заставке
+        // бесконечно.
+        val proceededOnce = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        fun proceedWithHotpatch(hotpatchDir: File?) {
+            if (!proceededOnce.compareAndSet(false, true)) return
+            loadingStatus.text = "Запуск…"
+            startPythonServerOnce(hotpatchDir)
+            waitForServerThenLoad(webView)
+        }
+
+        android.os.Handler(mainLooper).postDelayed({
+            if (!proceededOnce.get()) {
+                val dir = OtaUpdater.hotpatchDir(this)
+                val existing = if (dir.exists() && dir.listFiles()?.isNotEmpty() == true) dir else null
+                loadingStatus.text = "Нет соединения, запуск без обновлений…"
+                proceedWithHotpatch(existing)
+            }
+        }, 5000)
+
         Thread {
             OtaUpdater.checkAndUpdate(this, object : OtaUpdater.ProgressListener {
                 override fun onProgress(percent: Int, statusText: String) {
@@ -116,9 +141,7 @@ class MainActivity : AppCompatActivity() {
                             restartProcessToApplyUpdate()
                             return@runOnUiThread
                         }
-                        loadingStatus.text = "Запуск…"
-                        startPythonServerOnce(hotpatchDir)
-                        waitForServerThenLoad(webView)
+                        proceedWithHotpatch(hotpatchDir)
                     }
                 }
             })

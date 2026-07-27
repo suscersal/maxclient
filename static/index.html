@@ -2743,6 +2743,7 @@
         let isConnected = false;
         let isOfflineCacheMode = false;
         let offlineBannerShown = false;
+        let explicitOfflineErrors = 0;
         let reconnectAttempts = 0;
         const MAX_RECONNECT_ATTEMPTS = 10;
         let reconnectTimer = null;
@@ -4337,6 +4338,7 @@
             ws.onopen = () => {
                 isConnected = true;
                 reconnectAttempts = 0;
+                explicitOfflineErrors = 0;
                 isOfflineCacheMode = false;
                 offlineBannerShown = false;
                 removeOfflineBanner();
@@ -4354,6 +4356,19 @@
             ws.onmessage = async (e) => {
                 try {
                     const data = JSON.parse(e.data);
+                    if (data.error && data.offline && !data.opcode && !data.type) {
+                        // Наш собственный bridge.py не смог достучаться до сервера
+                        // MAX (нет интернета / сервер недоступен) — это надёжный
+                        // сигнал, не ждём, пока израсходуются все попытки
+                        // переподключения, а реагируем сразу.
+                        explicitOfflineErrors++;
+                        log(`🌐 Нет соединения с сервером MAX: ${data.details}`, 'error');
+                        setStatus('Нет интернета', 'error');
+                        if (explicitOfflineErrors >= 2) {
+                            showOfflineCachedChats();
+                        }
+                        return;
+                    }
                     if (data.opcode === 0 && data.payload?.pong) return;
                     if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
                     if (data.type === 'session_restored') {
