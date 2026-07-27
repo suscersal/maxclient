@@ -82,11 +82,13 @@ class MainActivity : AppCompatActivity() {
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
                 loadingGif.visibility = View.GONE
+                loadingStatus.visibility = View.GONE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 loadingGif.visibility = View.GONE
+                loadingStatus.visibility = View.GONE
             }
         }
 
@@ -223,7 +225,17 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             runOnUiThread {
-                webView.loadUrl("http://127.0.0.1:$port/")
+                // Это чисто локальная проверка (127.0.0.1) — интернет тут ни
+                // при чём, но на случай, если сервер всё же не поднялся
+                // (например, ошибка в Python-коде), не оставляем пользователя
+                // молча смотреть на спиннер вечно, а показываем сообщение.
+                if (up) {
+                    findViewById<TextView>(R.id.loadingStatus).visibility = View.VISIBLE
+                    webView.loadUrl("http://127.0.0.1:$port/")
+                } else {
+                    findViewById<TextView>(R.id.loadingStatus).text =
+                        "Не удалось запустить локальный сервер.\nПерезапустите приложение."
+                }
             }
         }.start()
     }

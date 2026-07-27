@@ -9,7 +9,7 @@
         android:layout_height="match_parent" />
 
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="260dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:orientation="vertical"
@@ -20,14 +20,22 @@
             android:layout_width="96dp"
             android:layout_height="96dp" />
 
+        <!--
+            Ширина, minLines и gravity зафиксированы заранее, и текст никогда
+            не пустой (см. MainActivity.onCreate) — благодаря этому высота
+            блока не меняется, пока сменяются статусы загрузки, и LinearLayout
+            не перекомпоновывается/не "прыгает" поверх гифки при смене текста.
+        -->
         <TextView
             android:id="@+id/loadingStatus"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text=""
+            android:layout_marginTop="16dp"
+            android:text="Загрузка…"
             android:textSize="14sp"
-            android:visibility="gone" />
+            android:minLines="2"
+            android:gravity="center"
+            android:textAlignment="center" />
 
     </LinearLayout>
 
