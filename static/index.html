@@ -1714,6 +1714,316 @@
             width: 100%;
             border: none;
         }
+
+        /* ================================================================
+           TELEGRAM-STYLE THEME OVERRIDE
+           Переопределяет внешний вид под интерфейс Telegram/MAX, не трогая
+           разметку и логику выше — все селекторы те же, меняется только
+           оформление (правила ниже по каскаду имеют приоритет).
+           ================================================================ */
+        :root {
+            --tg-blue: #2AABEE;
+            --tg-blue-dark: #229ED9;
+            --tg-blue-deep: #168ACD;
+            --tg-bg: #E7EBF0;
+            --tg-panel: #ffffff;
+            --tg-text: #17212B;
+            --tg-text-secondary: #8A9199;
+            --tg-border: #EBEEF0;
+            --tg-own-bubble: linear-gradient(135deg, #3E96FF, #2E86F5);
+            --tg-incoming-bubble: #ffffff;
+        }
+
+        html {
+            background: var(--tg-bg);
+        }
+
+        body {
+            background: var(--tg-bg);
+            color: var(--tg-text);
+            padding: 0 0 24px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+        }
+
+        h1 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 19px;
+            font-weight: 600;
+            color: #fff;
+            background: linear-gradient(135deg, var(--tg-blue) 0%, var(--tg-blue-deep) 100%);
+            border-bottom: none;
+            margin: 0 0 12px;
+            padding: 14px 16px;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            box-shadow: 0 2px 10px rgba(23, 33, 43, 0.15);
+        }
+
+        h1::before {
+            content: '✈️';
+            font-size: 18px;
+        }
+
+        h1 .badge {
+            font-size: 11px;
+        }
+
+        h1 .gear-btn {
+            color: #fff;
+        }
+
+        .gear-btn {
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .gear-btn:hover {
+            background: rgba(255, 255, 255, 0.18) !important;
+        }
+
+        #status {
+            margin: 0 16px 10px;
+        }
+
+        .section {
+            margin: 12px 16px;
+            padding: 12px 14px;
+            background: var(--tg-panel);
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(23, 33, 43, 0.06);
+        }
+
+        .section h3 {
+            color: var(--tg-text);
+            font-weight: 600;
+        }
+
+        .input-group input {
+            border: 1px solid var(--tg-border);
+            background: #F5F7F9;
+            border-radius: 20px;
+            padding: 10px 16px;
+        }
+
+        .input-group input:focus {
+            border-color: var(--tg-blue);
+            background: #fff;
+        }
+
+        .input-group button {
+            background: var(--tg-blue);
+            border-radius: 20px;
+            font-weight: 600;
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .input-group button:hover:not(:disabled) {
+            background: var(--tg-blue-dark);
+        }
+
+        .input-group button:active:not(:disabled) {
+            transform: scale(0.97);
+        }
+
+        .input-group button.success {
+            background: #31B545;
+        }
+
+        .input-group button.warning {
+            background: #FFA000;
+            color: #fff;
+        }
+
+        .status {
+            border-radius: 12px;
+        }
+
+        .badge {
+            border-radius: 20px;
+        }
+
+        .badge.online {
+            background: #31B545;
+        }
+
+        .badge.offline {
+            background: #E53935;
+        }
+
+        /* ---- Список чатов ---- */
+        .chat-item {
+            gap: 12px;
+            padding: 10px 6px;
+            border-bottom: none;
+            border-radius: 12px;
+        }
+
+        .chat-item:hover {
+            background: #F0F4F8;
+        }
+
+        .chat-avatar {
+            width: 54px;
+            height: 54px;
+            font-size: 19px;
+        }
+
+        .chat-name {
+            color: var(--tg-text);
+            font-size: 15.5px;
+        }
+
+        .chat-preview {
+            color: var(--tg-text-secondary);
+            font-size: 14px;
+            margin-top: 2px;
+        }
+
+        .chat-meta {
+            color: #A6ADB4;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 5px;
+        }
+
+        .unread {
+            background: var(--tg-blue);
+            border-radius: 999px;
+            min-width: 20px;
+            height: 20px;
+            line-height: 18px;
+            padding: 0 6px;
+            font-weight: 700;
+            text-align: center;
+            margin-top: 0;
+        }
+
+        .online-dot {
+            background: #31B545;
+        }
+
+        /* ---- Офлайн-баннер сохранённых чатов ---- */
+        .offline-cache-banner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 4px 10px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: #FFF4E0;
+            border: 1px solid #FCE2AE;
+            color: #8A5A00;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .offline-cache-banner-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .offline-cache-banner-time {
+            color: #B98A2E;
+        }
+
+        /* ---- Переписка ---- */
+        #chatDetailSection {
+            padding: 0;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: var(--tg-panel);
+            padding: 10px 12px;
+            margin: 0;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            box-shadow: 0 1px 0 var(--tg-border);
+        }
+
+        .chat-header .chat-avatar {
+            width: 38px;
+            height: 38px;
+        }
+
+        .back-btn {
+            border-radius: 50%;
+            width: 34px;
+            height: 34px;
+            color: var(--tg-blue);
+        }
+
+        .back-btn:hover {
+            background: #F0F4F8;
+        }
+
+        #messagesList {
+            background: #E9EEF3;
+            padding: 12px;
+            border-radius: 0;
+        }
+
+        .msg-bubble {
+            background: var(--tg-incoming-bubble);
+            border-radius: 16px 16px 16px 4px;
+            box-shadow: 0 1px 2px rgba(23, 33, 43, 0.08);
+            padding: 7px 10px 6px;
+        }
+
+        .msg-bubble.own {
+            background: var(--tg-own-bubble);
+            color: #fff;
+            border-radius: 16px 16px 4px 16px;
+            box-shadow: 0 1px 3px rgba(46, 134, 245, 0.35);
+        }
+
+        .msg-bubble.own .msg-text,
+        .msg-bubble.own .msg-file a {
+            color: #fff;
+        }
+
+        .msg-bubble.own .msg-time {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .msg-bubble.own .msg-status.sent {
+            color: rgba(255, 255, 255, 0.75);
+        }
+
+        .msg-bubble.own .msg-status.read {
+            color: #fff;
+        }
+
+        .msg-bubble.own .msg-enc-badge {
+            color: #d8ffd8;
+        }
+
+        .msg-file a {
+            color: var(--tg-blue-dark);
+        }
+
+        .reaction-badge.mine {
+            background: var(--tg-blue);
+        }
     </style>
 </head>
 
@@ -2431,6 +2741,8 @@
         // ========================================
         let ws = null;
         let isConnected = false;
+        let isOfflineCacheMode = false;
+        let offlineBannerShown = false;
         let reconnectAttempts = 0;
         const MAX_RECONNECT_ATTEMPTS = 10;
         let reconnectTimer = null;
@@ -3059,6 +3371,66 @@
                 updateBotWebAppButton(chatsById[currentChatId]);
             }
             fetchMissingContactInfo();
+            if (!isOfflineCacheMode) {
+                cacheChatsToDisk();
+            }
+        }
+
+        // ========================================
+        // ОФЛАЙН-РЕЖИМ: показываем чаты, сохранённые в файл на диске,
+        // когда нет сети и лимит попыток переподключения исчерпан.
+        // ========================================
+
+        function cacheChatsToDisk() {
+            try {
+                const data = {
+                    chats: Object.values(chatsById),
+                    contacts: Object.values(contactsById),
+                    savedAt: Date.now(),
+                };
+                fetch('/api/chats-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                }).catch(() => { });
+            } catch (e) { /* сохранение кэша не критично — молча пропускаем */ }
+        }
+
+        function removeOfflineBanner() {
+            document.getElementById('offlineCacheBanner')?.remove();
+        }
+
+        function insertOfflineBanner(savedAt) {
+            removeOfflineBanner();
+            const list = document.getElementById('chatsList');
+            if (!list || !list.parentNode) return;
+            const banner = document.createElement('div');
+            banner.id = 'offlineCacheBanner';
+            banner.className = 'offline-cache-banner';
+            const when = savedAt ? new Date(savedAt).toLocaleString() : '';
+            banner.innerHTML = `<span class="offline-cache-banner-icon">📡</span><span>Нет соединения — показаны сохранённые чаты${when ? ' <span class="offline-cache-banner-time">(на ' + when + ')</span>' : ''}</span>`;
+            list.parentNode.insertBefore(banner, list);
+        }
+
+        async function showOfflineCachedChats() {
+            if (offlineBannerShown) return;
+            try {
+                const res = await fetch('/api/chats-cache');
+                const json = await res.json();
+                if (!json.success || !json.data || !(json.data.chats || []).length) {
+                    log('ℹ️ Сохранённых чатов для офлайн-режима нет', 'info');
+                    return;
+                }
+                isOfflineCacheMode = true;
+                offlineBannerShown = true;
+                hideLoadingOverlay();
+                showAuthenticatedUI();
+                renderChats(json.data);
+                insertOfflineBanner(json.data.savedAt);
+                log('📦 Показаны сохранённые чаты (офлайн-режим)', 'info');
+            } catch (e) {
+                log('❌ Не удалось загрузить сохранённые чаты: ' + e.message, 'error');
+            }
         }
 
         function chatPreview(chat) {
@@ -3956,6 +4328,7 @@
                 log('❌ Достигнут лимит попыток переподключения', 'error');
                 setStatus('Connection lost', 'error');
                 hideLoadingOverlay();
+                showOfflineCachedChats();
                 return;
             }
             log('Подключение... (попытка ' + (reconnectAttempts + 1) + ')');
@@ -3964,6 +4337,9 @@
             ws.onopen = () => {
                 isConnected = true;
                 reconnectAttempts = 0;
+                isOfflineCacheMode = false;
+                offlineBannerShown = false;
+                removeOfflineBanner();
                 setStatus('Подключено', 'success');
                 document.getElementById('connectionBadge').textContent = 'Online';
                 document.getElementById('connectionBadge').className = 'badge online';
@@ -4235,6 +4611,7 @@
                     reconnectTimer = setTimeout(connect, delay);
                 } else {
                     log('❌ Достигнут лимит попыток переподключения', 'error');
+                    showOfflineCachedChats();
                 }
             };
         }

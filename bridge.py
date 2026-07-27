@@ -32,6 +32,10 @@ PORT = int(os.getenv("MAX_PORT", "443"))
 SESSION_FILE = os.getenv("SESSION_FILE", os.path.join(
     os.path.dirname(__file__), "session.json"))
 SESSION_KEY_FILE = os.path.join(os.path.dirname(SESSION_FILE), "session.key")
+# Локальный кэш списка чатов — показываем его офлайн, если сервер недоступен
+# и лимит попыток переподключения исчерпан.
+CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
+    os.path.dirname(__file__), "chats_cache.json"))
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
@@ -111,6 +115,28 @@ def save_session(data: dict):
         os.chmod(SESSION_FILE, 0o600)
     except Exception:
         pass
+
+
+def load_chats_cache():
+    """Читает последний сохранённый на диск список чатов (для офлайн-режима)."""
+    if os.path.exists(CHATS_CACHE_FILE):
+        try:
+            with open(CHATS_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"[chats-cache] failed to load: {e}")
+    return None
+
+
+def save_chats_cache(data: dict):
+    """Сохраняет список чатов на диск, чтобы показать их офлайн при отсутствии сети."""
+    try:
+        tmp_path = CHATS_CACHE_FILE + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp_path, CHATS_CACHE_FILE)
+    except Exception as e:
+        logger.warning(f"[chats-cache] failed to save: {e}")
 
 
 def get_or_create_device_id() -> str:
@@ -813,6 +839,23 @@ def check_auth():
     if token:
         return jsonify({"authenticated": True})
     return jsonify({"authenticated": False})
+
+
+@app.route("/api/chats-cache", methods=["GET"])
+def get_chats_cache():
+    """Отдаёт последний сохранённый на диск список чатов для офлайн-режима."""
+    cache = load_chats_cache()
+    if cache is None:
+        return jsonify({"success": False})
+    return jsonify({"success": True, "data": cache})
+
+
+@app.route("/api/chats-cache", methods=["POST"])
+def post_chats_cache():
+    """Сохраняет присланный список чатов на диск (для показа офлайн)."""
+    payload = request.get_json(force=True, silent=True) or {}
+    save_chats_cache(payload)
+    return jsonify({"success": True})
 
 
 @app.route("/api/logout", methods=["POST"])
