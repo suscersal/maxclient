@@ -27,8 +27,24 @@ import java.net.Socket
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        // ВАЖНО: это состояние процесса, а не Activity — MainActivity
+        // пересоздаётся почти при каждом повторном открытии приложения
+        // (смена конфигурации, возврат из фона), а сам процесс/Python-
+        // интерпретатор/уже слушающий Flask-сервер при этом обычно
+        // остаются жить. Раньше этот флаг был полем Activity и после
+        // каждого пересоздания снова становился false, из-за чего
+        // startPythonServerOnce пытался запустить сервер повторно в уже
+        // живом процессе: `import bridge` возвращал закэшированный старый
+        // модуль (свежескачанный hot-patch на диске игнорировался), а
+        // повторный bridge.app.run() пытался занять уже занятый порт.
+        // Итог: после первого холодного запуска новые hot-update'ы
+        // скачивались на диск, но никогда не подхватывались, пока
+        // приложение не закрывали полностью (не убивали процесс).
+        private var serverStartedInProcess = false
+    }
+
     private val port = 8080
-    private var serverStarted = false
 
     private val notifChannelId = "max_client_messages"
     private var notifIdCounter = 1
@@ -84,8 +100,19 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { loadingStatus.text = statusText }
                 }
 
-                override fun onFinished(hotpatchDir: File?) {
+                override fun onFinished(hotpatchDir: File?, updated: Boolean) {
                     runOnUiThread {
+                        if (updated && serverStartedInProcess) {
+                            // Сервер в этом процессе уже когда-то запускался
+                            // со старым кодом — "на лету" его не подменить
+                            // (модуль bridge уже импортирован и закэширован
+                            // Python'ом, порт уже занят). Единственный
+                            // надёжный способ подхватить свежескачанный
+                            // bridge.py — перезапустить процесс целиком.
+                            loadingStatus.text = "Обновление готово, перезапуск…"
+                            restartProcessToApplyUpdate()
+                            return@runOnUiThread
+                        }
                         loadingStatus.text = "Запуск…"
                         startPythonServerOnce(hotpatchDir)
                         waitForServerThenLoad(webView)
@@ -93,6 +120,15 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }.start()
+    }
+
+    /** Полный перезапуск приложения — единственный надёжный способ подхватить
+     * hot-patch, скачанный поверх уже работающего в этом процессе сервера. */
+    private fun restartProcessToApplyUpdate() {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+        intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+        Runtime.getRuntime().exit(0)
     }
 
     override fun onRequestPermissionsResult(
@@ -132,8 +168,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPythonServerOnce(hotpatchDir: File?) {
-        if (serverStarted) return
-        serverStarted = true
+        if (serverStartedInProcess) return
+        serverStartedInProcess = true
 
         val sessionFile = File(filesDir, "session.json").absolutePath
         val hotpatchPath = hotpatchDir?.absolutePath ?: ""
