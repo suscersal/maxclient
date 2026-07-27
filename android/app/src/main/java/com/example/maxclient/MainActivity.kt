@@ -60,28 +60,13 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
 
         val webView = findViewById<WebView>(R.id.webview)
-        val loadingGif = findViewById<WebView>(R.id.loadingGif)
+        val loadingGif = findViewById<GifView>(R.id.loadingGif)
         val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
 
-        // Прозрачный фон, чтобы под WebView с гифкой не мелькал белый
-        // прямоугольник, пока сам GIF ещё не отрисовался.
-        loadingGif.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        // Грузим НЕ file:///android_asset/loading.gif напрямую (голая
-        // навигация WebView на файл-картинку рендерится не всегда надёжно —
-        // иногда вместо анимации показывается просто иконка-заглушка), а
-        // оборачиваем в мини-HTML с <img>, так гифка гарантированно
-        // анимируется. Копия зашита в APK как нативный ассет отдельно от
-        // Python-версии (см. scripts/sync-android-python.sh), т.к. на этом
-        // этапе Flask-сервер ещё не поднялся и раздавать её ему пока нечем.
-        loadingGif.loadDataWithBaseURL(
-            "file:///android_asset/",
-            "<html><body style=\"margin:0;padding:0;background:transparent\">" +
-                "<img src=\"loading.gif\" style=\"width:100%;height:100%;object-fit:contain\">" +
-                "</body></html>",
-            "text/html",
-            "UTF-8",
-            null
-        )
+        // Копия loading.gif зашита в APK как нативный ассет (см.
+        // scripts/sync-android-python.sh) — Flask-сервер на этом этапе ещё
+        // не поднялся, раздавать её ему пока нечем.
+        loadingGif.setGifFromAssets("loading.gif")
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
