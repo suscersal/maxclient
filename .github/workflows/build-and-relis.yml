@@ -2,9 +2,9 @@ name: Build & Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch: {}
 
 permissions:
@@ -82,7 +82,7 @@ jobs:
 
   # ---------- Android (APK через Chaquopy) ----------
   build-android:
-    needs: [ detect-changes, resolve-tag ]
+    needs: [detect-changes, resolve-tag]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     defaults:
@@ -98,7 +98,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -133,7 +133,7 @@ jobs:
 
   # ---------- Linux (единый бинарник через PyInstaller) ----------
   build-linux:
-    needs: [ detect-changes, resolve-tag ]
+    needs: [detect-changes, resolve-tag]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -142,7 +142,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install system dependencies (pywebview / GTK)
         run: |
@@ -190,7 +190,7 @@ jobs:
 
   # ---------- Windows (единый .exe через PyInstaller) ----------
   build-windows:
-    needs: [ detect-changes, resolve-tag ]
+    needs: [detect-changes, resolve-tag]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: windows-latest
     steps:
@@ -199,7 +199,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -241,7 +241,8 @@ jobs:
   # публикуются только в hot-update релизах (см. publish-hot-update ниже),
   # которые как раз существуют для обновления без пересборки.
   release:
-    needs: [ detect-changes, resolve-tag, build-android, build-linux, build-windows ]
+    needs:
+      [detect-changes, resolve-tag, build-android, build-linux, build-windows]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -273,7 +274,7 @@ jobs:
   # как ассеты нового релиза. Приложение на устройстве само их подтянет
   # (см. OtaUpdater.kt) без переустановки APK.
   publish-hot-update:
-    needs: [ detect-changes, resolve-tag ]
+    needs: [detect-changes, resolve-tag]
     if: needs.detect-changes.outputs.hot_only == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -292,6 +293,27 @@ jobs:
       - name: Generate OTA manifest
         run: bash scripts/generate-ota-manifest.sh "${{ needs.resolve-tag.outputs.version_name }}"
 
+      # Чтобы диагностировать "хэш вроде другой у файла, который не менялся"
+      # без логов с телефона — просто печатаем сами хэши прямо в описание
+      # релиза. Тогда два соседних hot-релиза на GitHub можно сравнить
+      # построчно глазами: если хэш bridge.py совпадает у hot-26 и hot-27 —
+      # значит OTA всё скачивает верно; если отличается — значит файл
+      # реально изменился (например, из-за sed-патча импорта, который
+      # прогоняется заново при каждой синхронизации).
+      - name: Prepare per-file hash summary for release notes
+        id: ota-summary
+        run: |
+          {
+            echo "summary<<OTA_SUMMARY_EOF"
+            python3 -c "
+            import json
+            m = json.load(open('ota/version.json', encoding='utf-8'))
+            for name, h in sorted(m['files'].items()):
+                print(f'- \`{name}\`: \`{h}\`')
+            "
+            echo "OTA_SUMMARY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish hot-update release
         uses: softprops/action-gh-release@v2
         with:
@@ -301,6 +323,10 @@ jobs:
             Только обновление Python/статики (bridge.py, index.html и т.п.),
             без изменений в нативном Android-коде. Полная пересборка APK
             для этого не запускалась.
+
+            **sha256 файлов в этом обновлении** (сравни с прошлым hot-релизом,
+            чтобы понять, что реально изменилось):
+            ${{ steps.ota-summary.outputs.summary }}
           generate_release_notes: false
           # КРИТИЧНО: не даём этому релизу стать "latest release" в терминах
           # GitHub API/UI — иначе README-бейдж "Скачать APK" и прямая ссылка

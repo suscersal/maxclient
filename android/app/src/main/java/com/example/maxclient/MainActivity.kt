@@ -12,7 +12,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -61,8 +60,28 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
 
         val webView = findViewById<WebView>(R.id.webview)
-        val loading = findViewById<ProgressBar>(R.id.loading)
+        val loadingGif = findViewById<WebView>(R.id.loadingGif)
         val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
+
+        // Прозрачный фон, чтобы под WebView с гифкой не мелькал белый
+        // прямоугольник, пока сам GIF ещё не отрисовался.
+        loadingGif.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        // Грузим НЕ file:///android_asset/loading.gif напрямую (голая
+        // навигация WebView на файл-картинку рендерится не всегда надёжно —
+        // иногда вместо анимации показывается просто иконка-заглушка), а
+        // оборачиваем в мини-HTML с <img>, так гифка гарантированно
+        // анимируется. Копия зашита в APK как нативный ассет отдельно от
+        // Python-версии (см. scripts/sync-android-python.sh), т.к. на этом
+        // этапе Flask-сервер ещё не поднялся и раздавать её ему пока нечем.
+        loadingGif.loadDataWithBaseURL(
+            "file:///android_asset/",
+            "<html><body style=\"margin:0;padding:0;background:transparent\">" +
+                "<img src=\"loading.gif\" style=\"width:100%;height:100%;object-fit:contain\">" +
+                "</body></html>",
+            "text/html",
+            "UTF-8",
+            null
+        )
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -77,12 +96,12 @@ class MainActivity : AppCompatActivity() {
             // до самого конца загрузки.
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
-                loading.visibility = View.GONE
+                loadingGif.visibility = View.GONE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                loading.visibility = View.GONE
+                loadingGif.visibility = View.GONE
             }
         }
 
@@ -92,7 +111,6 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(AndroidNotificationBridge(this), "AndroidNotification")
 
         loadingStatus.visibility = View.VISIBLE
-        loading.isIndeterminate = true
 
         Thread {
             OtaUpdater.checkAndUpdate(this, object : OtaUpdater.ProgressListener {
