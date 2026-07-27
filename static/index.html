@@ -4485,10 +4485,10 @@
                 if (resendSeconds <= 0) {
                     clearInterval(resendTimer);
                     btn.disabled = false;
-                    btn.textContent = 'Повторно';
+                    btn.textContent = 'Получить код повторно';
                     btn.style.background = '#6c757d';
                 } else {
-                    btn.textContent = `Повторно (${resendSeconds}с)`;
+                    btn.textContent = `Получить код повторно (${resendSeconds}с)`;
                     btn.style.background = '#adb5bd';
                 }
             }, 1000);
