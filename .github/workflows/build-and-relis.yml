@@ -321,10 +321,10 @@ jobs:
           {
             echo "summary<<OTA_SUMMARY_EOF"
             python3 -c "
-            import json
-            m = json.load(open('ota/version.json', encoding='utf-8'))
-            for name, h in sorted(m['files'].items()):
-                print(f'- \`{name}\`: \`{h}\`')
+          import json
+          m = json.load(open('ota/version.json', encoding='utf-8'))
+          for name, h in sorted(m['files'].items()):
+              print(f'- \`{name}\`: \`{h}\`')
             "
                         echo "OTA_SUMMARY_EOF"
           } >> "$GITHUB_OUTPUT"
