@@ -2117,99 +2117,286 @@
     </style>
 </head>
 
-<body>
-    <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
-    <script>
-        (function () {
-            var maxLines = 300;
-            var box = document.createElement('div');
-            box.id = 'debugConsole';
-            box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:32vh;background:rgba(0,0,0,0.92);' +
-                'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
-                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:6px 8px 6px 8px;' +
-                'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
-                'display:none;';
-            var toggle = document.createElement('button');
-            toggle.textContent = '🐞';
-            toggle.style.cssText = 'position:fixed;right:8px;bottom:calc(32vh + 8px);z-index:1000000;width:36px;' +
-                'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
+<!-- ==== ПЛАВАЮЩАЯ DEBUG-КОНСОЛЬ (ПРАВЫЙ ВЕРХНИЙ УГОЛ) ==== -->
+<script>
+(function () {
+    var maxLines = 300;
+    var isOpen = false;
+    var isDragging = false;
+    var hasMoved = false;
+    var dragStartX = 0;
+    var dragStartY = 0;
+    var offsetX = 0;
+    var offsetY = 0;
 
-            // Кнопки быстрой прокрутки лога вверх/вниз — видны только пока консоль открыта.
-            var btnStyle = 'position:fixed;right:8px;z-index:1000001;width:36px;height:36px;border-radius:50%;' +
-                'background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;display:none;';
-            var btnTop = document.createElement('button');
-            btnTop.textContent = '⬆';
-            btnTop.style.cssText = btnStyle + 'bottom:calc(32vh - 40px);';
-            btnTop.onclick = function () { box.scrollTop = 0; };
-            var btnBottom = document.createElement('button');
-            btnBottom.textContent = '⬇';
-            btnBottom.style.cssText = btnStyle + 'bottom:6px;';
-            btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
+    var box = document.createElement('div');
+    box.id = 'debugConsole';
+    box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:30vh;background:rgba(0,0,0,0.95);' +
+        'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
+        'touch-action:pan-y;overscroll-behavior:contain;z-index:999998;padding:8px 10px;' +
+        'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
+        'display:none;';
+    box.style.overflowY = 'auto';
+    box.style.paddingRight = '6px';
+    
+   var style = document.createElement('style');
+style.textContent = `
+#debugConsole::-webkit-scrollbar {
+    width: 14px;
+}
+#debugConsole::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    margin: 6px 0;
+}
+#debugConsole::-webkit-scrollbar-thumb {
+    background: rgba(74,222,128,0.85);
+    border-radius: 999px;
+    min-height: 80px;
+}
+#debugConsole::-webkit-scrollbar-thumb:hover {
+    background: rgba(74,222,128,1);
+}
+#debugConsole {
+    scrollbar-width: auto;
+    scrollbar-color: rgba(74,222,128,0.85) rgba(255,255,255,0.06);
+}
+`;
+document.head.appendChild(style);
 
-            toggle.onclick = function () {
-                var show = box.style.display === 'none';
-                box.style.display = show ? 'block' : 'none';
-                btnTop.style.display = show ? 'block' : 'none';
-                btnBottom.style.display = show ? 'block' : 'none';
-                if (show) box.scrollTop = box.scrollHeight;
-            };
+    var toggle = document.createElement('div');
+    toggle.id = 'debugToggle';
+    toggle.innerHTML = '🐞';
+    toggle.style.cssText = 'position:fixed;top:12px;right:12px;z-index:999999;width:40px;' +
+        'height:40px;border-radius:50%;background:#1a1a2e;color:#4ade80;border:2px solid #4ade80;font-size:18px;' +
+        'display:flex;align-items:center;justify-content:center;cursor:grab;' +
+        'user-select:none;-webkit-user-select:none;touch-action:none;' +
+        'box-shadow:0 4px 15px rgba(74,222,128,0.2);transition:transform 0.2s, box-shadow 0.2s;' +
+        'font-family:monospace;';
 
-            function addLine(text, color) {
-                // Автопрокрутка вниз только если пользователь и так уже был у низа —
-                // иначе он не смог бы пролистать лог вверх руками во время потока
-                // новых сообщений (как это нормально работает на странице/в чатах).
-                var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-                var line = document.createElement('div');
-                if (color) line.style.color = color;
-                line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
-                box.appendChild(line);
-                while (box.children.length > maxLines) box.removeChild(box.firstChild);
-                if (wasAtBottom) box.scrollTop = box.scrollHeight;
+    toggle.title = '🐞 Debug-консоль (перетащите)';
+
+    function getCoords(e) {
+        if (e.changedTouches && e.changedTouches.length > 0) {
+            return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+        }
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    }
+
+    function startDrag(e) {
+        e.preventDefault();
+        var coords = getCoords(e);
+        var rect = toggle.getBoundingClientRect();
+
+        isDragging = false;
+        hasMoved = false;
+        dragStartX = coords.x;
+        dragStartY = coords.y;
+        offsetX = coords.x - rect.left;
+        offsetY = coords.y - rect.top;
+
+        toggle.style.cursor = 'grabbing';
+        toggle.style.transform = 'scale(0.9)';
+        toggle.style.boxShadow = '0 4px 25px rgba(74,222,128,0.4)';
+        toggle.style.zIndex = '1000000';
+    }
+
+    function onDrag(e) {
+        e.preventDefault();
+        var coords = getCoords(e);
+
+        if (!hasMoved && (Math.abs(coords.x - dragStartX) > 5 || Math.abs(coords.y - dragStartY) > 5)) {
+            hasMoved = true;
+            isDragging = true;
+        }
+
+        if (isDragging) {
+            var newX = coords.x - offsetX;
+            var newY = coords.y - offsetY;
+
+            newX = Math.max(0, Math.min(newX, window.innerWidth - 40));
+            newY = Math.max(0, Math.min(newY, window.innerHeight - 40));
+
+            toggle.style.left = newX + 'px';
+            toggle.style.right = 'auto';
+            toggle.style.top = newY + 'px';
+            toggle.style.bottom = 'auto';
+        }
+    }
+
+    function toggleConsole(e) {
+        if (e) e.stopPropagation();
+        isOpen = !isOpen;
+        box.style.display = isOpen ? 'block' : 'none';
+
+        if (isOpen) {
+            box.scrollTop = box.scrollHeight;
+            toggle.style.color = '#fbbf24';
+            toggle.style.borderColor = '#fbbf24';
+            toggle.style.boxShadow = '0 4px 25px rgba(251,191,36,0.3)';
+            toggle.innerHTML = '✕';
+            toggle.title = 'Закрыть консоль';
+        } else {
+            toggle.style.color = '#4ade80';
+            toggle.style.borderColor = '#4ade80';
+            toggle.style.boxShadow = '0 4px 15px rgba(74,222,128,0.2)';
+            toggle.innerHTML = '🐞';
+            toggle.title = '🐞 Debug-консоль (перетащите)';
+        }
+    }
+
+    function endDrag(e) {
+        toggle.style.cursor = 'grab';
+        toggle.style.transform = 'scale(1)';
+        toggle.style.boxShadow = isOpen ? '0 4px 25px rgba(251,191,36,0.3)' : '0 4px 15px rgba(74,222,128,0.2)';
+        toggle.style.zIndex = '999999';
+
+        if (!hasMoved) {
+            toggleConsole(e);
+        }
+
+        isDragging = false;
+        hasMoved = false;
+
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', endDrag);
+        document.removeEventListener('touchmove', onDrag);
+        document.removeEventListener('touchend', endDrag);
+        document.removeEventListener('touchcancel', endDrag);
+    }
+
+    toggle.addEventListener('mousedown', function (e) {
+        startDrag(e);
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', endDrag);
+    });
+
+    toggle.addEventListener('touchstart', function (e) {
+        startDrag(e);
+        document.addEventListener('touchmove', onDrag, { passive: false });
+        document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
+    }, { passive: false });
+
+    toggle.addEventListener('dblclick', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        toggle.style.left = 'auto';
+        toggle.style.right = '12px';
+        toggle.style.top = '12px';
+        toggle.style.bottom = 'auto';
+        if (isOpen) toggleConsole(e);
+    });
+
+    function addLine(text, color) {
+        var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        var line = document.createElement('div');
+        if (color) line.style.color = color;
+        var now = new Date();
+        var time = now.toLocaleTimeString();
+        var ms = String(now.getMilliseconds()).padStart(3, '0');
+        line.textContent = '[' + time + '.' + ms + '] ' + text;
+        box.appendChild(line);
+        while (box.children.length > maxLines) box.removeChild(box.firstChild);
+        if (wasAtBottom) box.scrollTop = box.scrollHeight;
+    }
+
+    function toText(a) {
+        try {
+            if (typeof a === 'string') return a;
+            if (a instanceof Error) return a.stack || a.message;
+            if (a && typeof a === 'object') {
+                try { return JSON.stringify(a); } catch (e) { return String(a); }
             }
+            return String(a);
+        } catch (e) {
+            return String(a);
+        }
+    }
 
-            function toText(a) {
-                try {
-                    if (typeof a === 'string') return a;
-                    if (a instanceof Error) return a.stack || a.message;
-                    return JSON.stringify(a);
-                } catch (e) { return String(a); }
+    var origLog = console.log;
+    var origInfo = console.info;
+    var origWarn = console.warn;
+    var origError = console.error;
+
+    console.log = function () {
+        var text = Array.from(arguments).map(toText).join(' ');
+        addLine('📝 ' + text, '#0f0');
+        origLog.apply(console, arguments);
+    };
+
+    console.info = function () {
+        var text = Array.from(arguments).map(toText).join(' ');
+        addLine('ℹ️ ' + text, '#4fc3f7');
+        origInfo.apply(console, arguments);
+    };
+
+    console.warn = function () {
+        var text = Array.from(arguments).map(toText).join(' ');
+        addLine('⚠️ ' + text, '#ffd54f');
+        origWarn.apply(console, arguments);
+    };
+
+    console.error = function () {
+        var text = Array.from(arguments).map(toText).join(' ');
+        addLine('❌ ' + text, '#ef5350');
+        toggle.style.boxShadow = '0 0 30px rgba(239,83,80,0.6)';
+        setTimeout(function () {
+            if (!isDragging) {
+                toggle.style.boxShadow = isOpen ? '0 4px 25px rgba(251,191,36,0.3)' : '0 4px 15px rgba(74,222,128,0.2)';
             }
+        }, 2000);
+        origError.apply(console, arguments);
+    };
 
-            ['log', 'info', 'warn', 'error'].forEach(function (level) {
-                var orig = console[level];
-                console[level] = function () {
-                    var args = Array.prototype.slice.call(arguments).map(toText).join(' ');
-                    var prefix = level === 'error' ? '❌ ' : (level === 'warn' ? '⚠️ ' : '');
-                    var color = level === 'error' ? '#f66' : (level === 'warn' ? '#fd6' : '#0f0');
-                    addLine(prefix + args, color);
-                    orig.apply(console, arguments);
-                };
-            });
+    window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
+            addLine('❌ Не удалось загрузить: ' + (t.src || t.href), '#ef5350');
+        } else {
+            addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#ef5350');
+        }
+    }, true);
 
-            // Ловим в т.ч. ошибки загрузки ресурсов (сорванные <script src>/<link>/<img>) —
-            // именно это нужно для диагностики офлайн-запуска.
-            window.addEventListener('error', function (e) {
-                var t = e.target;
-                if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
-                    addLine('❌ Не удалось загрузить ресурс: ' + (t.src || t.href), '#f66');
-                } else {
-                    addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#f66');
-                }
-            }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+        addLine('❌ Promise rejected: ' + toText(e.reason), '#ef5350');
+    });
 
-            window.addEventListener('unhandledrejection', function (e) {
-                addLine('❌ Unhandled promise rejection: ' + toText(e.reason), '#f66');
-            });
+    var clearBtn = document.createElement('button');
+    clearBtn.textContent = '🗑️ Очистить';
+    clearBtn.style.cssText = 'position:fixed;right:12px;top:8px;z-index:999999;' +
+        'background:rgba(255,0,0,0.2);color:#fff;border:1px solid #f00;border-radius:6px;' +
+        'padding:4px 12px;font-size:11px;cursor:pointer;display:none;';
+    clearBtn.onclick = function (e) {
+        e.stopPropagation();
+        box.innerHTML = '';
+        addLine('🗑️ Консоль очищена', '#ffd54f');
+    };
 
-            document.body.appendChild(box);
-            document.body.appendChild(toggle);
-            document.body.appendChild(btnTop);
-            document.body.appendChild(btnBottom);
-            box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
-            addLine('Debug-консоль запущена');
-        })();
-    </script>
-    <!-- ==== КОНЕЦ ВРЕМЕННОЙ DEBUG-КОНСОЛИ ==== -->
+    window.addEventListener('DOMContentLoaded', function () {
+    document.body.appendChild(box);
+    document.body.appendChild(toggle);
+    document.body.appendChild(clearBtn);
+});
+
+    box.addEventListener('touchmove', function (e) {
+        e.stopPropagation();
+    }, { passive: true });
+
+    box.addEventListener('click', function (e) {
+        e.stopPropagation();
+    });
+
+    addLine('🐞 Debug-консоль готова');
+    addLine('💡 Перетащите иконку в любое место');
+    addLine('💡 Кликните для открытия/закрытия');
+    addLine('💡 Двойной клик сбрасывает позицию');
+    console.log('✅ Debug-консоль успешно загружена!');
+})();
+</script>
     <div id="loadingOverlay">
         <img src="/loading.gif" alt="Загрузка...">
         <div class="loading-label">Загрузка<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
