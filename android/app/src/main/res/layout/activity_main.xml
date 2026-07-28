@@ -15,7 +15,7 @@
         android:orientation="vertical"
         android:gravity="center">
 
-        <com.example.maxclient.GifView
+        <com.suscersal.maxclient.GifView
             android:id="@+id/loadingGif"
             android:layout_width="96dp"
             android:layout_height="96dp" />
