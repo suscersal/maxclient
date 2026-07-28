@@ -42,6 +42,13 @@ CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
 MESSAGES_CACHE_FILE = os.getenv("MESSAGES_CACHE_FILE", os.path.join(
     os.path.dirname(__file__), "messages_cache.json"))
 MESSAGES_CACHE_LIMIT = 20
+# lottie-web (анимации стикеров/лоадера) — не бандлим в сборку, а качаем один
+# раз при первом (заведомо онлайн) запуске и кэшируем рядом с session.json.
+# Дальше раздаём с диска (см. ensure_lottie_cached() и роут /lottie.min.js
+# ниже) — интернет для этого больше не нужен.
+LOTTIE_CACHE_FILE = os.getenv("LOTTIE_CACHE_FILE", os.path.join(
+    os.path.dirname(SESSION_FILE), "lottie.min.js"))
+LOTTIE_DOWNLOAD_URL = "https://raw.githubusercontent.com/airbnb/lottie-web/master/build/player/lottie.min.js"
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
@@ -160,6 +167,40 @@ def save_chats_cache(data: dict):
             pass
     except Exception as e:
         logger.warning(f"[chats-cache] failed to save: {e}")
+
+
+def ensure_lottie_cached():
+    """Если lottie.min.js ещё не скачан — качает его один раз и сохраняет на
+    диск рядом с session.json. Если файл уже есть — ничего не делает (и сеть
+    не трогает). Вызывается в фоновом потоке при старте, плюс лениво из
+    роута /lottie.min.js на случай, если фонового скачивания не хватило."""
+    if os.path.exists(LOTTIE_CACHE_FILE):
+        return True
+    try:
+        req = urllib.request.Request(
+            LOTTIE_DOWNLOAD_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        tmp_path = LOTTIE_CACHE_FILE + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+        os.replace(tmp_path, LOTTIE_CACHE_FILE)
+        logger.info(
+            f"[lottie] Скачан и сохранён в {LOTTIE_CACHE_FILE} ({len(data)} байт)")
+        return True
+    except Exception as e:
+        logger.warning(f"[lottie] Не удалось скачать (нет сети?): {e}")
+        return False
+
+
+def _ensure_lottie_cached_background():
+    threading.Thread(target=ensure_lottie_cached, daemon=True).start()
+
+
+# Пытаемся скачать сразу при старте (сервер стартует не дожидаясь этого —
+# поток фоновый), чтобы к моменту, когда фронтенд запросит /lottie.min.js,
+# файл уже с высокой вероятностью был на диске.
+_ensure_lottie_cached_background()
 
 
 def load_messages_cache() -> dict:
@@ -508,6 +549,23 @@ sock = Sock(app)
 @app.route("/")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/lottie.min.js")
+def serve_lottie_lib():
+    """Раздаёт lottie-web из локального кэша (см. ensure_lottie_cached()).
+    Если файла ещё нет (например, самый первый запуск — фоновое скачивание
+    не успело) — пробуем скачать синхронно прямо сейчас; если и это не
+    вышло (офлайн), отдаём 404 — фронтенд уже умеет работать без анимации."""
+    if not os.path.exists(LOTTIE_CACHE_FILE):
+        ensure_lottie_cached()
+    if os.path.exists(LOTTIE_CACHE_FILE):
+        return send_from_directory(
+            os.path.dirname(LOTTIE_CACHE_FILE),
+            os.path.basename(LOTTIE_CACHE_FILE),
+            mimetype="application/javascript",
+        )
+    return ("", 404)
 
 
 @app.route("/<path:filename>")
