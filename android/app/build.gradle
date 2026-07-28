@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace 'com.example.maxclient'
+    namespace 'com.suscersal.maxclient'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.maxclient"
+        applicationId "com.suscersal.maxclient"
         minSdk 24
         targetSdk 34
         // Версия задаётся из CI (см. .github/workflows/build-and-relis.yml) —
