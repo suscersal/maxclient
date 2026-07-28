@@ -33,7 +33,7 @@ android {
 
         python {
             // Python-версия внутри APK.
-            version "3.11"
+            version "3.13"
         }
     }
 
