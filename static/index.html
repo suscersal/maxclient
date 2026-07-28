@@ -2042,9 +2042,25 @@
             toggle.textContent = '🐞';
             toggle.style.cssText = 'position:fixed;right:8px;bottom:calc(32vh + 8px);z-index:1000000;width:36px;' +
                 'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
+
+            // Кнопки быстрой прокрутки лога вверх/вниз — видны только пока консоль открыта.
+            var btnStyle = 'position:fixed;right:8px;z-index:1000001;width:36px;height:36px;border-radius:50%;' +
+                'background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;display:none;';
+            var btnTop = document.createElement('button');
+            btnTop.textContent = '⬆';
+            btnTop.style.cssText = btnStyle + 'bottom:calc(32vh - 40px);';
+            btnTop.onclick = function () { box.scrollTop = 0; };
+            var btnBottom = document.createElement('button');
+            btnBottom.textContent = '⬇';
+            btnBottom.style.cssText = btnStyle + 'bottom:6px;';
+            btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
+
             toggle.onclick = function () {
-                box.style.display = (box.style.display === 'none') ? 'block' : 'none';
-                if (box.style.display === 'block') box.scrollTop = box.scrollHeight;
+                var show = box.style.display === 'none';
+                box.style.display = show ? 'block' : 'none';
+                btnTop.style.display = show ? 'block' : 'none';
+                btnBottom.style.display = show ? 'block' : 'none';
+                if (show) box.scrollTop = box.scrollHeight;
             };
 
             function addLine(text, color) {
@@ -2096,6 +2112,8 @@
 
             document.body.appendChild(box);
             document.body.appendChild(toggle);
+            document.body.appendChild(btnTop);
+            document.body.appendChild(btnBottom);
             box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
             addLine('Debug-консоль запущена');
         })();
