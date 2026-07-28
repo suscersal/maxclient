@@ -192,6 +192,8 @@ jobs:
             --add-data "static/index.html:static" \
             --add-data "static/avatars.json:static" \
             --add-data "static/manifest.json:static" \
+            --add-data "static/loading.gif:static" \
+            --add-data "static/assets/favorite.png:static" \
             desktop_launcher.py
 
       - name: Upload Linux artifact
