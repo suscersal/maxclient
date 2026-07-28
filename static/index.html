@@ -2015,6 +2015,97 @@
         .msg-bubble.own .msg-enc-badge {
             color: #d8ffd8;
         }
+        
+        /* ===== СИСТЕМНЫЕ СООБЩЕНИЯ ===== */
+.msg-bubble.system {
+    max-width: 95%;
+    align-self: center;
+    background: transparent;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    font-style: italic;
+}
+
+.msg-bubble.system .msg-time {
+    font-size: 9px;
+    color: #bbb;
+}
+
+/* ===== ФОРМАТИРОВАНИЕ ТЕКСТА ===== */
+.msg-text {
+    margin-top: 4px;
+    word-wrap: break-word;
+    line-height: 1.5;
+}
+
+.msg-text strong,
+.msg-text b {
+    font-weight: 700;
+}
+
+.msg-text em,
+.msg-text i {
+    font-style: italic;
+}
+
+.msg-text code {
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.08);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.msg-text pre {
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.06);
+    padding: 8px 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    font-size: 0.9em;
+    margin: 4px 0;
+}
+
+.msg-text .spoiler {
+    background: #333;
+    color: #333;
+    border-radius: 4px;
+    padding: 0 4px;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.msg-text .spoiler.revealed {
+    color: inherit;
+    background: transparent;
+}
+
+.msg-text .mention-link {
+    color: #007bff;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.msg-text a {
+    color: #007bff;
+    text-decoration: underline;
+    word-break: break-all;
+}
+
+/* ===== СПЕЦИАЛЬНЫЕ СИМВОЛЫ ===== */
+.msg-text .emoji {
+    font-size: 1.2em;
+    line-height: 1.2;
+}
+
+.msg-text .big-emoji {
+    font-size: 2em;
+    line-height: 1.3;
+}
 
         .msg-file a {
             color: var(--tg-blue-dark);
@@ -3691,171 +3782,240 @@
         }
 
         function createMessageElement(m) {
-            const el = document.createElement('div');
-            const isOwn = m.sender === selfId;
-            el.className = 'msg-bubble' + (isOwn ? ' own' : '');
-            el.dataset.msgId = m.id;
-            let attachesHtml = '';
-            let keyboardHtml = '';
-            let encBadgeHtml = '';
-            if (m.__e2e && m.__e2e.encrypted) {
-                if (m.__e2e.ok) {
-                    m.text = m.__e2e.text;
-                    encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
-                } else {
-                    m.text = '🔒 Не удалось расшифровать сообщение';
-                    encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
-                }
-            }
-            (m.attaches || []).forEach(a => {
-                if (a._type === 'PHOTO') {
-                    let src = a.baseRawUrl || a.baseUrl;
-                    if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
-                    if (!src && a.previewData) {
-                        src = hexPreviewToDataUrl(a.previewData);
-                    }
-                    if (src) {
-                        attachesHtml +=
-                            `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
-                    } else {
-                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
-                    }
-                    return;
-                }
-                if (a._type === 'VIDEO') {
-                    attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
-                    return;
-                }
-                if (a._type === 'FILE') {
-                    const fileName = a.name || 'файл';
-
-                    let sizeText = '';
-                    if (a.size) {
-                        if (a.size >= 1024 * 1024) {
-                            sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
-                        } else {
-                            sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
-                        }
-                    }
-
-                    const isPdf = /\.pdf$/i.test(fileName);
-                    const fileIcon = isPdf ? '📄' : '📎';
-
-                    if (a.fileId) {
-                        attachesHtml += `
-          <div class="msg-attach msg-file">
-            <a href="javascript:void(0)" class="msg-file-link"
-               data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
-               onclick="downloadFileAttach(this)"
-               style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
-              <span class="file-icon">${fileIcon}</span> 
-              <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
-              <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
-            </a>
-          </div>`;
-                    } else {
-                        attachesHtml += `
-          <div class="msg-attach msg-file" style="color: #888;">
-            ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
-          </div>`;
-                    }
-                    return;
-                }
-                if (a._type === 'STICKER') {
-                    const w = a.width || 170;
-                    const h = a.height || 170;
-                    const stickerSrc = a.url ? '/img?url=' + encodeURIComponent(a.url) : null;
-                    const fallbackImgHtml = stickerSrc
-                        ? `<img src="${stickerSrc}" alt="${escapeHtml((a.tags || []).join(' ') || 'Стикер')}" loading="lazy" style="width:100%;height:auto;display:block;" onerror="this.parentElement.innerHTML='😀 Стикер (недоступен)'">`
-                        : `😀 Стикер`;
-
-                    if (a.lottieUrl && a.stickerType === 'LOTTIE') {
-                        const holderId = 'lottie_' + m.id + '_' + Math.random().toString(36).slice(2, 8);
-                        attachesHtml +=
-                            `<div class="msg-attach msg-sticker" data-lottie-url="${escapeHtml(a.lottieUrl)}" data-holder-id="${holderId}" style="max-width:${w}px;">
-                <div id="${holderId}" style="width:100%;aspect-ratio:${w}/${h};">${fallbackImgHtml}</div>
-            </div>`;
-                        // Не вызываем loadLottieSticker здесь – вызов будет после вставки в DOM
-                    } else if (stickerSrc) {
-                        attachesHtml +=
-                            `<div class="msg-attach msg-sticker" style="max-width:${w}px;">${fallbackImgHtml}</div>`;
-                    } else {
-                        attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
-                    }
-                }
-
-
-                if (a._type === 'CALL') {
-                    let callText = a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок';
-                    if (a.duration && a.duration > 0) {
-                        const totalSeconds = Math.floor(a.duration / 1000);
-                        const hours = Math.floor(totalSeconds / 3600);
-                        const minutes = Math.floor((totalSeconds % 3600) / 60);
-                        const seconds = totalSeconds % 60;
-
-                        let durationStr = '';
-                        if (hours > 0) {
-                            durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                        } else {
-                            durationStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
-                        }
-                        callText += ` (${durationStr})`;
-                    }
-                    attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
-                    return;
-                }
-                if (a._type === 'CONTROL') {
-                    const text = a.message || a.shortMessage || 'Системное событие';
-                    attachesHtml +=
-                        `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
-                    return;
-                }
-                if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
-                    keyboardHtml += renderKeyboardAttach(a, m.id);
-                    return;
-                }
-                // Неизвестный тип attach — не рендерим, но логируем, чтобы можно было
-                // опознать реальное имя типа (например для клавиатуры бота) по живому трафику
-                // и добавить обработчик выше.
-                console.log('[maxclient] неизвестный attach._type:', a._type, a);
-            });
-            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
-            const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
-            let textHtml = '';
-            if (m.text && !(isTranslationKey && hasControlAttach)) {
-                // Регулярное выражение находит http(s)-ссылки
-                const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
-                let processedText = escapeHtml(m.text);
-
-                // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим
-                // через LINK_INFO вместо перехода во внешнюю вкладку.
-                const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
-                processedText = processedText.replace(maxLinkRegex, function (url) {
-                    return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
-                });
-
-                // Заменяем найденные http(s)-ссылки на кликабельные теги <a>
-                processedText = processedText.replace(urlRegex, function (url) {
-                    if (/max\.ru\//i.test(url)) return url; // уже обработано выше
-                    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`;
-                });
-
-                // @username-упоминания делаем кликабельными
-                const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
-                processedText = processedText.replace(mentionRegex, function (full, pre, username) {
-                    return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
-                });
-
-                textHtml = `<div class=\"msg-text\">${processedText}</div>`;
-            }
-            const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            const chat = chatsById[currentChatId];
-            const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
-            const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
-            const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
-            return el;
+    const el = document.createElement('div');
+    const isOwn = m.sender === selfId;
+    
+    // Определяем, системное ли это сообщение
+    const isSystem = m.text && (
+        m.text.startsWith('[Система]') || 
+        m.text.startsWith('Системное:') ||
+        m.text.startsWith('🔔') ||
+        m.text.startsWith('⚠️') ||
+        m.text.startsWith('✅')
+    );
+    
+    // Классы сообщения
+    el.className = 'msg-bubble';
+    if (isOwn) el.classList.add('own');
+    if (isSystem) el.classList.add('system');
+    
+    el.dataset.msgId = m.id;
+    
+    let attachesHtml = '';
+    let keyboardHtml = '';
+    let encBadgeHtml = '';
+    
+    if (m.__e2e && m.__e2e.encrypted) {
+        if (m.__e2e.ok) {
+            m.text = m.__e2e.text;
+            encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
+        } else {
+            m.text = '🔒 Не удалось расшифровать сообщение';
+            encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
         }
+    }
+    
+    (m.attaches || []).forEach(a => {
+        if (a._type === 'PHOTO') {
+            let src = a.baseRawUrl || a.baseUrl;
+            if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
+            if (!src && a.previewData) {
+                src = hexPreviewToDataUrl(a.previewData);
+            }
+            if (src) {
+                attachesHtml +=
+                    `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
+            } else {
+                attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
+            }
+            return;
+        }
+        if (a._type === 'VIDEO') {
+            attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
+            return;
+        }
+        if (a._type === 'FILE') {
+            const fileName = a.name || 'файл';
+            let sizeText = '';
+            if (a.size) {
+                if (a.size >= 1024 * 1024) {
+                    sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
+                } else {
+                    sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
+                }
+            }
+            const isPdf = /\.pdf$/i.test(fileName);
+            const fileIcon = isPdf ? '📄' : '📎';
+            if (a.fileId) {
+                attachesHtml += `
+                    <div class="msg-attach msg-file">
+                        <a href="javascript:void(0)" class="msg-file-link"
+                           data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
+                           onclick="downloadFileAttach(this)"
+                           style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
+                            <span class="file-icon">${fileIcon}</span> 
+                            <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
+                            <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
+                        </a>
+                    </div>`;
+            } else {
+                attachesHtml += `
+                    <div class="msg-attach msg-file" style="color: #888;">
+                        ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
+                    </div>`;
+            }
+            return;
+        }
+        if (a._type === 'STICKER') {
+            const w = a.width || 170;
+            const h = a.height || 170;
+            const stickerSrc = a.url ? '/img?url=' + encodeURIComponent(a.url) : null;
+            const fallbackImgHtml = stickerSrc
+                ? `<img src="${stickerSrc}" alt="${escapeHtml((a.tags || []).join(' ') || 'Стикер')}" loading="lazy" style="width:100%;height:auto;display:block;" onerror="this.parentElement.innerHTML='😀 Стикер (недоступен)'">`
+                : `😀 Стикер`;
+            if (a.lottieUrl && a.stickerType === 'LOTTIE') {
+                const holderId = 'lottie_' + m.id + '_' + Math.random().toString(36).slice(2, 8);
+                attachesHtml +=
+                    `<div class="msg-attach msg-sticker" data-lottie-url="${escapeHtml(a.lottieUrl)}" data-holder-id="${holderId}" style="max-width:${w}px;">
+                        <div id="${holderId}" style="width:100%;aspect-ratio:${w}/${h};">${fallbackImgHtml}</div>
+                    </div>`;
+            } else if (stickerSrc) {
+                attachesHtml +=
+                    `<div class="msg-attach msg-sticker" style="max-width:${w}px;">${fallbackImgHtml}</div>`;
+            } else {
+                attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
+            }
+            return;
+        }
+        if (a._type === 'CALL') {
+            let callText = a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок';
+            if (a.duration && a.duration > 0) {
+                const totalSeconds = Math.floor(a.duration / 1000);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                let durationStr = '';
+                if (hours > 0) {
+                    durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                } else {
+                    durationStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+                }
+                callText += ` (${durationStr})`;
+            }
+            attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
+            return;
+        }
+        if (a._type === 'CONTROL') {
+            const text = a.message || a.shortMessage || 'Системное событие';
+            attachesHtml +=
+                `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
+            return;
+        }
+        if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
+            keyboardHtml += renderKeyboardAttach(a, m.id);
+            return;
+        }
+        console.log('[maxclient] неизвестный attach._type:', a._type, a);
+    });
+    
+    const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+    const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
+    let textHtml = '';
+    
+    if (m.text && !(isTranslationKey && hasControlAttach)) {
+        // Обрабатываем форматирование текста
+        const formattedText = formatMessageText(m.text);
+        textHtml = `<div class="msg-text">${formattedText}</div>`;
+    }
+    
+    const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const chat = chatsById[currentChatId];
+    const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
+    const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
+    const reactionsHtml = buildReactionsHtml(m);
+    
+    el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml;
+    return el;
+}
+// ========================================
+// ФОРМАТИРОВАНИЕ ТЕКСТА СООБЩЕНИЙ
+// ========================================
+
+function formatMessageText(text) {
+    if (!text) return '';
+    
+    // Экранируем HTML, но сохраняем специальные символы
+    let html = escapeHtml(text);
+    
+    // --- 1. ОБРАБОТКА СПЕЦИАЛЬНЫХ СИМВОЛОВ ---
+    // Эмодзи (делаем немного крупнее)
+    const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FEFF}\u{1F1E6}-\u{1F1FF}]/gu;
+    
+    // Сохраняем эмодзи без изменений (они и так корректно отображаются)
+    // Но можем обернуть их в span с классом для увеличения размера
+    html = html.replace(emojiRegex, function(match) {
+        // Если эмодзи идёт отдельно (без текста) - делаем его большим
+        return match;
+    });
+    
+    // --- 2. MARKDOWN-ПОДОБНОЕ ФОРМАТИРОВАНИЕ ---
+    // Жирный текст: *текст* или **текст**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+    
+    // Курсив: _текст_
+    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+    
+    // Зачёркнутый: ~текст~
+    html = html.replace(/~([^~]+)~/g, '<span style="text-decoration:line-through;">$1</span>');
+    
+    // Моноширинный: `код`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Многострочный код: ```код```
+    html = html.replace(/```([^`]+)```/g, '<pre>$1</pre>');
+    
+    // --- 3. СПОЙЛЕРЫ ---
+    // ||текст|| - скрытый текст, открывается по клику
+    html = html.replace(/\|\|([^|]+)\|\|/g, function(match, content) {
+        const id = 'spoiler_' + Math.random().toString(36).slice(2, 6);
+        return `<span class="spoiler" id="${id}" onclick="toggleSpoiler('${id}')">${content}</span>`;
+    });
+    
+    // --- 4. ССЫЛКИ ---
+    // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим через LINK_INFO
+    const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
+    html = html.replace(maxLinkRegex, function(url) {
+        return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
+    });
+    
+    // Обычные http(s)-ссылки
+    const urlRegex = /(https?:\/\/[^\s<>"']+)(?![^<]*<\/a>)/gi;
+    html = html.replace(urlRegex, function(url) {
+        if (/max\.ru\//i.test(url)) return url;
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+    });
+    
+    // --- 5. УПОМИНАНИЯ ---
+    // @username-упоминания делаем кликабельными
+    const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
+    html = html.replace(mentionRegex, function(full, pre, username) {
+        return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
+    });
+    
+    // --- 6. ПЕРЕВОДЫ СТРОК ---
+    // \n -> <br>
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+}
+
+// Функция для переключения спойлера
+function toggleSpoiler(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('revealed');
+}
 
         // ========================================
         // БОТЫ: клавиатура (inline_keyboard) и мини-приложения (WebApp)
