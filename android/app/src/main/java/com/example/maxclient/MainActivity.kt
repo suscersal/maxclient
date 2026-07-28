@@ -23,6 +23,7 @@ import com.chaquo.python.android.AndroidPlatform
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
+import pl.droidsonroids.gif.GifImageView
 
 class MainActivity : AppCompatActivity() {
 
@@ -60,13 +61,13 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
 
         val webView = findViewById<WebView>(R.id.webview)
-        val loadingGif = findViewById<GifView>(R.id.loadingGif)
+        val loadingGif = findViewById<GifImageView>(R.id.loadingGif)
         val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
 
         // Копия loading.gif зашита в APK как нативный ассет (см.
         // scripts/sync-android-python.sh) — Flask-сервер на этом этапе ещё
         // не поднялся, раздавать её ему пока нечем.
-        loadingGif.setGifFromAssets("loading.gif")
+        loadingGif.setImageAsset("loading.gif") 
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
