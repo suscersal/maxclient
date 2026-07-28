@@ -2034,7 +2034,8 @@
             var box = document.createElement('div');
             box.id = 'debugConsole';
             box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:32vh;background:rgba(0,0,0,0.92);' +
-                'color:#0f0;font:11px/1.4 monospace;overflow-y:auto;z-index:999999;padding:6px 8px 6px 8px;' +
+                'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
+                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:6px 8px 6px 8px;' +
                 'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
                 'display:none;';
             var toggle = document.createElement('button');
@@ -2043,15 +2044,20 @@
                 'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
             toggle.onclick = function () {
                 box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+                if (box.style.display === 'block') box.scrollTop = box.scrollHeight;
             };
 
             function addLine(text, color) {
+                // Автопрокрутка вниз только если пользователь и так уже был у низа —
+                // иначе он не смог бы пролистать лог вверх руками во время потока
+                // новых сообщений (как это нормально работает на странице/в чатах).
+                var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
                 var line = document.createElement('div');
                 if (color) line.style.color = color;
                 line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
                 box.appendChild(line);
-                box.scrollTop = box.scrollHeight;
                 while (box.children.length > maxLines) box.removeChild(box.firstChild);
+                if (wasAtBottom) box.scrollTop = box.scrollHeight;
             }
 
             function toText(a) {
@@ -2088,8 +2094,9 @@
                 addLine('❌ Unhandled promise rejection: ' + toText(e.reason), '#f66');
             });
 
-            document.documentElement.appendChild(box);
-            document.documentElement.appendChild(toggle);
+            document.body.appendChild(box);
+            document.body.appendChild(toggle);
+            box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
             addLine('Debug-консоль запущена');
         })();
     </script>
@@ -2274,8 +2281,7 @@
 
         <!-- Важное предупреждение в самом верху -->
         <div class="miniapp-top-alert">
-            Если вас перекидывает на сторонний сайт, то авторизация работать не будет!(Не всегда, например госуслуги
-            нет(вроде), а GigaChat да)
+            Если вас перекидывает на сторонний сайт, то авторизация работать не будет!
         </div>
 
         <div class="miniapp-header">
@@ -2285,8 +2291,7 @@
         </div>
 
         <iframe class="miniapp-iframe" id="miniappIframe" src="about:blank"
-            allow="camera; microphone; geolocation; clipboard-read; clipboard-write"></iframe>//он запрашивает
-        разрешения(если сайт попросит), а так сам не даёт
+            allow="camera; microphone; geolocation; clipboard-read; clipboard-write"></iframe>
     </div>
 
 
@@ -5158,6 +5163,7 @@
         // ========================================
         const e2eSessions = {}; // chatId -> { status: 'pending'|'active', keyPair?, aesKey? }
         const e2ePendingIncoming = {}; // chatId -> true, пока показан confirm() на входящий запрос
+        const e2eProcessedHandshakeIds = new Set(); // id сообщений с уже обработанным handshake-payload
 
         const E2E_HS_START = '\u2063\u2063\u2063\u2063'; // invisible separator x4 — начало служебных данных
         const E2E_HS_END = '\u2064\u2064\u2064\u2064';   // invisible plus x4 — конец служебных данных
@@ -5366,6 +5372,21 @@
             const hs = e2eExtractPayload(m.text);
             if (hs) {
                 m.text = e2eStripPayload(m.text);
+                // Пока не знаем свой ID (профиль ещё не подгрузился/переподключение) —
+                // невозможно достоверно отличить своё сообщение от чужого, поэтому
+                // ничего не показываем — иначе можно словить ложный confirm() на
+                // собственный же запрос.
+                if (selfId == null) return;
+                // Это наше собственное сообщение (мы сами отправили req/ack) —
+                // не запрашивать подтверждение у самих себя. Сравниваем через
+                // String(), т.к. sender иногда приходит в другом типе, чем selfId.
+                if (String(m.sender) === String(selfId)) return;
+                // Один и тот же handshake (например, при повторном открытии чата
+                // и повторной загрузке той же истории) не должен обрабатываться
+                // заново — иначе confirm() всплывал бы каждый раз.
+                const msgKey = String(chatId) + ':' + String(m.id);
+                if (e2eProcessedHandshakeIds.has(msgKey)) return;
+                e2eProcessedHandshakeIds.add(msgKey);
                 e2eHandleHandshakePayload(chatId, hs); // не блокируем рендер
             }
         }
