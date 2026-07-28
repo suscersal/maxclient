@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace 'com.suscersal.maxclient'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.suscersal.maxclient"
         minSdk 24
-        targetSdk 34
+        targetSdk 35
         // Версия задаётся из CI (см. .github/workflows/build-and-relis.yml) —
         // versionName растёт на +0.1 (1.0 -> 1.1 -> 1.2...) с каждой сборкой,
         // по номеру запуска GitHub Actions. При локальной сборке (когда
