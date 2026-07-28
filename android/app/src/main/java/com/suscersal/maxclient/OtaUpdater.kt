@@ -1,4 +1,4 @@
-package com.example.maxclient
+package com.suscersal.maxclient
 
 import android.content.Context
 import android.util.Log
