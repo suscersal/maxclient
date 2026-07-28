@@ -67,7 +67,13 @@ class MainActivity : AppCompatActivity() {
         // Копия loading.gif зашита в APK как нативный ассет (см.
         // scripts/sync-android-python.sh) — Flask-сервер на этом этапе ещё
         // не поднялся, раздавать её ему пока нечем.
-        loadingGif.setGifFromAssets("loading.gif")
+        try {
+    val gifDrawable = pl.droidsonroids.gif.GifDrawable(assets, "loading.gif")
+    loadingGif.setImageDrawable(gifDrawable)
+} catch (e: Exception) {
+    e.printStackTrace()
+}
+
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
