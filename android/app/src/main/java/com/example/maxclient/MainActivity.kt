@@ -1,4 +1,4 @@
-package com.example.maxclient
+package com.suscersal.maxclient
 
 import android.Manifest
 import android.app.NotificationChannel
