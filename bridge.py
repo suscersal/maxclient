@@ -1377,6 +1377,25 @@ def relay(ws):
                 ws.send(json.dumps({"opcode": 0, "payload": {"pong": True}}))
                 continue
 
+            # opcode 50 = chatMark (READ_MESSAGE и т.п.). Клиент теперь сам
+            # подменяет temp_... id на ближайший подтверждённый перед
+            # отправкой, но это подстраховка на стороне бриджа: если
+            # messageId всё же не число (например старая версия клиента
+            # или гонка состояний), сервер MAX либо отклонит такой пакет,
+            # либо молча его проигнорирует — а клиент при этом уже считает
+            # чат прочитанным локально. Поэтому не форвардим такой запрос
+            # вообще и явно логируем это, чтобы баг было видно в логах
+            # бриджа, а не терялся молча где-то в протоколе MAX.
+            if opcode == 50:
+                msg_id = payload.get("messageId")
+                if msg_id is not None and not isinstance(msg_id, int):
+                    logger.warning(
+                        f"[relay] Skipped chatMark: non-numeric messageId "
+                        f"{msg_id!r} (chatId={payload.get('chatId')}) — "
+                        f"похоже на непорезолвленный temp_ id"
+                    )
+                    continue
+
             if opcode is not None:
                 client.send(opcode, payload)
 

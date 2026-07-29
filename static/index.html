@@ -1981,6 +1981,18 @@
             border-radius: 0;
         }
 
+        .date-separator {
+            align-self: center;
+            margin: 6px 0;
+            padding: 4px 12px;
+            border-radius: 12px;
+            background: rgba(23, 33, 43, 0.06);
+            color: var(--tg-text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            text-align: center;
+        }
+
         .msg-bubble {
             background: var(--tg-incoming-bubble);
             border-radius: 16px 16px 16px 4px;
@@ -2015,97 +2027,6 @@
         .msg-bubble.own .msg-enc-badge {
             color: #d8ffd8;
         }
-        
-        /* ===== СИСТЕМНЫЕ СООБЩЕНИЯ ===== */
-.msg-bubble.system {
-    max-width: 95%;
-    align-self: center;
-    background: transparent;
-    padding: 2px 8px;
-    border-radius: 8px;
-    font-size: 12px;
-    color: #888;
-    text-align: center;
-    font-style: italic;
-}
-
-.msg-bubble.system .msg-time {
-    font-size: 9px;
-    color: #bbb;
-}
-
-/* ===== ФОРМАТИРОВАНИЕ ТЕКСТА ===== */
-.msg-text {
-    margin-top: 4px;
-    word-wrap: break-word;
-    line-height: 1.5;
-}
-
-.msg-text strong,
-.msg-text b {
-    font-weight: 700;
-}
-
-.msg-text em,
-.msg-text i {
-    font-style: italic;
-}
-
-.msg-text code {
-    font-family: monospace;
-    background: rgba(0, 0, 0, 0.08);
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 0.9em;
-}
-
-.msg-text pre {
-    font-family: monospace;
-    background: rgba(0, 0, 0, 0.06);
-    padding: 8px 12px;
-    border-radius: 8px;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    font-size: 0.9em;
-    margin: 4px 0;
-}
-
-.msg-text .spoiler {
-    background: #333;
-    color: #333;
-    border-radius: 4px;
-    padding: 0 4px;
-    cursor: pointer;
-    transition: color 0.15s;
-}
-
-.msg-text .spoiler.revealed {
-    color: inherit;
-    background: transparent;
-}
-
-.msg-text .mention-link {
-    color: #007bff;
-    text-decoration: underline;
-    cursor: pointer;
-}
-
-.msg-text a {
-    color: #007bff;
-    text-decoration: underline;
-    word-break: break-all;
-}
-
-/* ===== СПЕЦИАЛЬНЫЕ СИМВОЛЫ ===== */
-.msg-text .emoji {
-    font-size: 1.2em;
-    line-height: 1.2;
-}
-
-.msg-text .big-emoji {
-    font-size: 2em;
-    line-height: 1.3;
-}
 
         .msg-file a {
             color: var(--tg-blue-dark);
@@ -2117,286 +2038,99 @@
     </style>
 </head>
 
-<!-- ==== ПЛАВАЮЩАЯ DEBUG-КОНСОЛЬ (ПРАВЫЙ ВЕРХНИЙ УГОЛ) ==== -->
-<script>
-(function () {
-    var maxLines = 300;
-    var isOpen = false;
-    var isDragging = false;
-    var hasMoved = false;
-    var dragStartX = 0;
-    var dragStartY = 0;
-    var offsetX = 0;
-    var offsetY = 0;
+<body>
+    <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
+    <script>
+        (function () {
+            var maxLines = 300;
+            var box = document.createElement('div');
+            box.id = 'debugConsole';
+            box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:32vh;background:rgba(0,0,0,0.92);' +
+                'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
+                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:6px 8px 6px 8px;' +
+                'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
+                'display:none;';
+            var toggle = document.createElement('button');
+            toggle.textContent = '🐞';
+            toggle.style.cssText = 'position:fixed;right:8px;bottom:calc(32vh + 8px);z-index:1000000;width:36px;' +
+                'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
 
-    var box = document.createElement('div');
-    box.id = 'debugConsole';
-    box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:30vh;background:rgba(0,0,0,0.95);' +
-        'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
-        'touch-action:pan-y;overscroll-behavior:contain;z-index:999998;padding:8px 10px;' +
-        'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
-        'display:none;';
-    box.style.overflowY = 'auto';
-    box.style.paddingRight = '6px';
-    
-   var style = document.createElement('style');
-style.textContent = `
-#debugConsole::-webkit-scrollbar {
-    width: 14px;
-}
-#debugConsole::-webkit-scrollbar-track {
-    background: rgba(255,255,255,0.06);
-    border-radius: 999px;
-    margin: 6px 0;
-}
-#debugConsole::-webkit-scrollbar-thumb {
-    background: rgba(74,222,128,0.85);
-    border-radius: 999px;
-    min-height: 80px;
-}
-#debugConsole::-webkit-scrollbar-thumb:hover {
-    background: rgba(74,222,128,1);
-}
-#debugConsole {
-    scrollbar-width: auto;
-    scrollbar-color: rgba(74,222,128,0.85) rgba(255,255,255,0.06);
-}
-`;
-document.head.appendChild(style);
+            // Кнопки быстрой прокрутки лога вверх/вниз — видны только пока консоль открыта.
+            var btnStyle = 'position:fixed;right:8px;z-index:1000001;width:36px;height:36px;border-radius:50%;' +
+                'background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;display:none;';
+            var btnTop = document.createElement('button');
+            btnTop.textContent = '⬆';
+            btnTop.style.cssText = btnStyle + 'bottom:calc(32vh - 40px);';
+            btnTop.onclick = function () { box.scrollTop = 0; };
+            var btnBottom = document.createElement('button');
+            btnBottom.textContent = '⬇';
+            btnBottom.style.cssText = btnStyle + 'bottom:6px;';
+            btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
 
-    var toggle = document.createElement('div');
-    toggle.id = 'debugToggle';
-    toggle.innerHTML = '🐞';
-    toggle.style.cssText = 'position:fixed;top:12px;right:12px;z-index:999999;width:40px;' +
-        'height:40px;border-radius:50%;background:#1a1a2e;color:#4ade80;border:2px solid #4ade80;font-size:18px;' +
-        'display:flex;align-items:center;justify-content:center;cursor:grab;' +
-        'user-select:none;-webkit-user-select:none;touch-action:none;' +
-        'box-shadow:0 4px 15px rgba(74,222,128,0.2);transition:transform 0.2s, box-shadow 0.2s;' +
-        'font-family:monospace;';
+            toggle.onclick = function () {
+                var show = box.style.display === 'none';
+                box.style.display = show ? 'block' : 'none';
+                btnTop.style.display = show ? 'block' : 'none';
+                btnBottom.style.display = show ? 'block' : 'none';
+                if (show) box.scrollTop = box.scrollHeight;
+            };
 
-    toggle.title = '🐞 Debug-консоль (перетащите)';
-
-    function getCoords(e) {
-        if (e.changedTouches && e.changedTouches.length > 0) {
-            return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
-        }
-        if (e.touches && e.touches.length > 0) {
-            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        }
-        return { x: e.clientX, y: e.clientY };
-    }
-
-    function startDrag(e) {
-        e.preventDefault();
-        var coords = getCoords(e);
-        var rect = toggle.getBoundingClientRect();
-
-        isDragging = false;
-        hasMoved = false;
-        dragStartX = coords.x;
-        dragStartY = coords.y;
-        offsetX = coords.x - rect.left;
-        offsetY = coords.y - rect.top;
-
-        toggle.style.cursor = 'grabbing';
-        toggle.style.transform = 'scale(0.9)';
-        toggle.style.boxShadow = '0 4px 25px rgba(74,222,128,0.4)';
-        toggle.style.zIndex = '1000000';
-    }
-
-    function onDrag(e) {
-        e.preventDefault();
-        var coords = getCoords(e);
-
-        if (!hasMoved && (Math.abs(coords.x - dragStartX) > 5 || Math.abs(coords.y - dragStartY) > 5)) {
-            hasMoved = true;
-            isDragging = true;
-        }
-
-        if (isDragging) {
-            var newX = coords.x - offsetX;
-            var newY = coords.y - offsetY;
-
-            newX = Math.max(0, Math.min(newX, window.innerWidth - 40));
-            newY = Math.max(0, Math.min(newY, window.innerHeight - 40));
-
-            toggle.style.left = newX + 'px';
-            toggle.style.right = 'auto';
-            toggle.style.top = newY + 'px';
-            toggle.style.bottom = 'auto';
-        }
-    }
-
-    function toggleConsole(e) {
-        if (e) e.stopPropagation();
-        isOpen = !isOpen;
-        box.style.display = isOpen ? 'block' : 'none';
-
-        if (isOpen) {
-            box.scrollTop = box.scrollHeight;
-            toggle.style.color = '#fbbf24';
-            toggle.style.borderColor = '#fbbf24';
-            toggle.style.boxShadow = '0 4px 25px rgba(251,191,36,0.3)';
-            toggle.innerHTML = '✕';
-            toggle.title = 'Закрыть консоль';
-        } else {
-            toggle.style.color = '#4ade80';
-            toggle.style.borderColor = '#4ade80';
-            toggle.style.boxShadow = '0 4px 15px rgba(74,222,128,0.2)';
-            toggle.innerHTML = '🐞';
-            toggle.title = '🐞 Debug-консоль (перетащите)';
-        }
-    }
-
-    function endDrag(e) {
-        toggle.style.cursor = 'grab';
-        toggle.style.transform = 'scale(1)';
-        toggle.style.boxShadow = isOpen ? '0 4px 25px rgba(251,191,36,0.3)' : '0 4px 15px rgba(74,222,128,0.2)';
-        toggle.style.zIndex = '999999';
-
-        if (!hasMoved) {
-            toggleConsole(e);
-        }
-
-        isDragging = false;
-        hasMoved = false;
-
-        document.removeEventListener('mousemove', onDrag);
-        document.removeEventListener('mouseup', endDrag);
-        document.removeEventListener('touchmove', onDrag);
-        document.removeEventListener('touchend', endDrag);
-        document.removeEventListener('touchcancel', endDrag);
-    }
-
-    toggle.addEventListener('mousedown', function (e) {
-        startDrag(e);
-        document.addEventListener('mousemove', onDrag);
-        document.addEventListener('mouseup', endDrag);
-    });
-
-    toggle.addEventListener('touchstart', function (e) {
-        startDrag(e);
-        document.addEventListener('touchmove', onDrag, { passive: false });
-        document.addEventListener('touchend', endDrag);
-        document.addEventListener('touchcancel', endDrag);
-    }, { passive: false });
-
-    toggle.addEventListener('dblclick', function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        toggle.style.left = 'auto';
-        toggle.style.right = '12px';
-        toggle.style.top = '12px';
-        toggle.style.bottom = 'auto';
-        if (isOpen) toggleConsole(e);
-    });
-
-    function addLine(text, color) {
-        var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-        var line = document.createElement('div');
-        if (color) line.style.color = color;
-        var now = new Date();
-        var time = now.toLocaleTimeString();
-        var ms = String(now.getMilliseconds()).padStart(3, '0');
-        line.textContent = '[' + time + '.' + ms + '] ' + text;
-        box.appendChild(line);
-        while (box.children.length > maxLines) box.removeChild(box.firstChild);
-        if (wasAtBottom) box.scrollTop = box.scrollHeight;
-    }
-
-    function toText(a) {
-        try {
-            if (typeof a === 'string') return a;
-            if (a instanceof Error) return a.stack || a.message;
-            if (a && typeof a === 'object') {
-                try { return JSON.stringify(a); } catch (e) { return String(a); }
+            function addLine(text, color) {
+                // Автопрокрутка вниз только если пользователь и так уже был у низа —
+                // иначе он не смог бы пролистать лог вверх руками во время потока
+                // новых сообщений (как это нормально работает на странице/в чатах).
+                var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+                var line = document.createElement('div');
+                if (color) line.style.color = color;
+                line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
+                box.appendChild(line);
+                while (box.children.length > maxLines) box.removeChild(box.firstChild);
+                if (wasAtBottom) box.scrollTop = box.scrollHeight;
             }
-            return String(a);
-        } catch (e) {
-            return String(a);
-        }
-    }
 
-    var origLog = console.log;
-    var origInfo = console.info;
-    var origWarn = console.warn;
-    var origError = console.error;
-
-    console.log = function () {
-        var text = Array.from(arguments).map(toText).join(' ');
-        addLine('📝 ' + text, '#0f0');
-        origLog.apply(console, arguments);
-    };
-
-    console.info = function () {
-        var text = Array.from(arguments).map(toText).join(' ');
-        addLine('ℹ️ ' + text, '#4fc3f7');
-        origInfo.apply(console, arguments);
-    };
-
-    console.warn = function () {
-        var text = Array.from(arguments).map(toText).join(' ');
-        addLine('⚠️ ' + text, '#ffd54f');
-        origWarn.apply(console, arguments);
-    };
-
-    console.error = function () {
-        var text = Array.from(arguments).map(toText).join(' ');
-        addLine('❌ ' + text, '#ef5350');
-        toggle.style.boxShadow = '0 0 30px rgba(239,83,80,0.6)';
-        setTimeout(function () {
-            if (!isDragging) {
-                toggle.style.boxShadow = isOpen ? '0 4px 25px rgba(251,191,36,0.3)' : '0 4px 15px rgba(74,222,128,0.2)';
+            function toText(a) {
+                try {
+                    if (typeof a === 'string') return a;
+                    if (a instanceof Error) return a.stack || a.message;
+                    return JSON.stringify(a);
+                } catch (e) { return String(a); }
             }
-        }, 2000);
-        origError.apply(console, arguments);
-    };
 
-    window.addEventListener('error', function (e) {
-        var t = e.target;
-        if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
-            addLine('❌ Не удалось загрузить: ' + (t.src || t.href), '#ef5350');
-        } else {
-            addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#ef5350');
-        }
-    }, true);
+            ['log', 'info', 'warn', 'error'].forEach(function (level) {
+                var orig = console[level];
+                console[level] = function () {
+                    var args = Array.prototype.slice.call(arguments).map(toText).join(' ');
+                    var prefix = level === 'error' ? '❌ ' : (level === 'warn' ? '⚠️ ' : '');
+                    var color = level === 'error' ? '#f66' : (level === 'warn' ? '#fd6' : '#0f0');
+                    addLine(prefix + args, color);
+                    orig.apply(console, arguments);
+                };
+            });
 
-    window.addEventListener('unhandledrejection', function (e) {
-        addLine('❌ Promise rejected: ' + toText(e.reason), '#ef5350');
-    });
+            // Ловим в т.ч. ошибки загрузки ресурсов (сорванные <script src>/<link>/<img>) —
+            // именно это нужно для диагностики офлайн-запуска.
+            window.addEventListener('error', function (e) {
+                var t = e.target;
+                if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
+                    addLine('❌ Не удалось загрузить ресурс: ' + (t.src || t.href), '#f66');
+                } else {
+                    addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#f66');
+                }
+            }, true);
 
-    var clearBtn = document.createElement('button');
-    clearBtn.textContent = '🗑️ Очистить';
-    clearBtn.style.cssText = 'position:fixed;right:12px;top:8px;z-index:999999;' +
-        'background:rgba(255,0,0,0.2);color:#fff;border:1px solid #f00;border-radius:6px;' +
-        'padding:4px 12px;font-size:11px;cursor:pointer;display:none;';
-    clearBtn.onclick = function (e) {
-        e.stopPropagation();
-        box.innerHTML = '';
-        addLine('🗑️ Консоль очищена', '#ffd54f');
-    };
+            window.addEventListener('unhandledrejection', function (e) {
+                addLine('❌ Unhandled promise rejection: ' + toText(e.reason), '#f66');
+            });
 
-    window.addEventListener('DOMContentLoaded', function () {
-    document.body.appendChild(box);
-    document.body.appendChild(toggle);
-    document.body.appendChild(clearBtn);
-});
-
-    box.addEventListener('touchmove', function (e) {
-        e.stopPropagation();
-    }, { passive: true });
-
-    box.addEventListener('click', function (e) {
-        e.stopPropagation();
-    });
-
-    addLine('🐞 Debug-консоль готова');
-    addLine('💡 Перетащите иконку в любое место');
-    addLine('💡 Кликните для открытия/закрытия');
-    addLine('💡 Двойной клик сбрасывает позицию');
-    console.log('✅ Debug-консоль успешно загружена!');
-})();
-</script>
+            document.body.appendChild(box);
+            document.body.appendChild(toggle);
+            document.body.appendChild(btnTop);
+            document.body.appendChild(btnBottom);
+            box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
+            addLine('Debug-консоль запущена');
+        })();
+    </script>
+    <!-- ==== КОНЕЦ ВРЕМЕННОЙ DEBUG-КОНСОЛИ ==== -->
     <div id="loadingOverlay">
         <img src="/loading.gif" alt="Загрузка...">
         <div class="loading-label">Загрузка<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
@@ -3725,6 +3459,7 @@ document.head.appendChild(style);
                 const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
                 const el = document.createElement('div');
                 el.className = 'chat-item';
+                el.dataset.chatId = chat.id;
                 el.innerHTML = `
                 <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
                 <div class="chat-info">
@@ -3969,240 +3704,172 @@ document.head.appendChild(style);
         }
 
         function createMessageElement(m) {
-    const el = document.createElement('div');
-    const isOwn = m.sender === selfId;
-    
-    // Определяем, системное ли это сообщение
-    const isSystem = m.text && (
-        m.text.startsWith('[Система]') || 
-        m.text.startsWith('Системное:') ||
-        m.text.startsWith('🔔') ||
-        m.text.startsWith('⚠️') ||
-        m.text.startsWith('✅')
-    );
-    
-    // Классы сообщения
-    el.className = 'msg-bubble';
-    if (isOwn) el.classList.add('own');
-    if (isSystem) el.classList.add('system');
-    
-    el.dataset.msgId = m.id;
-    
-    let attachesHtml = '';
-    let keyboardHtml = '';
-    let encBadgeHtml = '';
-    
-    if (m.__e2e && m.__e2e.encrypted) {
-        if (m.__e2e.ok) {
-            m.text = m.__e2e.text;
-            encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
-        } else {
-            m.text = '🔒 Не удалось расшифровать сообщение';
-            encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
-        }
-    }
-    
-    (m.attaches || []).forEach(a => {
-        if (a._type === 'PHOTO') {
-            let src = a.baseRawUrl || a.baseUrl;
-            if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
-            if (!src && a.previewData) {
-                src = hexPreviewToDataUrl(a.previewData);
-            }
-            if (src) {
-                attachesHtml +=
-                    `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
-            } else {
-                attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
-            }
-            return;
-        }
-        if (a._type === 'VIDEO') {
-            attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
-            return;
-        }
-        if (a._type === 'FILE') {
-            const fileName = a.name || 'файл';
-            let sizeText = '';
-            if (a.size) {
-                if (a.size >= 1024 * 1024) {
-                    sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
+            const el = document.createElement('div');
+            const isOwn = m.sender === selfId;
+            el.className = 'msg-bubble' + (isOwn ? ' own' : '');
+            el.dataset.msgId = m.id;
+            el.dataset.msgTime = m.time || Date.now();
+            let attachesHtml = '';
+            let keyboardHtml = '';
+            let encBadgeHtml = '';
+            if (m.__e2e && m.__e2e.encrypted) {
+                if (m.__e2e.ok) {
+                    m.text = m.__e2e.text;
+                    encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
                 } else {
-                    sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
+                    m.text = '🔒 Не удалось расшифровать сообщение';
+                    encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
                 }
             }
-            const isPdf = /\.pdf$/i.test(fileName);
-            const fileIcon = isPdf ? '📄' : '📎';
-            if (a.fileId) {
-                attachesHtml += `
-                    <div class="msg-attach msg-file">
-                        <a href="javascript:void(0)" class="msg-file-link"
-                           data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
-                           onclick="downloadFileAttach(this)"
-                           style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
-                            <span class="file-icon">${fileIcon}</span> 
-                            <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
-                            <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
-                        </a>
-                    </div>`;
-            } else {
-                attachesHtml += `
-                    <div class="msg-attach msg-file" style="color: #888;">
-                        ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
-                    </div>`;
-            }
-            return;
-        }
-        if (a._type === 'STICKER') {
-            const w = a.width || 170;
-            const h = a.height || 170;
-            const stickerSrc = a.url ? '/img?url=' + encodeURIComponent(a.url) : null;
-            const fallbackImgHtml = stickerSrc
-                ? `<img src="${stickerSrc}" alt="${escapeHtml((a.tags || []).join(' ') || 'Стикер')}" loading="lazy" style="width:100%;height:auto;display:block;" onerror="this.parentElement.innerHTML='😀 Стикер (недоступен)'">`
-                : `😀 Стикер`;
-            if (a.lottieUrl && a.stickerType === 'LOTTIE') {
-                const holderId = 'lottie_' + m.id + '_' + Math.random().toString(36).slice(2, 8);
-                attachesHtml +=
-                    `<div class="msg-attach msg-sticker" data-lottie-url="${escapeHtml(a.lottieUrl)}" data-holder-id="${holderId}" style="max-width:${w}px;">
-                        <div id="${holderId}" style="width:100%;aspect-ratio:${w}/${h};">${fallbackImgHtml}</div>
-                    </div>`;
-            } else if (stickerSrc) {
-                attachesHtml +=
-                    `<div class="msg-attach msg-sticker" style="max-width:${w}px;">${fallbackImgHtml}</div>`;
-            } else {
-                attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
-            }
-            return;
-        }
-        if (a._type === 'CALL') {
-            let callText = a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок';
-            if (a.duration && a.duration > 0) {
-                const totalSeconds = Math.floor(a.duration / 1000);
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const seconds = totalSeconds % 60;
-                let durationStr = '';
-                if (hours > 0) {
-                    durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                } else {
-                    durationStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+            (m.attaches || []).forEach(a => {
+                if (a._type === 'PHOTO') {
+                    let src = a.baseRawUrl || a.baseUrl;
+                    if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
+                    if (!src && a.previewData) {
+                        src = hexPreviewToDataUrl(a.previewData);
+                    }
+                    if (src) {
+                        attachesHtml +=
+                            `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
+                    }
+                    return;
                 }
-                callText += ` (${durationStr})`;
+                if (a._type === 'VIDEO') {
+                    attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
+                    return;
+                }
+                if (a._type === 'FILE') {
+                    const fileName = a.name || 'файл';
+
+                    let sizeText = '';
+                    if (a.size) {
+                        if (a.size >= 1024 * 1024) {
+                            sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
+                        } else {
+                            sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
+                        }
+                    }
+
+                    const isPdf = /\.pdf$/i.test(fileName);
+                    const fileIcon = isPdf ? '📄' : '📎';
+
+                    if (a.fileId) {
+                        attachesHtml += `
+          <div class="msg-attach msg-file">
+            <a href="javascript:void(0)" class="msg-file-link"
+               data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
+               onclick="downloadFileAttach(this)"
+               style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
+              <span class="file-icon">${fileIcon}</span> 
+              <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
+              <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
+            </a>
+          </div>`;
+                    } else {
+                        attachesHtml += `
+          <div class="msg-attach msg-file" style="color: #888;">
+            ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
+          </div>`;
+                    }
+                    return;
+                }
+                if (a._type === 'STICKER') {
+                    const w = a.width || 170;
+                    const h = a.height || 170;
+                    const stickerSrc = a.url ? '/img?url=' + encodeURIComponent(a.url) : null;
+                    const fallbackImgHtml = stickerSrc
+                        ? `<img src="${stickerSrc}" alt="${escapeHtml((a.tags || []).join(' ') || 'Стикер')}" loading="lazy" style="width:100%;height:auto;display:block;" onerror="this.parentElement.innerHTML='😀 Стикер (недоступен)'">`
+                        : `😀 Стикер`;
+
+                    if (a.lottieUrl && a.stickerType === 'LOTTIE') {
+                        const holderId = 'lottie_' + m.id + '_' + Math.random().toString(36).slice(2, 8);
+                        attachesHtml +=
+                            `<div class="msg-attach msg-sticker" data-lottie-url="${escapeHtml(a.lottieUrl)}" data-holder-id="${holderId}" style="max-width:${w}px;">
+                <div id="${holderId}" style="width:100%;aspect-ratio:${w}/${h};">${fallbackImgHtml}</div>
+            </div>`;
+                        // Не вызываем loadLottieSticker здесь – вызов будет после вставки в DOM
+                    } else if (stickerSrc) {
+                        attachesHtml +=
+                            `<div class="msg-attach msg-sticker" style="max-width:${w}px;">${fallbackImgHtml}</div>`;
+                    } else {
+                        attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
+                    }
+                }
+
+
+                if (a._type === 'CALL') {
+                    let callText = a.callType === 'VIDEO' ? 'Видеозвонок' : 'Звонок';
+                    if (a.duration && a.duration > 0) {
+                        const totalSeconds = Math.floor(a.duration / 1000);
+                        const hours = Math.floor(totalSeconds / 3600);
+                        const minutes = Math.floor((totalSeconds % 3600) / 60);
+                        const seconds = totalSeconds % 60;
+
+                        let durationStr = '';
+                        if (hours > 0) {
+                            durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                        } else {
+                            durationStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+                        }
+                        callText += ` (${durationStr})`;
+                    }
+                    attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
+                    return;
+                }
+                if (a._type === 'CONTROL') {
+                    const text = a.message || a.shortMessage || 'Системное событие';
+                    attachesHtml +=
+                        `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
+                    return;
+                }
+                if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
+                    keyboardHtml += renderKeyboardAttach(a, m.id);
+                    return;
+                }
+                // Неизвестный тип attach — не рендерим, но логируем, чтобы можно было
+                // опознать реальное имя типа (например для клавиатуры бота) по живому трафику
+                // и добавить обработчик выше.
+                console.log('[maxclient] неизвестный attach._type:', a._type, a);
+            });
+            const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
+            const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
+            let textHtml = '';
+            if (m.text && !(isTranslationKey && hasControlAttach)) {
+                // Регулярное выражение находит http(s)-ссылки
+                const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+                let processedText = escapeHtml(m.text);
+
+                // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим
+                // через LINK_INFO вместо перехода во внешнюю вкладку.
+                const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
+                processedText = processedText.replace(maxLinkRegex, function (url) {
+                    return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
+                });
+
+                // Заменяем найденные http(s)-ссылки на кликабельные теги <a>
+                processedText = processedText.replace(urlRegex, function (url) {
+                    if (/max\.ru\//i.test(url)) return url; // уже обработано выше
+                    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`;
+                });
+
+                // @username-упоминания делаем кликабельными
+                const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
+                processedText = processedText.replace(mentionRegex, function (full, pre, username) {
+                    return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
+                });
+
+                textHtml = `<div class=\"msg-text\">${processedText}</div>`;
             }
-            attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
-            return;
+            const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const chat = chatsById[currentChatId];
+            const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
+            const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
+            const reactionsHtml = buildReactionsHtml(m);
+            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            return el;
         }
-        if (a._type === 'CONTROL') {
-            const text = a.message || a.shortMessage || 'Системное событие';
-            attachesHtml +=
-                `<div class="msg-attach" style="text-align:center;color:#888;font-size:12px;">${escapeHtml(text)}</div>`;
-            return;
-        }
-        if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
-            keyboardHtml += renderKeyboardAttach(a, m.id);
-            return;
-        }
-        console.log('[maxclient] неизвестный attach._type:', a._type, a);
-    });
-    
-    const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
-    const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
-    let textHtml = '';
-    
-    if (m.text && !(isTranslationKey && hasControlAttach)) {
-        // Обрабатываем форматирование текста
-        const formattedText = formatMessageText(m.text);
-        textHtml = `<div class="msg-text">${formattedText}</div>`;
-    }
-    
-    const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const chat = chatsById[currentChatId];
-    const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
-    const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
-    const reactionsHtml = buildReactionsHtml(m);
-    
-    el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml;
-    return el;
-}
-// ========================================
-// ФОРМАТИРОВАНИЕ ТЕКСТА СООБЩЕНИЙ
-// ========================================
-
-function formatMessageText(text) {
-    if (!text) return '';
-    
-    // Экранируем HTML, но сохраняем специальные символы
-    let html = escapeHtml(text);
-    
-    // --- 1. ОБРАБОТКА СПЕЦИАЛЬНЫХ СИМВОЛОВ ---
-    // Эмодзи (делаем немного крупнее)
-    const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FEFF}\u{1F1E6}-\u{1F1FF}]/gu;
-    
-    // Сохраняем эмодзи без изменений (они и так корректно отображаются)
-    // Но можем обернуть их в span с классом для увеличения размера
-    html = html.replace(emojiRegex, function(match) {
-        // Если эмодзи идёт отдельно (без текста) - делаем его большим
-        return match;
-    });
-    
-    // --- 2. MARKDOWN-ПОДОБНОЕ ФОРМАТИРОВАНИЕ ---
-    // Жирный текст: *текст* или **текст**
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
-    
-    // Курсив: _текст_
-    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
-    
-    // Зачёркнутый: ~текст~
-    html = html.replace(/~([^~]+)~/g, '<span style="text-decoration:line-through;">$1</span>');
-    
-    // Моноширинный: `код`
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    
-    // Многострочный код: ```код```
-    html = html.replace(/```([^`]+)```/g, '<pre>$1</pre>');
-    
-    // --- 3. СПОЙЛЕРЫ ---
-    // ||текст|| - скрытый текст, открывается по клику
-    html = html.replace(/\|\|([^|]+)\|\|/g, function(match, content) {
-        const id = 'spoiler_' + Math.random().toString(36).slice(2, 6);
-        return `<span class="spoiler" id="${id}" onclick="toggleSpoiler('${id}')">${content}</span>`;
-    });
-    
-    // --- 4. ССЫЛКИ ---
-    // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим через LINK_INFO
-    const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
-    html = html.replace(maxLinkRegex, function(url) {
-        return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
-    });
-    
-    // Обычные http(s)-ссылки
-    const urlRegex = /(https?:\/\/[^\s<>"']+)(?![^<]*<\/a>)/gi;
-    html = html.replace(urlRegex, function(url) {
-        if (/max\.ru\//i.test(url)) return url;
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-    });
-    
-    // --- 5. УПОМИНАНИЯ ---
-    // @username-упоминания делаем кликабельными
-    const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
-    html = html.replace(mentionRegex, function(full, pre, username) {
-        return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
-    });
-    
-    // --- 6. ПЕРЕВОДЫ СТРОК ---
-    // \n -> <br>
-    html = html.replace(/\n/g, '<br>');
-    
-    return html;
-}
-
-// Функция для переключения спойлера
-function toggleSpoiler(id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.toggle('revealed');
-}
 
         // ========================================
         // БОТЫ: клавиатура (inline_keyboard) и мини-приложения (WebApp)
@@ -4769,6 +4436,125 @@ function toggleSpoiler(id) {
         }
 
 
+        // ========================================
+        // Разделители дат в списке сообщений
+        // ========================================
+        function dateKeyOf(ts) {
+            const d = new Date(ts || Date.now());
+            return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+        }
+
+        function formatDateSeparatorLabel(ts) {
+            const d = new Date(ts || Date.now());
+            const now = new Date();
+            const startOfDay = (dt) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+            const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+            if (diffDays === 0) return 'Сегодня';
+            if (diffDays === 1) return 'Вчера';
+            const sameYear = d.getFullYear() === now.getFullYear();
+            return d.toLocaleDateString('ru-RU', sameYear
+                ? { day: 'numeric', month: 'long' }
+                : { day: 'numeric', month: 'long', year: 'numeric' });
+        }
+
+        function createDateSeparatorElement(ts) {
+            const el = document.createElement('div');
+            el.className = 'date-separator';
+            el.dataset.dateKey = dateKeyOf(ts);
+            el.textContent = formatDateSeparatorLabel(ts);
+            return el;
+        }
+
+        // Полный пересчёт разделителей по всему списку — надёжнее точечной
+        // вставки при prepend/append (не плодит дубликаты и пропуски при
+        // подгрузке истории вверх/вниз).
+        function reconcileDateSeparators(list) {
+            list.querySelectorAll('.date-separator').forEach(el => el.remove());
+            const bubbles = Array.from(list.querySelectorAll('.msg-bubble[data-msg-id]'));
+            let lastKey = null;
+            bubbles.forEach(bubble => {
+                const ts = Number(bubble.dataset.msgTime) || 0;
+                const key = dateKeyOf(ts);
+                if (key !== lastKey) {
+                    list.insertBefore(createDateSeparatorElement(ts), bubble);
+                    lastKey = key;
+                }
+            });
+        }
+
+        // ========================================
+        // Отметка сообщений прочитанными (CHAT_MARK, opcode 50)
+        // ========================================
+        function isGhostReadEnabled(chatId) {
+            try {
+                const all = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
+                return !!all[chatId];
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // Берём самое новое сообщение с подтверждённым сервером числовым id —
+        // так же, как это исправлено в Dart-клиенте: если бы среди сообщений
+        // попадались временные (ещё не подтверждённые) id, отметка о прочтении
+        // на них не должна тихо теряться.
+        function findLastReadableMessage(messages) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                const idNum = Number(m.id);
+                if (Number.isFinite(idNum)) return m;
+            }
+            return null;
+        }
+
+        function sendReadMark(chatId, message) {
+            if (!message || chatId == null) { console.log('[readmark] abort: no message/chatId', { chatId, message }); return; }
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) { console.log('[readmark] abort: ws not open', { isConnected, wsState: ws && ws.readyState }); return; }
+            if (isGhostReadEnabled(chatId)) { console.log('[readmark] abort: ghost mode on for chat', chatId); return; }
+
+            // ВАЖНО: id сообщений в MAX — большие 64-битные числа, зачастую
+            // превышающие Number.MAX_SAFE_INTEGER (2^53-1). На бэкенде
+            // (bridge.py, stringify_big_ints) такие id уходят в браузер как
+            // СТРОКИ, чтобы не терять точность. Если прогнать message.id через
+            // Number(...) и отправить именно это число обратно — оно округлится,
+            // и на сервер уйдёт messageId, который не совпадает с реальным.
+            // Сервер такую отметку молча игнорирует, поэтому чужой клиент
+            // продолжает видеть сообщение непрочитанным. Используем Number()
+            // только для проверки, что id вообще валиден, а отправляем исходное
+            // значение как есть (bridge.py сам развернёт строку обратно в
+            // точный int через numify_big_int_strings).
+            const msgId = message.id;
+            if (msgId == null || !Number.isFinite(Number(msgId))) { console.log('[readmark] abort: bad msgId', msgId); return; }
+
+            const chat = chatsById[chatId];
+            if (chat && !chat.newMessages && (chat.lastReadMark ?? 0) >= (message.time || 0)) { console.log('[readmark] abort: already marked', { newMessages: chat.newMessages, lastReadMark: chat.lastReadMark, msgTime: message.time }); return; }
+
+            console.log('[readmark] SENDING opcode 50', { chatId, msgId, mark: message.time });
+            send(50, {
+                type: 'READ_MESSAGE',
+                chatId,
+                messageId: msgId,
+                mark: message.time || Date.now(),
+            });
+
+            if (chat) {
+                chat.newMessages = 0;
+                chat.lastReadMark = message.time || Date.now();
+                const badge = document.querySelector(`.chat-item[data-chat-id="${chatId}"] .unread`);
+                if (badge) badge.remove();
+            }
+        }
+
+        // Отмечаем прочитанным то, что видно в открытом чате прямо сейчас.
+        function markCurrentChatRead(messages) {
+            if (currentChatId == null) { console.log('[readmark] markCurrentChatRead abort: no currentChatId'); return; }
+            const chatDetailOpen = !document.getElementById('chatDetailSection').classList.contains('hidden');
+            if (!chatDetailOpen) { console.log('[readmark] markCurrentChatRead abort: chat detail hidden'); return; }
+            const last = findLastReadableMessage(messages);
+            console.log('[readmark] markCurrentChatRead', { currentChatId, messagesCount: messages.length, last });
+            if (last) sendReadMark(currentChatId, last);
+        }
+
         async function renderMessages(payload, prepend) {
             const list = document.getElementById('messagesList');
             const existingIds = new Set();
@@ -4792,17 +4578,22 @@ function toggleSpoiler(id) {
                 earliestMessageTime = batchMinTime;
             }
 
+            console.log('[readmark] renderMessages branch', { prepend, currentChatId, newMessagesCount: newMessages.length });
             if (prepend) {
                 const prevScrollHeight = list.scrollHeight;
                 const prevScrollTop = list.scrollTop;
                 const frag = document.createDocumentFragment();
                 newMessages.forEach(m => frag.appendChild(createMessageElement(m)));
                 list.insertBefore(frag, list.firstChild);
+                reconcileDateSeparators(list);
                 list.scrollTop = prevScrollTop + (list.scrollHeight - prevScrollHeight);
                 isLoadingMore = false;
             } else {
                 newMessages.forEach(m => list.appendChild(createMessageElement(m)));
+                reconcileDateSeparators(list);
                 list.scrollTop = list.scrollHeight;
+                // Открытый чат догнал историю до конца — отмечаем прочитанным.
+                markCurrentChatRead(messages);
             }
 
             // --------------------------------------------
@@ -5095,9 +4886,13 @@ function toggleSpoiler(id) {
                         const chatDetailOpen = !document.getElementById('chatDetailSection').classList.contains('hidden');
 
                         if (chatId === currentChatId && chatDetailOpen) {
+                            const list = document.getElementById('messagesList');
                             const el = createMessageElement(msg);
-                            document.getElementById('messagesList').appendChild(el);
-                            document.getElementById('messagesList').scrollTop = document.getElementById('messagesList').scrollHeight;
+                            list.appendChild(el);
+                            reconcileDateSeparators(list);
+                            list.scrollTop = list.scrollHeight;
+                            // Сообщение видно прямо сейчас в открытом чате — читаем.
+                            sendReadMark(chatId, msg);
                         } else if (msg.sender !== selfId) {
                             // Чат не открыт — показываем системное уведомление 
                             const chat = chatsById[chatId];
