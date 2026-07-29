@@ -2302,6 +2302,8 @@
             <span id="botWebAppBtnText">Открыть приложение</span>
         </button>
         <div class="input-group" id="composerRow">
+            <input type="file" id="attachFileInput" style="display:none;" multiple>
+            <button id="attachBtn" type="button" title="Прикрепить файл или фото" style="flex:0 0 auto;">📎</button>
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
@@ -5257,6 +5259,64 @@
             document.getElementById('messageText').value = '';
             saveDraft(currentChatId, '');
         };
+
+        document.getElementById('attachBtn').onclick = () => {
+            if (!currentChatId) { log('❌ Сначала откройте чат', 'error'); return; }
+            document.getElementById('attachFileInput').click();
+        };
+
+        document.getElementById('attachFileInput').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files || []);
+            e.target.value = ''; // чтобы можно было выбрать тот же файл повторно
+            if (!files.length || !currentChatId) return;
+            for (const file of files) {
+                await uploadAndSendAttachment(file);
+            }
+        });
+
+        // Заливает файл на сервер MAX через бридж (/api/upload-photo для
+        // изображений, /api/upload-file для всего остального) и отправляет
+        // готовое вложение как обычное сообщение через уже открытый
+        // WebSocket (opcode 64, MSG_SEND) — тем же путём, что и текст.
+        async function uploadAndSendAttachment(file) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ Нет соединения — не могу отправить вложение', 'error');
+                return;
+            }
+            const isImage = !!(file.type && file.type.startsWith('image/'));
+            const endpoint = isImage ? '/api/upload-photo' : '/api/upload-file';
+            const formData = new FormData();
+            formData.append('file', file, file.name);
+
+            log(`⏳ Загружаю ${file.name}...`, 'info');
+            let data;
+            try {
+                const res = await fetch(endpoint, { method: 'POST', body: formData });
+                data = await res.json().catch(() => ({}));
+                if (!res.ok || data.error) {
+                    log(`❌ Не удалось загрузить «${file.name}»: ${data.error || res.status}`, 'error');
+                    return;
+                }
+            } catch (err) {
+                log(`❌ Ошибка загрузки «${file.name}»: ${err}`, 'error');
+                return;
+            }
+
+            const attach = isImage
+                ? { _type: 'PHOTO', photoToken: data.photoToken }
+                : { _type: 'FILE', token: data.token };
+
+            send(64, {
+                chatId: currentChatId,
+                message: {
+                    text: '',
+                    cid: Date.now(),
+                    attaches: [attach]
+                },
+                notify: true
+            });
+            log(`✅ «${file.name}» отправлен`, 'success');
+        }
 
         document.getElementById('messageText').addEventListener('input', (e) => {
             if (currentChatId) saveDraft(currentChatId, e.target.value);

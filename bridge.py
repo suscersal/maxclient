@@ -532,6 +532,29 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
         client.close()
 
 
+# --- Загрузка файлов и фото ---
+# MAX использует два разных опкода в зависимости от типа вложения:
+#   87 (FILE_UPLOAD)  — произвольный файл: сервер сразу выдаёт fileId+token,
+#                       само тело файла заливается POST'ом без multipart-
+#                       обёртки (см. Komet: FileUploader.upload).
+#   80 (PHOTO_UPLOAD) — фото: сервер выдаёт только URL, а токен для вложения
+#                       возвращается в теле ответа (JSON) после multipart-
+#                       загрузки (см. Komet: FileUploader.uploadPhoto).
+# В обоих случаях бридж только заливает байты и возвращает token/fileId —
+# само сообщение (opcode 64, MSG_SEND) отправляет фронтенд через уже
+# открытый /relay, тем же путём, что и обычный текст.
+_UPLOAD_MIME_MAP = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp", "heic": "image/heic",
+    "heif": "image/heic", "bmp": "image/bmp",
+}
+
+
+def _mime_for_filename(filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return _UPLOAD_MIME_MAP.get(ext, "application/octet-stream")
+
+
 # --- Flask приложение ---
 # Проверяем систему: если рядом с bridge.py есть папка static/ (десктоп-версия) —
 # раздаём файлы из неё; если нет (Android-сборка, где index.html лежит прямо
@@ -1279,6 +1302,177 @@ def download_file():
         mimetype="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.route("/api/upload-file", methods=["POST"])
+def upload_file():
+    """Загружает произвольный файл (opcode 87, FILE_UPLOAD).
+
+    Ожидает multipart/form-data с полем "file". Возвращает fileId/token —
+    их нужно вставить в attaches сообщения как
+    {"_type": "FILE", "token": token} и отправить через /relay (opcode 64),
+    как обычное текстовое сообщение.
+    """
+    f = request.files.get("file")
+    if f is None:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    filename = f.filename or "file"
+    data = f.read()
+    total = len(data)
+    if total == 0:
+        return jsonify({"error": "Пустой файл"}), 400
+
+    try:
+        packet = fetch_once(87, {"count": 1}, wait_opcode=87, timeout=20)
+    except Exception as e:
+        logger.warning(f"[upload-file] fileUpload request failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось получить ссылку для загрузки") if packet else "Нет ответа от сервера"
+        return jsonify({"error": error_msg}), 502
+
+    info_list = (packet.get("payload") or {}).get("info") or []
+    if not info_list:
+        return jsonify({"error": "Сервер не вернул данные для загрузки"}), 502
+
+    info = info_list[0]
+    upload_url = info.get("url")
+    file_id = info.get("fileId")
+    token = info.get("token")
+    if not upload_url:
+        return jsonify({"error": "Сервер не вернул URL загрузки"}), 502
+
+    try:
+        req = urllib.request.Request(
+            upload_url,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-binary; charset=x-user-defined",
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Range": f"bytes 0-{total - 1}/{total}",
+                "Content-Length": str(total),
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        logger.warning(f"[upload-file] upload HTTP error: {e}")
+        return jsonify({"error": f"Ошибка загрузки: HTTP {e.code}"}), 502
+    except Exception as e:
+        logger.warning(f"[upload-file] upload failed: {e}")
+        return jsonify({"error": str(e)}), 502
+
+    if status != 200:
+        return jsonify({"error": f"Ошибка загрузки: HTTP {status}"}), 502
+
+    logger.info(
+        f"[upload-file] Uploaded {filename} ({total} bytes), fileId={file_id}")
+    return jsonify({
+        "success": True,
+        "fileId": file_id,
+        "token": token,
+        "name": filename,
+        "size": total,
+    })
+
+
+@app.route("/api/upload-photo", methods=["POST"])
+def upload_photo():
+    """Загружает фото (opcode 80, PHOTO_UPLOAD).
+
+    Ожидает multipart/form-data с полем "file". Возвращает photoToken —
+    его нужно вставить в attaches сообщения как
+    {"_type": "PHOTO", "photoToken": token} и отправить через /relay
+    (opcode 64), как обычное текстовое сообщение.
+    """
+    f = request.files.get("file")
+    if f is None:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    filename = f.filename or "photo.jpg"
+    data = f.read()
+    if not data:
+        return jsonify({"error": "Пустой файл"}), 400
+
+    try:
+        packet = fetch_once(80, {"count": 1}, wait_opcode=80, timeout=20)
+    except Exception as e:
+        logger.warning(f"[upload-photo] photoUpload request failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось получить ссылку для загрузки фото") if packet else "Нет ответа от сервера"
+        return jsonify({"error": error_msg}), 502
+
+    upload_url = (packet.get("payload") or {}).get("url")
+    if not upload_url:
+        return jsonify({"error": "Сервер не вернул URL загрузки фото"}), 502
+
+    boundary = f"----MaxClientBoundary{uuid.uuid4().hex}"
+    content_type = _mime_for_filename(filename)
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    resp_body = ""
+    try:
+        req = urllib.request.Request(
+            upload_url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Content-Length": str(len(body)),
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            status = resp.status
+            resp_body = resp.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as e:
+        try:
+            resp_body = e.read().decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+        logger.warning(
+            f"[upload-photo] upload HTTP error: {e}, body={resp_body[:200]}")
+        return jsonify({"error": f"Ошибка загрузки: HTTP {e.code}"}), 502
+    except Exception as e:
+        logger.warning(f"[upload-photo] upload failed: {e}")
+        return jsonify({"error": str(e)}), 502
+
+    if status != 200:
+        return jsonify({"error": f"Ошибка загрузки: HTTP {status}"}), 502
+
+    photo_token = None
+    try:
+        parsed = json.loads(resp_body)
+        if isinstance(parsed, dict):
+            photos = parsed.get("photos")
+            if isinstance(photos, dict):
+                for v in photos.values():
+                    if isinstance(v, dict) and v.get("token"):
+                        photo_token = v["token"]
+                        break
+            if not photo_token:
+                photo_token = parsed.get("photoToken")
+    except Exception as e:
+        logger.warning(
+            f"[upload-photo] failed to parse response: {e}, body={resp_body[:200]}")
+
+    if not photo_token:
+        return jsonify({"error": "Сервер не вернул photoToken"}), 502
+
+    logger.info(f"[upload-photo] Uploaded {filename} ({len(data)} bytes)")
+    return jsonify({"success": True, "photoToken": photo_token, "name": filename})
 
 
 def _connect_with_timeout(client: "MaxClient", existing_token, timeout: float):
