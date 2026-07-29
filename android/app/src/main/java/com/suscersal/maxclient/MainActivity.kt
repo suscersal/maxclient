@@ -4,15 +4,20 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -47,6 +52,40 @@ class MainActivity : AppCompatActivity() {
 
     private val notifChannelId = "max_client_messages"
     private var notifIdCounter = 1
+
+    // Колбэк WebView, ожидающий результат выбора файла (см. onShowFileChooser
+    // ниже) — сохраняется здесь между запуском SAF-интента и получением
+    // результата в fileChooserLauncher.
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+
+    // ActivityResultLauncher обязательно регистрировать безусловно на этапе
+    // инициализации Activity (а не внутри onCreate/лямбды-обработчика клика),
+    // иначе AndroidX упадёт с ошибкой "LifecycleOwner is attempting to
+    // register while current state is STARTED".
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val callback = fileChooserCallback
+        fileChooserCallback = null
+        if (callback == null) return@registerForActivityResult
+
+        val data = result.data
+        if (result.resultCode != RESULT_OK || data == null) {
+            callback.onReceiveValue(null)
+            return@registerForActivityResult
+        }
+
+        val uris = mutableListOf<Uri>()
+        val clipData = data.clipData
+        if (clipData != null) {
+            for (i in 0 until clipData.itemCount) {
+                uris.add(clipData.getItemAt(i).uri)
+            }
+        } else {
+            data.data?.let { uris.add(it) }
+        }
+        callback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +128,51 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 loadingGif.visibility = View.GONE
                 loadingStatus.visibility = View.GONE
+            }
+        }
+
+        // Обычный system WebView НЕ показывает системный проводник для
+        // <input type="file"> сам по себе — этим обязан заниматься
+        // WebChromeClient.onShowFileChooser() хост-приложения. Используем
+        // ACTION_OPEN_DOCUMENT (SAF) вместо ACTION_GET_CONTENT: он даёт
+        // полноценный системный проводник (Файлы, Google Drive и т.д.), а не
+        // урезанный чузер "недавних" файлов, который на части устройств
+        // подставляется под GET_CONTENT.
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                // Если предыдущий запрос почему-то не был закрыт — не
+                // оставляем его висеть, иначе WebView может застрять в
+                // ожидании ответа навсегда.
+                fileChooserCallback?.onReceiveValue(null)
+                fileChooserCallback = filePathCallback
+
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(
+                        Intent.EXTRA_ALLOW_MULTIPLE,
+                        fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE
+                    )
+                    val mimeTypes = fileChooserParams?.acceptTypes
+                        ?.filter { it.isNotBlank() && it != "*/*" }
+                        ?.toTypedArray()
+                    if (!mimeTypes.isNullOrEmpty()) {
+                        putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+                    }
+                }
+
+                return try {
+                    fileChooserLauncher.launch(intent)
+                    true
+                } catch (e: Exception) {
+                    fileChooserCallback = null
+                    filePathCallback?.onReceiveValue(null)
+                    false
+                }
             }
         }
 
