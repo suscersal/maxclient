@@ -2039,33 +2039,170 @@
 </head>
 
 <body>
+    <svg style="display:none" aria-hidden="true">
+        <symbol id="icon_attachment" viewBox="0 0 24 24">
+            <path fill="currentColor"
+                d="M18.561 13.453q.117-.435.228-.887l.024-.082c.455-1.803.88-3.757 1.183-5.212.362-1.742-.348-3.69-2.118-4.511a8.4 8.4 0 0 0-1.329-.5 8.4 8.4 0 0 0-1.4-.232c-1.944-.174-3.533 1.159-4.09 2.848a140 140 0 0 0-1.426 4.56 41 41 0 0 0-.445 1.709 181 181 0 0 0-.713 3.045c-.259 1.145.045 2.674 1.4 3.351.182.09.39.179.612.238.23.062.461.09.669.1 1.471.074 2.455-1.067 2.803-2.135.425-1.304 1.08-3.37 1.552-5.132l.04-.151a.99.99 0 0 0-.705-1.21 1.01 1.01 0 0 0-1.233.719l-.034.125c-.457 1.707-1.098 3.732-1.521 5.03-.184.564-.557.769-.8.757a1.3 1.3 0 0 1-.253-.034 1.3 1.3 0 0 1-.236-.096c-.247-.123-.48-.52-.343-1.122.195-.866.463-2.027.75-3.196a37 37 0 0 1 .424-1.596c.45-1.539.955-3.115 1.358-4.336.322-.975 1.16-1.558 2.012-1.482.396.036.763.092 1.062.172.298.08.643.214 1.005.382.775.36 1.21 1.284 1 2.29a130 130 0 0 1-1.125 4.977 1 1 0 0 0-.03.1q-.123.51-.253.993c-.369 1.378-.892 2.912-1.394 4.274-.704 1.909-2.534 3.067-4.383 2.722a12 12 0 0 1-.878-.196 13 13 0 0 1-1.121-.363c-1.747-.644-2.78-2.492-2.547-4.46a119 119 0 0 1 .817-5.637 1.004 1.004 0 0 0-.729-1.135.997.997 0 0 0-1.242.797c-.325 1.95-.604 3.812-.832 5.74-.327 2.765 1.116 5.567 3.84 6.571.432.16.872.305 1.296.419.334.09.681.165 1.03.23 2.954.55 5.639-1.32 6.625-3.996.512-1.388 1.058-2.986 1.45-4.448" />
+        </symbol>
+    </svg>
     <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
     <script>
         (function () {
             var maxLines = 300;
+            var MIN_HEIGHT = 120;
+            var MAX_HEIGHT_RATIO = 0.85;
+            var consoleHeight = Math.round(window.innerHeight * 0.32);
+            try {
+                var savedHeight = parseInt(localStorage.getItem('maxclient_debug_height'), 10);
+                if (!isNaN(savedHeight)) consoleHeight = savedHeight;
+            } catch (e) { }
+
             var box = document.createElement('div');
             box.id = 'debugConsole';
-            box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:32vh;background:rgba(0,0,0,0.92);' +
+            box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);' +
                 'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
-                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:6px 8px 6px 8px;' +
+                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:18px 8px 6px 8px;' +
                 'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
-                'display:none;';
+                'display:none;height:' + consoleHeight + 'px;';
+
+            // Полоска-хваталка сверху консоли — перетаскиванием вверх/вниз
+            // можно менять её высоту (как перетаскиваемый bottom sheet).
+            // position:absolute внутри position:fixed родителя не скроллится
+            // вместе с содержимым лога — остаётся приклеенной к верхнему краю.
+            var handle = document.createElement('div');
+            handle.id = 'debugConsoleHandle';
+            handle.style.cssText = 'position:absolute;top:0;left:0;right:0;height:16px;cursor:ns-resize;' +
+                'display:flex;align-items:center;justify-content:center;touch-action:none;' +
+                'background:rgba(0,0,0,0.92);z-index:1;';
+            handle.innerHTML = '<div style="width:36px;height:4px;border-radius:2px;background:#0f0;opacity:0.6;"></div>';
+
             var toggle = document.createElement('button');
             toggle.textContent = '🐞';
-            toggle.style.cssText = 'position:fixed;right:8px;bottom:calc(32vh + 8px);z-index:1000000;width:36px;' +
-                'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;';
+            toggle.style.cssText = 'position:fixed;right:8px;z-index:1000000;width:36px;' +
+                'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;' +
+                'touch-action:none;';
 
             // Кнопки быстрой прокрутки лога вверх/вниз — видны только пока консоль открыта.
             var btnStyle = 'position:fixed;right:8px;z-index:1000001;width:36px;height:36px;border-radius:50%;' +
                 'background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;display:none;';
             var btnTop = document.createElement('button');
             btnTop.textContent = '⬆';
-            btnTop.style.cssText = btnStyle + 'bottom:calc(32vh - 40px);';
+            btnTop.style.cssText = btnStyle;
             btnTop.onclick = function () { box.scrollTop = 0; };
             var btnBottom = document.createElement('button');
             btnBottom.textContent = '⬇';
             btnBottom.style.cssText = btnStyle + 'bottom:6px;';
             btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
+
+            // Высота консоли определяет, где над ней висит кнопка-переключатель
+            // и кнопка прокрутки вверх — пересчитываем при каждом изменении высоты.
+            function layoutForHeight() {
+                box.style.height = consoleHeight + 'px';
+                btnTop.style.bottom = Math.max(6, consoleHeight - 40) + 'px';
+                if (!toggleHasCustomPos) {
+                    toggle.style.left = 'auto';
+                    toggle.style.top = 'auto';
+                    toggle.style.bottom = (consoleHeight + 8) + 'px';
+                }
+            }
+
+            function saveHeight() {
+                try { localStorage.setItem('maxclient_debug_height', String(consoleHeight)); } catch (e) { }
+            }
+
+            // --- Перетаскивание хваталки: изменение высоты консоли ---
+            (function () {
+                var dragging = false;
+                var startY = 0;
+                var startHeight = 0;
+                handle.addEventListener('pointerdown', function (e) {
+                    dragging = true;
+                    startY = e.clientY;
+                    startHeight = consoleHeight;
+                    try { handle.setPointerCapture(e.pointerId); } catch (err) { }
+                });
+                handle.addEventListener('pointermove', function (e) {
+                    if (!dragging) return;
+                    var dy = e.clientY - startY;
+                    var maxHeight = Math.round(window.innerHeight * MAX_HEIGHT_RATIO);
+                    consoleHeight = Math.max(MIN_HEIGHT, Math.min(startHeight - dy, maxHeight));
+                    layoutForHeight();
+                });
+                function endHandleDrag() {
+                    if (!dragging) return;
+                    dragging = false;
+                    saveHeight();
+                }
+                handle.addEventListener('pointerup', endHandleDrag);
+                handle.addEventListener('pointercancel', endHandleDrag);
+            })();
+
+            // --- Перетаскивание кнопки 🐞 в любое место экрана (как иконка mod-меню) ---
+            var toggleHasCustomPos = false;
+            (function () {
+                var DRAG_THRESHOLD = 6;
+                var dragging = false;
+                var moved = false;
+                var startX = 0, startY = 0;
+                var startRight = 0, startBottom = 0;
+
+                try {
+                    var saved = JSON.parse(localStorage.getItem('maxclient_debug_btn_pos') || 'null');
+                    if (saved && typeof saved.right === 'number' && typeof saved.bottom === 'number') {
+                        toggleHasCustomPos = true;
+                        applyTogglePos(saved.right, saved.bottom);
+                    }
+                } catch (e) { }
+
+                function applyTogglePos(right, bottom) {
+                    var maxRight = window.innerWidth - 36 - 4;
+                    var maxBottom = window.innerHeight - 36 - 4;
+                    right = Math.max(4, Math.min(right, maxRight));
+                    bottom = Math.max(4, Math.min(bottom, maxBottom));
+                    toggle.style.left = 'auto';
+                    toggle.style.top = 'auto';
+                    toggle.style.right = right + 'px';
+                    toggle.style.bottom = bottom + 'px';
+                    return { right: right, bottom: bottom };
+                }
+
+                toggle.addEventListener('pointerdown', function (e) {
+                    dragging = true;
+                    moved = false;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    var rect = toggle.getBoundingClientRect();
+                    startRight = window.innerWidth - rect.right;
+                    startBottom = window.innerHeight - rect.bottom;
+                    try { toggle.setPointerCapture(e.pointerId); } catch (err) { }
+                });
+
+                toggle.addEventListener('pointermove', function (e) {
+                    if (!dragging) return;
+                    var dx = e.clientX - startX;
+                    var dy = e.clientY - startY;
+                    if (!moved && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) moved = true;
+                    if (moved) {
+                        toggleHasCustomPos = true;
+                        applyTogglePos(startRight - dx, startBottom - dy);
+                    }
+                });
+
+                function endToggleDrag(e) {
+                    if (!dragging) return;
+                    dragging = false;
+                    if (moved) {
+                        var rect = toggle.getBoundingClientRect();
+                        var pos = { right: window.innerWidth - rect.right, bottom: window.innerHeight - rect.bottom };
+                        try { localStorage.setItem('maxclient_debug_btn_pos', JSON.stringify(pos)); } catch (err) { }
+                        // Не даём этому же жесту сработать как клик (открыть/закрыть консоль).
+                        var suppressClick = function (ev) { ev.stopPropagation(); ev.preventDefault(); };
+                        toggle.addEventListener('click', suppressClick, { capture: true, once: true });
+                    }
+                }
+                toggle.addEventListener('pointerup', endToggleDrag);
+                toggle.addEventListener('pointercancel', endToggleDrag);
+            })();
 
             toggle.onclick = function () {
                 var show = box.style.display === 'none';
@@ -2122,11 +2259,13 @@
                 addLine('❌ Unhandled promise rejection: ' + toText(e.reason), '#f66');
             });
 
+            box.appendChild(handle);
             document.body.appendChild(box);
             document.body.appendChild(toggle);
             document.body.appendChild(btnTop);
             document.body.appendChild(btnBottom);
             box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
+            layoutForHeight();
             addLine('Debug-консоль запущена');
         })();
     </script>
@@ -2303,7 +2442,12 @@
         </button>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" style="display:none;" multiple>
-            <button id="attachBtn" type="button" title="Прикрепить файл или фото" style="flex:0 0 auto;">📎</button>
+            <button id="attachBtn" type="button" title="Прикрепить файл или фото"
+                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block;">
+                    <use href="#icon_attachment"></use>
+                </svg>
+            </button>
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
@@ -3212,9 +3356,15 @@
             if (!chat || !chat.participants) return null;
             const ids = Object.keys(chat.participants).map(Number);
             if (selfId) {
-                return ids.find(id => id !== selfId) || ids[0];
+                // ВАЖНО: если среди участников есть только сам selfId (метка
+                // собеседника ещё не пришла), НЕЛЬЗЯ откатываться на ids[0] —
+                // это и есть selfId, из-за чего свои же сообщения сравнивались
+                // с собственной меткой прочтения и получали ✓✓ (прочитано)
+                // ещё до того, как собеседник их вообще увидел.
+                const other = ids.find(id => id !== selfId);
+                return other !== undefined ? other : null;
             }
-            return ids[0];
+            return ids.length ? ids[0] : null;
         }
 
         function contactOptions(contact) {
