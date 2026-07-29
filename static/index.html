@@ -3830,13 +3830,80 @@
                     counts.forEach(r => {
                         const emoji = r.reaction || '👍';
                         const count = r.count ?? 1;
+                        const mine = m.reactionInfo?.yourReaction === emoji ? ' mine' : '';
                         badges +=
-                            `<span class="reaction-badge" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
+                            `<span class="reaction-badge${mine}" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
                     });
                 }
                 return badges ? `<div class="msg-reactions">${badges}</div>` : '';
             } catch (err) {
                 return '';
+            }
+        }
+
+        // Реакции на сообщения (двойной тап по бабблу — как в Telegram).
+        // opcode 178 = MSG_REACTION, opcode 179 = MSG_CANCEL_REACTION.
+        const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
+        let reactionPickerEl = null;
+
+        function closeReactionPicker() {
+            if (reactionPickerEl) { reactionPickerEl.remove(); reactionPickerEl = null; }
+            document.removeEventListener('click', closeReactionPickerOnOutsideClick, true);
+        }
+        function closeReactionPickerOnOutsideClick(e) {
+            if (reactionPickerEl && !reactionPickerEl.contains(e.target)) closeReactionPicker();
+        }
+        function showReactionPicker(x, y, m) {
+            closeReactionPicker();
+            const el = document.createElement('div');
+            el.style.cssText = 'position:fixed;z-index:1000002;background:#222;border:1px solid #555;' +
+                'border-radius:20px;padding:6px 8px;display:flex;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,.5);';
+            QUICK_REACTIONS.forEach(emo => {
+                const b = document.createElement('span');
+                b.textContent = emo;
+                b.style.cssText = 'cursor:pointer;font-size:20px;';
+                b.onclick = (ev) => { ev.stopPropagation(); sendReaction(m, emo); closeReactionPicker(); };
+                el.appendChild(b);
+            });
+            document.body.appendChild(el);
+            const rect = el.getBoundingClientRect();
+            const left = Math.min(Math.max(4, x - rect.width / 2), window.innerWidth - rect.width - 4);
+            const top = Math.max(4, y - rect.height - 12);
+            el.style.left = left + 'px';
+            el.style.top = top + 'px';
+            reactionPickerEl = el;
+            setTimeout(() => document.addEventListener('click', closeReactionPickerOnOutsideClick, true), 0);
+        }
+
+        function sendReaction(m, emoji) {
+            if (!currentChatId) return;
+            const info = m.reactionInfo || { counters: [] };
+            const counters = Array.isArray(info.counters) ? info.counters.slice() : [];
+            const prevMine = info.yourReaction;
+            const cancel = prevMine === emoji;
+
+            function bump(e, delta) {
+                const idx = counters.findIndex(c => c.reaction === e);
+                if (idx >= 0) {
+                    counters[idx] = { ...counters[idx], count: Math.max(0, (counters[idx].count || 0) + delta) };
+                    if (counters[idx].count <= 0) counters.splice(idx, 1);
+                } else if (delta > 0) {
+                    counters.push({ reaction: e, count: 1 });
+                }
+            }
+
+            if (prevMine) bump(prevMine, -1);
+            if (!cancel) bump(emoji, 1);
+
+            // Оптимистичное обновление — как в Telegram, без ожидания ответа сервера.
+            m.reactionInfo = { counters, yourReaction: cancel ? null : emoji };
+            const old = document.querySelector(`.msg-bubble[data-msg-id="${m.id}"]`);
+            if (old) old.replaceWith(createMessageElement(m));
+
+            if (cancel) {
+                send(179, { chatId: currentChatId, messageId: m.id });
+            } else {
+                send(178, { chatId: currentChatId, messageId: m.id, reaction: { reactionType: 'EMOJI', id: emoji } });
             }
         }
 
@@ -3873,6 +3940,7 @@
             el.className = 'msg-bubble' + (isOwn ? ' own' : '');
             el.dataset.msgId = m.id;
             el.dataset.msgTime = m.time || Date.now();
+            el.addEventListener('dblclick', (e) => { e.preventDefault(); showReactionPicker(e.clientX, e.clientY, m); });
             let attachesHtml = '';
             let keyboardHtml = '';
             let encBadgeHtml = '';
