@@ -2442,12 +2442,12 @@
         </button>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
-            <button id="attachBtn" type="button" title="Прикрепить файл или фото"
-                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px;">
-                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block;">
+            <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
+                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px; cursor:pointer;">
+                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
                     <use href="#icon_attachment"></use>
                 </svg>
-            </button>
+            </label>
             <input type="text" id="messageText" placeholder="Сообщение">
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
@@ -5410,10 +5410,12 @@
             saveDraft(currentChatId, '');
         };
 
-        document.getElementById('attachBtn').onclick = () => {
-            if (!currentChatId) { log('❌ Сначала откройте чат', 'error'); return; }
-            document.getElementById('attachFileInput').click();
-        };
+        document.getElementById('attachBtn').addEventListener('click', (e) => {
+            if (!currentChatId) {
+                e.preventDefault();
+                log('❌ Сначала откройте чат', 'error');
+            }
+        });
 
         document.getElementById('attachFileInput').addEventListener('change', async (e) => {
             const files = Array.from(e.target.files || []);
