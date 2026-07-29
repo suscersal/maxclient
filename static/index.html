@@ -3586,7 +3586,19 @@
                     presenceById[uid] = { online: p?.status === 1, seen: p?.seen || 0 };
                 });
             }
-            const chats = (payload.chats || []).slice().sort((a, b) => (b.lastEventTime || 0) - (a.lastEventTime || 0));
+            // Вторичный ключ (chat.id) обязателен: при равном/нулевом
+            // lastEventTime (например, у чатов без сообщений) Array.sort
+            // стабильна относительно ВХОДНОГО порядка массива, а он у нас не
+            // постоянный — Object.values(chatsById) отдаёт числовые id не в
+            // порядке вставки, а по возрастанию номера (особенность JS).
+            // Без явного тайбрейка это приводило к тому, что такие чаты
+            // "перескакивали" местами между перерисовками (initial sync vs.
+            // повторный renderChats после подгрузки avatars.json и т.п.).
+            const chats = (payload.chats || []).slice().sort((a, b) => {
+                const byTime = (b.lastEventTime || 0) - (a.lastEventTime || 0);
+                if (byTime !== 0) return byTime;
+                return String(b.id).localeCompare(String(a.id));
+            });
             chatsById = {};
             const list = document.getElementById('chatsList');
             list.innerHTML = '';
