@@ -860,13 +860,16 @@
             border: 3px solid white;
         }
 
-        .msg-reactions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            margin-top: 4px;
-            position: relative;
-        }
+      .msg-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  position: relative;
+  left: 20px;   /* сдвиг вправо */
+  top: 10px;    /* сдвиг вниз */
+}
+
 
         .reaction-badge {
             background: rgba(0, 0, 0, 0.06);
@@ -3856,7 +3859,7 @@
         function showReactionPicker(x, y, m) {
             closeReactionPicker();
             const el = document.createElement('div');
-            el.style.cssText = 'position:fixed;z-index:1000002;background:#222;border:1px solid #555;' +
+            el.style.cssText = 'position:fixed;z-index:1000002;background:#fff;border:1px solid #555;' +
                 'border-radius:20px;padding:6px 8px;display:flex;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,.5);';
             QUICK_REACTIONS.forEach(emo => {
                 const b = document.createElement('span');
