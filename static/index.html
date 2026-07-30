@@ -860,15 +860,17 @@
             border: 3px solid white;
         }
 
-      .msg-reactions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-  position: relative;
-  left: 20px;   /* сдвиг вправо */
-  top: 10px;    /* сдвиг вниз */
-}
+        .msg-reactions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+            position: relative;
+            left: 20px;
+            /* сдвиг вправо */
+            top: 10px;
+            /* сдвиг вниз */
+        }
 
 
         .reaction-badge {
@@ -3485,9 +3487,21 @@
             for (let i = 0; i < str.length; i++) {
                 h = (h * 31 + str.charCodeAt(i)) >>> 0;
             }
+
+            // 1. Оставляем базовые оттенки
             const hue1 = h % 360;
-            const hue2 = (hue1 + 45 + (h % 90)) % 360;
-            return `linear-gradient(135deg, hsl(${hue1},85%,62%), hsl(${hue2},85%,46%))`;
+            const hue2 = (hue1 + 21 + (h % 90)) % 360;
+
+            // 2. ФОРМУЛА НЕОНОВОЙ ЯРКОСТИ (Идеальный диапазон 50% - 65% для сочности)
+            // Для вашего seed (h % 13 = 11): 50 + 11 = 61% (самый сочный, "горящий" неон)
+            const lightness1 = 50 + (h % 13);
+
+            // Для второй точки делаем контрастный темный неон (около 30-35% яркости)
+            // Для вашего seed (h % 11 = 4): 30 + 4 = 34% (глубокий, светящийся в темноте оттенок)
+            const lightness2 = 30 + (h % 11);
+
+            // Включаем 100% насыщенность (saturation) для ядовитого эффекта
+            return `linear-gradient(135deg, hsl(${hue1},100%,${lightness1}%), hsl(${hue2},100%,${lightness2}%))`;
         }
 
         function getInitials(name) {
