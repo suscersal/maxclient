@@ -3739,6 +3739,10 @@
                 if (n.name) strs.push(n.name);
                 if (n.firstName) strs.push(n.firstName);
                 if (n.lastName) strs.push(n.lastName);
+                // Добавляем полное имя, собранное из firstName + lastName
+                if (n.firstName && n.lastName) {
+                    strs.push(n.firstName + ' ' + n.lastName);
+                }
             });
             if (contact.phone != null) strs.push(String(contact.phone));
             return strs;
@@ -3747,7 +3751,22 @@
         function chatSearchStrings(chat) {
             const strs = [stripHtmlText(chatDisplayName(chat))];
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
-            if (otherId != null) strs.push(...contactSearchStrings(contactsById[otherId]));
+            if (otherId != null) {
+                const contact = contactsById[otherId];
+                if (contact) {
+                    // Добавляем все возможные варианты имени
+                    const names = Array.isArray(contact.names) ? contact.names : [];
+                    names.forEach(n => {
+                        if (n.name) strs.push(n.name);
+                        if (n.firstName) strs.push(n.firstName);
+                        if (n.lastName) strs.push(n.lastName);
+                        if (n.firstName && n.lastName) {
+                            strs.push(n.firstName + ' ' + n.lastName);
+                        }
+                    });
+                    if (contact.phone != null) strs.push(String(contact.phone));
+                }
+            }
             return strs;
         }
 
@@ -4754,6 +4773,7 @@
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
+
                 const initial = getInitials(item.name);
                 const avatarHtml = avatarUrl
                     ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
@@ -4802,13 +4822,31 @@
 
         function contactNameFromPayload(contact) {
             const names = contact?.names;
+
+            // Вывод всех вариантов имен из массива names в одну строку с пометками
             if (Array.isArray(names) && names.length) {
-                const n = names.find(x => x && (x.name || x.firstName)) || names[0];
-                const full = n.name || `${n.firstName || ''} ${n.lastName || ''}`.trim();
+                const descriptions = names.map((n, i) => {
+                    if (!n) return `[${i}]: null`;
+                    return `[${i}]: name="${n.name || ''}" firstName="${n.firstName || ''}" lastName="${n.lastName || ''}"`;
+                }).join(' | ');
+                console.log(`[Contact ID: ${contact?.id}] Все имена: ${descriptions}`);
+            } else {
+                console.log(`[Contact ID: ${contact?.id}] Массив names пуст или отсутствует`);
+            }
+
+            if (Array.isArray(names) && names.length) {
+                // Ищем объект, где есть хотя бы имя или фамилия. Если нет — берем первый элемент.
+                const n = names.find(x => x && (x.firstName || x.lastName || x.name)) || names[0];
+
+                // Формируем full строго как firstName + lastName. Если их нет, используем n.name.
+                const full = `${n.firstName || ''} ${n.lastName || ''}`.trim() || n.name || '';
+
                 if (full) return full;
             }
             return 'Контакт #' + contact?.id;
         }
+
+
 
         function searchPersonByPhone() {
             const raw = document.getElementById('peopleSearchPhone').value;
