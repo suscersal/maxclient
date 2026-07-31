@@ -46,6 +46,9 @@ class MainActivity : AppCompatActivity() {
         // скачивались на диск, но никогда не подхватывались, пока
         // приложение не закрывали полностью (не убивали процесс).
         private var serverStartedInProcess = false
+
+        private const val NOTIFICATIONS_PERMISSION_REQUEST_CODE = 1001
+        private const val CONTACTS_PERMISSION_REQUEST_CODE = 1002
     }
 
     private val port = 8080
@@ -57,6 +60,12 @@ class MainActivity : AppCompatActivity() {
     // ниже) — сохраняется здесь между запуском SAF-интента и получением
     // результата в fileChooserLauncher.
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+
+    // Нужен как поле (а не локальная переменная onCreate), чтобы можно было
+    // дёрнуть evaluateJavascript из onRequestPermissionsResult — на момент
+    // получения результата запроса разрешения на контакты сам onCreate уже
+    // давно отработал.
+    private lateinit var webView: WebView
 
     // ActivityResultLauncher обязательно регистрировать безусловно на этапе
     // инициализации Activity (а не внутри onCreate/лямбды-обработчика клика),
@@ -98,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         createNotificationChannel()
         requestNotificationPermissionIfNeeded()
 
-        val webView = findViewById<WebView>(R.id.webview)
+        webView = findViewById(R.id.webview)
         val loadingGif = findViewById<GifView>(R.id.loadingGif)
         val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
 
@@ -181,6 +190,13 @@ class MainActivity : AppCompatActivity() {
         // настоящим системным уведомлениям Android через этот мост.
         webView.addJavascriptInterface(AndroidNotificationBridge(this), "AndroidNotification")
 
+        // Мост JS -> локальные контакты телефона (для поиска по чатам и
+        // контактам в web-интерфейсе). Разрешение READ_CONTACTS запрашивается
+        // не здесь, а по требованию — методом requestPermission() из JS,
+        // когда пользователь реально открывает локальный поиск, а не на
+        // каждом запуске приложения.
+        webView.addJavascriptInterface(AndroidContactsBridge(this), "AndroidContacts")
+
         loadingStatus.visibility = View.VISIBLE
 
         // OtaUpdater.checkAndUpdate сама ловит сетевые ошибки и не должна
@@ -249,8 +265,25 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Результат сам отразится на способности AndroidNotificationBridge
-        // показывать уведомления дальше — дополнительно ничего делать не нужно.
+        // Результат запроса на уведомления сам отразится на способности
+        // AndroidNotificationBridge показывать уведомления дальше —
+        // дополнительно ничего делать не нужно.
+        if (requestCode == CONTACTS_PERMISSION_REQUEST_CODE) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            notifyContactsPermissionResult(granted)
+        }
+    }
+
+    /** Сообщает web-странице результат запроса READ_CONTACTS — вызывает
+     * window.onAndroidContactsPermissionResult(granted), если она определена. */
+    private fun notifyContactsPermissionResult(granted: Boolean) {
+        runOnUiThread {
+            webView.evaluateJavascript(
+                "window.onAndroidContactsPermissionResult && window.onAndroidContactsPermissionResult($granted);",
+                null
+            )
+        }
     }
 
     private fun createNotificationChannel() {
@@ -273,7 +306,7 @@ class MainActivity : AppCompatActivity() {
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    1001
+                    NOTIFICATIONS_PERMISSION_REQUEST_CODE
                 )
             }
         }
@@ -350,6 +383,92 @@ class MainActivity : AppCompatActivity() {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
             NotificationManagerCompat.from(ctx).notify(notifIdCounter++, builder.build())
+        }
+    }
+
+    /** Мост JS -> локальные контакты телефона (READ_CONTACTS). Разрешение
+     * уже объявлено в AndroidManifest.xml, но, начиная с API 23, само по себе
+     * это ничего не даёт — без runtime-запроса ContentResolver просто вернёт
+     * пустой курсор (или кинет SecurityException на некоторых прошивках). */
+    inner class AndroidContactsBridge(private val ctx: Context) {
+
+        @JavascriptInterface
+        fun isAvailable(): Boolean = true
+
+        @JavascriptInterface
+        fun hasPermission(): Boolean {
+            return ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+
+        /** Запускает системный диалог запроса разрешения. Асинхронно —
+         * результат прилетит в window.onAndroidContactsPermissionResult(granted)
+         * (см. notifyContactsPermissionResult). Если разрешение уже есть,
+         * колбэк дёргается сразу же с granted=true. */
+        @JavascriptInterface
+        fun requestPermission() {
+            runOnUiThread {
+                if (hasPermission()) {
+                    notifyContactsPermissionResult(true)
+                } else {
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity,
+                        arrayOf(Manifest.permission.READ_CONTACTS),
+                        CONTACTS_PERMISSION_REQUEST_CODE
+                    )
+                }
+            }
+        }
+
+        /** Android не даёт приложению самому отозвать у себя разрешение —
+         * единственный способ дать пользователю это сделать — открыть
+         * системный экран "Сведения о приложении", где есть свой пункт
+         * "Разрешения". Используется кнопкой "Отозвать доступ" в JS. */
+        @JavascriptInterface
+        fun openAppSettings() {
+            runOnUiThread {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", ctx.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(intent)
+            }
+        }
+
+        /** Возвращает JSON-массив вида [{"name":"...","phone":"..."}, ...] —
+         * по одной строке на каждый номер телефона из адресной книги
+         * устройства. Без разрешения возвращает "[]", не бросая исключений,
+         * чтобы JS-стороне не нужно было оборачивать вызов в try/catch. */
+        @JavascriptInterface
+        fun getContacts(): String {
+            if (!hasPermission()) return "[]"
+            val result = org.json.JSONArray()
+            val projection = arrayOf(
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+            try {
+                ctx.contentResolver.query(
+                    android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    projection, null, null, null
+                )?.use { cursor ->
+                    val nameIdx = cursor.getColumnIndex(projection[0])
+                    val numberIdx = cursor.getColumnIndex(projection[1])
+                    while (cursor.moveToNext()) {
+                        val number = if (numberIdx >= 0) cursor.getString(numberIdx) else null
+                        if (number.isNullOrBlank()) continue
+                        val name = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                        val obj = org.json.JSONObject()
+                        obj.put("name", name ?: "")
+                        obj.put("phone", number)
+                        result.put(obj)
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Разрешение отозвали между hasPermission() и запросом —
+                // просто отдаём то, что успели собрать.
+            }
+            return result.toString()
         }
     }
 }

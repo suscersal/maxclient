@@ -304,6 +304,44 @@
             padding: 8px 4px;
         }
 
+        #localChatSearchWrap {
+            margin-bottom: 10px;
+        }
+
+        #localChatSearchInput {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+            background: #f8f9fa;
+        }
+
+        #localChatSearchInput:focus {
+            outline: none;
+            border-color: #aaa;
+            background: #fff;
+        }
+
+        #revokeContactsAccessBtn {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 6px;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 10px;
+            background: #fdecea;
+            color: #c0392b;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        #revokeContactsAccessBtn:hover {
+            background: #fbd8d4;
+        }
+
         .mention-link {
             color: #007bff;
             text-decoration: underline;
@@ -2422,6 +2460,12 @@
                 публичные чаты, каналы, ботов и профили по ссылке (например @username или max.ru/username).</div>
             <div id="searchResultsList"></div>
         </div>
+        <div id="localChatSearchWrap">
+            <input type="text" id="localChatSearchInput" placeholder="🔍 Поиск по чатам и контактам"
+                oninput="applyChatFilter(this.value)" onfocus="ensureLocalPhoneContacts()">
+            <button type="button" id="revokeContactsAccessBtn" class="hidden" onclick="openContactsAppSettings()">
+                📵 Отозвать доступ к контактам телефона</button>
+        </div>
         <div id="chatsList"></div>
     </div>
 
@@ -3617,41 +3661,9 @@
                 return String(b.id).localeCompare(String(a.id));
             });
             chatsById = {};
-            const list = document.getElementById('chatsList');
-            list.innerHTML = '';
-            chats.forEach(chat => {
-                chatsById[chat.id] = chat;
-                const name = chatDisplayName(chat);
-                const preview = chatPreview(chat);
-                const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
-                const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
-                const avatarUrl = chatAvatarUrl(chat);
-                const initial = getInitials(name);
-                let avatarHtml;
-                let avatarBg = '';
-                if (avatarUrl) {
-                    avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
-                } else {
-                    avatarHtml = initial;
-                    avatarBg = `background:${avatarGradient(chat.id)};`;
-                }
-                const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
-                const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
-                const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
-                const el = document.createElement('div');
-                el.className = 'chat-item';
-                el.dataset.chatId = chat.id;
-                el.innerHTML = `
-                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
-                <div class="chat-info">
-                    <div class="chat-name">${name}</div>
-                    <div class="chat-preview">${escapeHtml(preview)}</div>
-                </div>
-                <div class="chat-meta">${time}${unread}</div>
-            `;
-                el.onclick = () => openChat(chat.id);
-                list.appendChild(el);
-            });
+            chats.forEach(chat => { chatsById[chat.id] = chat; });
+            chatsSortedCache = chats;
+            renderChatsList();
             settingsMenu.refreshPage('account');
             log(`📋 Загружено ${chats.length} чатов`, 'success');
             if (currentChatId != null && !document.getElementById('chatDetailSection').classList.contains('hidden')) {
@@ -3661,6 +3673,283 @@
             if (!isOfflineCacheMode) {
                 cacheChatsToDisk();
             }
+        }
+
+        // Строит DOM-элемент строки чата (вынесено из renderChats, чтобы
+        // переиспользовать при отрисовке отфильтрованного списка).
+        function buildChatItemEl(chat) {
+            const name = chatDisplayName(chat);
+            const preview = chatPreview(chat);
+            const time = chat.lastEventTime ? new Date(chat.lastEventTime).toLocaleDateString() : '';
+            const unread = chat.newMessages ? `<div class="unread">${chat.newMessages}</div>` : '';
+            const avatarUrl = chatAvatarUrl(chat);
+            const initial = getInitials(name);
+            let avatarHtml;
+            let avatarBg = '';
+            if (avatarUrl) {
+                avatarHtml = `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`;
+            } else {
+                avatarHtml = initial;
+                avatarBg = `background:${avatarGradient(chat.id)};`;
+            }
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+            const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
+            const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
+            const el = document.createElement('div');
+            el.className = 'chat-item';
+            el.dataset.chatId = chat.id;
+            el.innerHTML = `
+                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${name}</div>
+                    <div class="chat-preview">${escapeHtml(preview)}</div>
+                </div>
+                <div class="chat-meta">${time}${unread}</div>
+            `;
+            el.onclick = () => openChat(chat.id);
+            return el;
+        }
+
+        // ========================================
+        // ЛОКАЛЬНЫЙ ПОИСК ПО ЧАТАМ И КОНТАКТАМ
+        //
+        // В отличие от peopleSearchPanel (запросы к серверу по номеру/юзернейму),
+        // это чисто клиентский фильтр по уже загруженным chatsById/contactsById —
+        // сервер при синке чатов (opcode 19) и так присылает contacts вместе
+        // с chats, так что искать можно без лишних запросов.
+        // ========================================
+        let chatsSortedCache = [];
+        let chatFilterQuery = '';
+
+        function normalizeSearchText(s) {
+            return String(s || '').toLowerCase().trim();
+        }
+
+        function stripHtmlText(html) {
+            const d = document.createElement('div');
+            d.innerHTML = html;
+            return (d.textContent || d.innerText || '').trim();
+        }
+
+        function contactSearchStrings(contact) {
+            if (!contact) return [];
+            const names = Array.isArray(contact.names) ? contact.names : [];
+            const strs = [];
+            names.forEach(n => {
+                if (n.name) strs.push(n.name);
+                if (n.firstName) strs.push(n.firstName);
+                if (n.lastName) strs.push(n.lastName);
+            });
+            if (contact.phone != null) strs.push(String(contact.phone));
+            return strs;
+        }
+
+        function chatSearchStrings(chat) {
+            const strs = [stripHtmlText(chatDisplayName(chat))];
+            const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+            if (otherId != null) strs.push(...contactSearchStrings(contactsById[otherId]));
+            return strs;
+        }
+
+        function textMatchesQuery(strs, q, qDigits) {
+            return strs.some(s => {
+                const norm = normalizeSearchText(s);
+                if (norm.includes(q)) return true;
+                if (qDigits && qDigits.length >= 3) {
+                    const digits = norm.replace(/[^\d]/g, '');
+                    if (digits && digits.includes(qDigits)) return true;
+                }
+                return false;
+            });
+        }
+
+        function hasDialogWithContact(contactId) {
+            for (const id in chatsById) {
+                if (chatsById[id].type === 'DIALOG' && otherParticipantId(chatsById[id]) === contactId) return true;
+            }
+            return false;
+        }
+
+        // Строка списка для контакта, с которым ещё нет чата — по клику
+        // открывает/создаёт диалог (та же логика, что у peopleSearchPanel).
+        function buildContactItemEl(contact) {
+            const name = contactNameFromPayload(contact);
+            const el = document.createElement('div');
+            el.className = 'chat-item';
+            el.dataset.contactId = contact.id;
+            const avatarUrl = contact.baseUrl ? '/img?url=' + encodeURIComponent(contact.baseUrl) : null;
+            const initial = getInitials(name);
+            const avatarHtml = avatarUrl
+                ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                : initial;
+            const avatarBg = avatarUrl ? '' : `background:${avatarGradient(contact.id)};`;
+            el.innerHTML = `
+                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${contact.id}" style="${avatarBg}">${avatarHtml}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHtml(name)}</div>
+                    <div class="chat-preview">Контакт · нажмите, чтобы написать</div>
+                </div>
+            `;
+            el.onclick = () => openOrCreateDialogWithContact(contact);
+            return el;
+        }
+
+        // ----------------------------------------
+        // Локальные контакты телефона (мост AndroidContacts из MainActivity).
+        // Разрешение READ_CONTACTS уже объявлено в манифесте, но запрашивать
+        // его в рантайме нужно явно — и делаем это лениво, при первом
+        // обращении к локальному поиску, а не при каждом запуске приложения.
+        // ----------------------------------------
+        let localPhoneContacts = [];
+        let localPhoneContactsRequested = false;
+
+        function hasAndroidContactsBridge() {
+            return typeof AndroidContacts !== 'undefined' && AndroidContacts.isAvailable();
+        }
+
+        // Дёргается из MainActivity.notifyContactsPermissionResult() после
+        // ответа пользователя на системный диалог разрешения.
+        window.onAndroidContactsPermissionResult = function (granted) {
+            if (granted) {
+                loadLocalPhoneContacts();
+            } else {
+                log('❌ Нет доступа к контактам телефона — локальный поиск ограничен контактами MAX', 'info');
+            }
+        };
+
+        function loadLocalPhoneContacts() {
+            if (!hasAndroidContactsBridge()) return;
+            try {
+                const raw = AndroidContacts.getContacts();
+                const parsed = JSON.parse(raw || '[]');
+                localPhoneContacts = Array.isArray(parsed) ? parsed : [];
+                log(`📱 Загружено ${localPhoneContacts.length} контактов из телефона`, 'success');
+            } catch (e) {
+                localPhoneContacts = [];
+            }
+            updateRevokeContactsButton();
+            renderChatsList();
+        }
+
+        // Кнопку показываем, только если доступ реально есть — Android не
+        // даёт приложению отозвать разрешение самому, поэтому кнопка ведёт
+        // на системный экран настроек приложения, где это может сделать
+        // сам пользователь.
+        function updateRevokeContactsButton() {
+            const btn = document.getElementById('revokeContactsAccessBtn');
+            const hasAccess = hasAndroidContactsBridge() && AndroidContacts.hasPermission();
+            btn.classList.toggle('hidden', !hasAccess);
+        }
+
+        function openContactsAppSettings() {
+            if (hasAndroidContactsBridge()) {
+                AndroidContacts.openAppSettings();
+            } else {
+                log('❌ Открыть настройки приложения можно только из Android-приложения', 'error');
+            }
+        }
+
+        // Вызывается при первом взаимодействии с полем локального поиска.
+        // Если бриджа нет (не Android-обёртка, а обычный браузер) — тихо
+        // ничего не делает, поиск просто продолжает работать по
+        // contactsById, полученным от сервера MAX.
+        function ensureLocalPhoneContacts() {
+            if (localPhoneContactsRequested || !hasAndroidContactsBridge()) return;
+            localPhoneContactsRequested = true;
+            if (AndroidContacts.hasPermission()) {
+                loadLocalPhoneContacts();
+            } else {
+                AndroidContacts.requestPermission();
+            }
+        }
+
+        function phoneDigitsTail(phone, n = 10) {
+            const digits = String(phone || '').replace(/[^\d]/g, '');
+            return digits.slice(-n);
+        }
+
+        // Контакт телефона считается "уже известным", если такой же номер
+        // (по последним 10 цифрам — без учёта кода страны/формата) уже есть
+        // среди контактов MAX, полученных от сервера — тогда его и так
+        // покажет buildContactItemEl/buildChatItemEl выше, дублировать не нужно.
+        function isLocalContactKnownOnMax(phone) {
+            const tail = phoneDigitsTail(phone);
+            if (!tail) return false;
+            return Object.values(contactsById).some(c => c.phone && phoneDigitsTail(c.phone) === tail);
+        }
+
+        // Строка для контакта из телефонной книги, которого ещё нет в MAX —
+        // по клику ищем его на сервере по номеру (тот же путь, что и ручной
+        // поиск по номеру в peopleSearchPanel).
+        function buildLocalContactItemEl(localContact) {
+            const name = localContact.name || localContact.phone;
+            const el = document.createElement('div');
+            el.className = 'chat-item';
+            const initial = getInitials(name);
+            el.innerHTML = `
+                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${escapeHtml(String(localContact.phone))}" style="background:${avatarGradient(localContact.phone)};">${initial}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHtml(name)}</div>
+                    <div class="chat-preview">📱 Из контактов телефона · найти в MAX</div>
+                </div>
+            `;
+            el.onclick = () => findLocalContactOnMax(localContact);
+            return el;
+        }
+
+        function findLocalContactOnMax(localContact) {
+            const phone = normalizePhoneForSearch(localContact.phone);
+            if (!phone) return;
+            document.getElementById('peopleSearchPanel').classList.remove('hidden');
+            document.getElementById('peopleSearchPhone').value = phone;
+            log(`🔎 Ищу ${localContact.name || phone} на MAX...`, 'info');
+            send(46, { phone });
+        }
+
+        // Перерисовывает #chatsList с учётом текущего chatFilterQuery:
+        // сначала подходящие чаты (как обычно), затем — если запрос не пуст —
+        // подходящие контакты, с которыми диалога ещё нет.
+        function renderChatsList() {
+            const list = document.getElementById('chatsList');
+            list.innerHTML = '';
+            const qRaw = normalizeSearchText(chatFilterQuery);
+            const qDigits = qRaw.replace(/[^\d]/g, '');
+            const chats = qRaw
+                ? chatsSortedCache.filter(chat => textMatchesQuery(chatSearchStrings(chat), qRaw, qDigits))
+                : chatsSortedCache;
+            chats.forEach(chat => list.appendChild(buildChatItemEl(chat)));
+
+            if (qRaw) {
+                const shown = new Set();
+                Object.values(contactsById).forEach(contact => {
+                    if (typeof contact.id !== 'number') return;
+                    if (shown.has(contact.id)) return;
+                    if (hasDialogWithContact(contact.id)) return; // уже в списке выше как чат
+                    if (!textMatchesQuery(contactSearchStrings(contact), qRaw, qDigits)) return;
+                    shown.add(contact.id);
+                    list.appendChild(buildContactItemEl(contact));
+                });
+
+                const shownPhones = new Set();
+                localPhoneContacts.forEach(localContact => {
+                    const tail = phoneDigitsTail(localContact.phone);
+                    if (!tail || shownPhones.has(tail)) return;
+                    if (isLocalContactKnownOnMax(localContact.phone)) return; // уже показан выше
+                    if (!textMatchesQuery([localContact.name, localContact.phone], qRaw, qDigits)) return;
+                    shownPhones.add(tail);
+                    list.appendChild(buildLocalContactItemEl(localContact));
+                });
+            }
+
+            if (qRaw && !list.children.length) {
+                list.innerHTML = '<div class="search-empty">Ничего не найдено</div>';
+            }
+        }
+
+        function applyChatFilter(raw) {
+            chatFilterQuery = raw || '';
+            ensureLocalPhoneContacts();
+            renderChatsList();
         }
 
         // ========================================
