@@ -855,6 +855,66 @@
             word-wrap: break-word;
         }
 
+        .msg-code-block {
+            margin: 6px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #1e1e1e;
+            border: 1px solid #333;
+            max-width: 100%;
+        }
+
+        .msg-code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            background: #2a2a2a;
+            border-bottom: 1px solid #383838;
+        }
+
+        .msg-code-lang {
+            font-size: 12px;
+            color: #9aa0a6;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            text-transform: lowercase;
+        }
+
+        .msg-code-copy {
+            border: none;
+            background: transparent;
+            color: #9aa0a6;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 3px 8px;
+            border-radius: 6px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .msg-code-copy:hover {
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .msg-code-copy.copied {
+            color: #4caf50;
+        }
+
+        .msg-code-pre {
+            margin: 0;
+            padding: 10px 12px;
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        .msg-code-content {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #e6e6e6;
+            white-space: pre;
+        }
+
         .msg-file {
             display: flex;
             align-items: center;
@@ -2395,6 +2455,25 @@
         </div>
     </div>
 
+    <!-- ===== CUSTOM BOT CHAT MODAL (локальный чат с кастомным ботом по его HTTP API) ===== -->
+    <div class="chat-profile-overlay" id="botChatModal">
+        <div class="chat-profile-modal"
+            style="max-width:460px;width:92vw;display:flex;flex-direction:column;height:70vh;">
+            <div class="chat-profile-header">
+                <h3 id="botChatTitle">Бот</h3>
+                <button class="chat-profile-close" onclick="closeBotChatModal()">✕</button>
+            </div>
+            <div id="botChatMessages"
+                style="flex:1;overflow-y:auto;padding:8px 4px;display:flex;flex-direction:column;gap:8px;"></div>
+            <div style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;">
+                <input type="text" id="botChatInput" placeholder="Сообщение боту..."
+                    style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
+                    onkeydown="if(event.key==='Enter') sendBotChatMessage();">
+                <button class="btn-save" onclick="sendBotChatMessage()">➤</button>
+            </div>
+        </div>
+    </div>
+
     <h1>
         MAX Client
         <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
@@ -3046,6 +3125,271 @@
         }
 
         // ========================================
+        // КАСТОМНЫЕ БОТЫ: реестр на GitHub + локальный чат по HTTP API бота
+        // ========================================
+        //
+        // ИДЕЯ: пользователь может подключить любого «стороннего» бота, не
+        // связанного с протоколом MAX — достаточно, чтобы у бота был свой
+        // веб-сервер (адрес + порт), отвечающий на два простых HTTP-эндпоинта.
+        // Список публичных ботов («реестр») — это обычный JSON-файл, лежащий
+        // в GitHub-репозитории и отдаваемый через raw.githubusercontent.com —
+        // никакого спец. бэкенда для реестра не нужно, GitHub и есть хранилище.
+        //
+        // КОНТРАКТ API БОТА (реализует сервер бота, любой стек — Python/Node/Go/...):
+        //
+        //   GET  {baseUrl}/api/info
+        //     -> 200 { "name": "MyBot", "description": "...", "avatar_url": "...", "version": "1.0" }
+        //
+        //   POST {baseUrl}/api/message
+        //     тело запроса:  { "chat_id": "<локальный id чата>",
+        //                      "user": { "id": <selfId>, "name": "<имя>" },
+        //                      "text": "<текст сообщения>",
+        //                      "history": [ { "role": "user"|"bot", "text": "...", "ts": 1690000000000 }, ... ] }
+        //     ответ:         { "text": "<ответ бота, поддерживает ``` код ``` >",
+        //                      "buttons": [ [ { "text": "Кнопка", "value": "payload" } ] ] } // необязательно
+        //
+        // ФОРМАТ РЕЕСТРА (bots.json в репозитории на GitHub):
+        //   [
+        //     { "name": "EchoBot", "url": "http://1.2.3.4:8080", "description": "Отвечает эхом" },
+        //     { "name": "WeatherBot", "url": "http://myhost.example.com:9090", "description": "Прогноз погоды" }
+        //   ]
+
+        const DEFAULT_BOT_REGISTRY_URL = 'https://raw.githubusercontent.com/example-org/max-custom-bots/main/bots.json';
+        let botRegistryCache = [];
+        let activeBotChatId = null;
+
+        function getBotRegistryUrl() {
+            return localStorage.getItem('maxclient_bot_registry_url') || DEFAULT_BOT_REGISTRY_URL;
+        }
+
+        function getCustomBots() {
+            try { return JSON.parse(localStorage.getItem('maxclient_custom_bots') || '[]'); }
+            catch (e) { return []; }
+        }
+
+        function saveCustomBotsList(bots) {
+            localStorage.setItem('maxclient_custom_bots', JSON.stringify(bots));
+        }
+
+        function normalizeBotBaseUrl(url) {
+            return String(url || '').trim().replace(/\/+$/, '');
+        }
+
+        function renderBotsPage() {
+            const bots = getCustomBots();
+            const installedHtml = bots.length
+                ? bots.map(bot => `
+                    <div class="chat-profile-option" style="align-items:flex-start;">
+                        <span class="opt-icon">🤖</span>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-weight:600;">${escapeHtml(bot.name)}</div>
+                            <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(bot.url)}</div>
+                        </div>
+                        <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openBotChatModal('${bot.id}')">💬 Чат</button>
+                        <button class="settings-menu-item danger" style="width:auto;padding:6px 10px;" onclick="removeCustomBot('${bot.id}')">🗑️</button>
+                    </div>`).join('')
+                : `<div class="settings-empty">Пока нет добавленных ботов</div>`;
+
+            return `
+                <div style="margin-bottom:14px;">
+                    <div style="font-weight:600;margin-bottom:6px;">Мои боты</div>
+                    ${installedHtml}
+                </div>
+                <hr class="settings-menu-divider">
+                <div style="margin:14px 0 6px;font-weight:600;">Реестр ботов (GitHub)</div>
+                <div class="settings-row">
+                    <input class="setting-key" id="botRegistryUrlInput" placeholder="Raw-ссылка на bots.json"
+                           value="${escapeHtml(getBotRegistryUrl())}" style="flex:1;">
+                </div>
+                <div class="settings-content-footer" style="margin-bottom:10px;">
+                    <button class="btn-save" onclick="loadBotRegistry()">⟳ Загрузить реестр</button>
+                </div>
+                <div id="botRegistryList"></div>
+                <hr class="settings-menu-divider">
+                <div style="margin:14px 0 6px;font-weight:600;">Добавить бота вручную</div>
+                <div class="settings-row">
+                    <input class="setting-key" id="manualBotName" placeholder="Имя бота">
+                    <input class="setting-value" id="manualBotUrl" placeholder="http://host:port">
+                </div>
+                <div class="settings-content-footer">
+                    <button class="btn-add" onclick="addManualCustomBot()">+ Добавить бота</button>
+                </div>
+            `;
+        }
+
+        async function loadBotRegistry() {
+            const input = document.getElementById('botRegistryUrlInput');
+            const url = (input?.value || '').trim() || getBotRegistryUrl();
+            localStorage.setItem('maxclient_bot_registry_url', url);
+            const listEl = document.getElementById('botRegistryList');
+            if (!listEl) return;
+            listEl.innerHTML = '<div class="settings-empty">⏳ Загружаю реестр...</div>';
+            try {
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const registry = await res.json();
+                if (!Array.isArray(registry)) throw new Error('реестр должен быть JSON-массивом');
+                botRegistryCache = registry;
+                renderBotRegistryList(registry);
+            } catch (e) {
+                listEl.innerHTML = `<div class="settings-empty">❌ Не удалось загрузить реестр: ${escapeHtml(String(e.message || e))}</div>`;
+            }
+        }
+
+        function renderBotRegistryList(registry) {
+            const listEl = document.getElementById('botRegistryList');
+            if (!listEl) return;
+            if (!registry.length) {
+                listEl.innerHTML = '<div class="settings-empty">Реестр пуст</div>';
+                return;
+            }
+            const installed = getCustomBots();
+            listEl.innerHTML = registry.map((bot, idx) => {
+                const url = normalizeBotBaseUrl(bot.url);
+                const already = installed.some(b => b.url === url);
+                return `
+                <div class="chat-profile-option" style="align-items:flex-start;">
+                    <span class="opt-icon">🤖</span>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;">${escapeHtml(bot.name || 'Бот без имени')}</div>
+                        <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(url)}</div>
+                        ${bot.description ? `<div style="font-size:12px;color:#666;margin-top:2px;">${escapeHtml(bot.description)}</div>` : ''}
+                    </div>
+                    <button class="settings-menu-item" style="width:auto;padding:6px 10px;" ${already ? 'disabled' : ''}
+                        onclick="addCustomBotFromRegistry(${idx})">${already ? '✅ Добавлен' : '➕ Добавить'}</button>
+                </div>`;
+            }).join('');
+        }
+
+        function addCustomBotFromRegistry(idx) {
+            const bot = botRegistryCache[idx];
+            if (!bot) return;
+            addCustomBot(bot.name || bot.url, normalizeBotBaseUrl(bot.url));
+        }
+
+        function addManualCustomBot() {
+            const name = (document.getElementById('manualBotName')?.value || '').trim();
+            const url = normalizeBotBaseUrl(document.getElementById('manualBotUrl')?.value || '');
+            if (!url) { log('❌ Укажите адрес бота (с портом)', 'error'); return; }
+            addCustomBot(name || url, url);
+        }
+
+        function addCustomBot(name, url) {
+            if (!url) return;
+            const bots = getCustomBots();
+            if (bots.some(b => b.url === url)) {
+                log('ℹ️ Такой бот уже добавлен', 'info');
+                return;
+            }
+            bots.push({ id: 'bot_' + Math.random().toString(36).slice(2, 10), name: name || url, url, addedAt: Date.now() });
+            saveCustomBotsList(bots);
+            log('✅ Бот добавлен: ' + (name || url), 'success');
+            settingsMenu.refreshPage('bots');
+        }
+
+        function removeCustomBot(id) {
+            const bots = getCustomBots().filter(b => b.id !== id);
+            saveCustomBotsList(bots);
+            localStorage.removeItem('maxclient_bot_chat_' + id);
+            settingsMenu.refreshPage('bots');
+        }
+
+        function getBotChatHistory(botId) {
+            try { return JSON.parse(localStorage.getItem('maxclient_bot_chat_' + botId) || '[]'); }
+            catch (e) { return []; }
+        }
+
+        function saveBotChatHistory(botId, history) {
+            // храним не более 200 последних сообщений на бота
+            localStorage.setItem('maxclient_bot_chat_' + botId, JSON.stringify(history.slice(-200)));
+        }
+
+        // Рендерит текст сообщения бота: экранирование + блоки кода ``` ``` + ссылки,
+        // тем же способом, что и для обычных сообщений MAX (см. createMessageElement).
+        function renderBotMessageText(text) {
+            let processed = escapeHtml(text || '');
+            const { text: withoutCode, blocks } = extractCodeBlocks(processed);
+            processed = withoutCode;
+            processed = processed.replace(/(https?:\/\/[^\s<>"']+)/gi, (url) =>
+                `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`);
+            processed = reinsertCodeBlocks(processed, blocks);
+            return processed;
+        }
+
+        function openBotChatModal(botId) {
+            const bot = getCustomBots().find(b => b.id === botId);
+            if (!bot) return;
+            activeBotChatId = botId;
+            document.getElementById('botChatTitle').textContent = '🤖 ' + bot.name;
+            renderBotChatMessages();
+            document.getElementById('botChatModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+            closeSettingsModal();
+        }
+
+        function closeBotChatModal() {
+            document.getElementById('botChatModal').classList.remove('active');
+            document.body.style.overflow = '';
+            activeBotChatId = null;
+        }
+
+        document.getElementById('botChatModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeBotChatModal();
+        });
+
+        function renderBotChatMessages() {
+            const container = document.getElementById('botChatMessages');
+            if (!container || !activeBotChatId) return;
+            const history = getBotChatHistory(activeBotChatId);
+            container.innerHTML = history.map(m => `
+                <div style="align-self:${m.role === 'user' ? 'flex-end' : 'flex-start'};max-width:85%;
+                            background:${m.role === 'user' ? '#007bff' : '#f0f0f0'};color:${m.role === 'user' ? '#fff' : '#000'};
+                            padding:8px 10px;border-radius:12px;">
+                    ${renderBotMessageText(m.text)}
+                </div>`).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function sendBotChatMessage() {
+            const input = document.getElementById('botChatInput');
+            const text = (input?.value || '').trim();
+            if (!text || !activeBotChatId) return;
+            const bot = getCustomBots().find(b => b.id === activeBotChatId);
+            if (!bot) return;
+            input.value = '';
+
+            const history = getBotChatHistory(activeBotChatId);
+            history.push({ role: 'user', text, ts: Date.now() });
+            saveBotChatHistory(activeBotChatId, history);
+            renderBotChatMessages();
+
+            try {
+                const res = await fetch(normalizeBotBaseUrl(bot.url) + '/api/message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: activeBotChatId,
+                        user: { id: selfId || null, name: 'Пользователь' },
+                        text,
+                        history: history.slice(-20),
+                    }),
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const replyText = data.text || '(пустой ответ)';
+                const freshHistory = getBotChatHistory(activeBotChatId);
+                freshHistory.push({ role: 'bot', text: replyText, ts: Date.now() });
+                saveBotChatHistory(activeBotChatId, freshHistory);
+                renderBotChatMessages();
+            } catch (e) {
+                const freshHistory = getBotChatHistory(activeBotChatId);
+                freshHistory.push({ role: 'bot', text: '⚠️ Бот недоступен: ' + String(e.message || e), ts: Date.now() });
+                saveBotChatHistory(activeBotChatId, freshHistory);
+                renderBotChatMessages();
+            }
+        }
+
+        // ========================================
         // SETTINGS MODAL — МЕНЮ СИСТЕМА
         // ========================================
 
@@ -3268,6 +3612,7 @@
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
+            .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .render();
 
         function renderGifPreviewPage() {
@@ -3685,6 +4030,69 @@
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
+        }
+
+        // ========================================
+        // MARKDOWN: блоки кода ```lang ... ``` с подсветкой языка и кнопкой «Копировать»
+        // ========================================
+        //
+        // Работает поверх уже escapeHtml()-нутого текста (обратные кавычки не
+        // экранируются, поэтому регэксп по ним безопасно матчится). Блоки кода
+        // вырезаются и заменяются на плейсхолдеры ДО обработки ссылок/упоминаний,
+        // чтобы их содержимое не превращалось в кликабельные ссылки, а затем
+        // подставляются обратно уже готовым HTML.
+        function extractCodeBlocks(escapedText) {
+            const codeBlockRegex = /```([a-zA-Z0-9_+#.-]*)[ \t]*\r?\n?([\s\S]*?)```/g;
+            const blocks = [];
+            const text = escapedText.replace(codeBlockRegex, (match, lang, code) => {
+                const trimmedCode = code.replace(/\r?\n$/, '');
+                const langLabel = (lang || '').trim();
+                blocks.push(renderCodeBlockHtml(langLabel, trimmedCode));
+                return `\u0000CODEBLOCK${blocks.length - 1}\u0000`;
+            });
+            return { text, blocks };
+        }
+
+        function reinsertCodeBlocks(text, blocks) {
+            return text.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (m, idx) => blocks[Number(idx)] || '');
+        }
+
+        function renderCodeBlockHtml(langLabel, codeHtml) {
+            const displayLang = langLabel || 'text';
+            return `<div class="msg-code-block">
+                <div class="msg-code-header">
+                    <span class="msg-code-lang">${escapeHtml(displayLang)}</span>
+                    <button type="button" class="msg-code-copy" onclick="copyCodeBlock(this)">📋 Копировать</button>
+                </div>
+                <pre class="msg-code-pre"><code class="msg-code-content language-${escapeHtml(displayLang)}">${codeHtml}</code></pre>
+            </div>`;
+        }
+
+        function copyCodeBlock(btn) {
+            const block = btn.closest('.msg-code-block');
+            const codeEl = block && block.querySelector('code');
+            if (!codeEl) return;
+            const text = codeEl.textContent;
+            const done = () => {
+                const original = btn.textContent;
+                btn.textContent = '✅ Скопировано';
+                btn.classList.add('copied');
+                setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(() => {
+                    log('❌ Не удалось скопировать код', 'error');
+                });
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); done(); } catch (e) { log('❌ Не удалось скопировать код', 'error'); }
+                document.body.removeChild(ta);
+            }
         }
         async function downloadFileAttach(linkEl) {
             const fileId = linkEl.dataset.fileId;
@@ -4515,6 +4923,11 @@
                 const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
                 let processedText = escapeHtml(m.text);
 
+                // Блоки кода ```lang ... ``` вырезаем первыми, чтобы их содержимое
+                // не попало под замену ссылок/упоминаний ниже.
+                const { text: textWithoutCode, blocks: codeBlocks } = extractCodeBlocks(processedText);
+                processedText = textWithoutCode;
+
                 // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим
                 // через LINK_INFO вместо перехода во внешнюю вкладку.
                 const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
@@ -4533,6 +4946,9 @@
                 processedText = processedText.replace(mentionRegex, function (full, pre, username) {
                     return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
                 });
+
+                // Возвращаем на место готовый HTML блоков кода
+                processedText = reinsertCodeBlocks(processedText, codeBlocks);
 
                 textHtml = `<div class=\"msg-text\">${processedText}</div>`;
             }
@@ -5551,91 +5967,91 @@
                         return;
                     }
                     if (data.opcode === 132 && data.payload) {
-const uid = data.payload.userId;
-const p = data.payload.presence;
+                        const uid = data.payload.userId;
+                        const p = data.payload.presence;
 
-if (uid != null && p) {
-    // 🔥 ЗАГРУЗКА: получаем сохранённое время последнего визита
-    let savedLastSeen = null;
-    try {
-        const allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
-        savedLastSeen = allPresences[uid]?.lastSeen || null;
-    } catch (e) {}
-    
-    // Обновляем текущий статус
-    presenceById[uid] = { 
-        online: p.status === 1, 
-        seen: p.seen || 0 
-    };
-    
-    // 🔥 СОХРАНЕНИЕ: записываем текущее присутствие
-    try {
-        let allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
-        
-        allPresences[uid] = {
-            online: p.status === 1,
-            lastSeen: Date.now(),
-            rawSeen: p.seen || 0,
-            statusCode: p.status
-        };
-        
-        // Ограничиваем до 50 последних пользователей
-        const userIds = Object.keys(allPresences);
-        if (userIds.length > 50) {
-            const sorted = userIds.sort((a, b) => allPresences[b].lastSeen - allPresences[a].lastSeen);
-            for (let i = 50; i < sorted.length; i++) {
-                delete allPresences[sorted[i]];
-            }
-        }
-        
-        localStorage.setItem('user\_presences', JSON.stringify(allPresences));
-    } catch (e) {}
-    
-    if (currentChatId) {
-        const chat = chatsById[currentChatId];
-        if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
-            const statusEl = document.getElementById('chatDetailStatus');
-            if (statusEl) {
-                if (p.status === 1) {
-                    // Пользователь онлайн
-                    statusEl.textContent = 'в сети';
-                    statusEl.style.color = '#4caf50';
-                } else {
-                    // Пользователь офлайн — показываем время
-                    let timeText = '';
-                    
-                    if (savedLastSeen) {
-                        const diffMs = Date.now() - savedLastSeen;
-                        const diffMins = Math.floor(diffMs / 60000);
-                        
-                        if (diffMins < 60) {
-                            timeText = `{diffMins} мин. назад`;
-                        } else if (diffMins < 1440) {
-                            timeText = `{Math.floor(diffMins / 60)} ч. назад`;
-                        } else {
-                            timeText = `{Math.floor(diffMins / 1440)} дн. назад`;
-                        }
-                    } else if (p.seen) {
-                        // Fallback на серверные данные
-                        const serverTime = new Date(p.seen * 1000);
-                        const now = new Date();
-                        const diffMinutes = Math.floor((now - serverTime) / 60000);
-                        
-                        if (diffMinutes < 60) {
-                            timeText = diffMinutes + 'мин. назад';
-                        } else if (diffMinutes < 1440) {
-                            timeText = Math.floor(diffMinutes / 60) + 'ч. назад';
-                        } else {
-                            timeText = Math.floor(diffMinutes / 1440) + 'дн. назад';
+                        if (uid != null && p) {
+                            // 🔥 ЗАГРУЗКА: получаем сохранённое время последнего визита
+                            let savedLastSeen = null;
+                            try {
+                                const allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
+                                savedLastSeen = allPresences[uid]?.lastSeen || null;
+                            } catch (e) { }
+
+                            // Обновляем текущий статус
+                            presenceById[uid] = {
+                                online: p.status === 1,
+                                seen: p.seen || 0
+                            };
+
+                            // 🔥 СОХРАНЕНИЕ: записываем текущее присутствие
+                            try {
+                                let allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
+
+                                allPresences[uid] = {
+                                    online: p.status === 1,
+                                    lastSeen: Date.now(),
+                                    rawSeen: p.seen || 0,
+                                    statusCode: p.status
+                                };
+
+                                // Ограничиваем до 50 последних пользователей
+                                const userIds = Object.keys(allPresences);
+                                if (userIds.length > 50) {
+                                    const sorted = userIds.sort((a, b) => allPresences[b].lastSeen - allPresences[a].lastSeen);
+                                    for (let i = 50; i < sorted.length; i++) {
+                                        delete allPresences[sorted[i]];
+                                    }
+                                }
+
+                                localStorage.setItem('user\_presences', JSON.stringify(allPresences));
+                            } catch (e) { }
+
+                            if (currentChatId) {
+                                const chat = chatsById[currentChatId];
+                                if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
+                                    const statusEl = document.getElementById('chatDetailStatus');
+                                    if (statusEl) {
+                                        if (p.status === 1) {
+                                            // Пользователь онлайн
+                                            statusEl.textContent = 'в сети';
+                                            statusEl.style.color = '#4caf50';
+                                        } else {
+                                            // Пользователь офлайн — показываем время
+                                            let timeText = '';
+
+                                            if (savedLastSeen) {
+                                                const diffMs = Date.now() - savedLastSeen;
+                                                const diffMins = Math.floor(diffMs / 60000);
+
+                                                if (diffMins < 60) {
+                                                    timeText = `{diffMins} мин. назад`;
+                                                } else if (diffMins < 1440) {
+                                                    timeText = `{Math.floor(diffMins / 60)} ч. назад`;
+                                                } else {
+                                                    timeText = `{Math.floor(diffMins / 1440)} дн. назад`;
+                                                }
+                                            } else if (p.seen) {
+                                                // Fallback на серверные данные
+                                                const serverTime = new Date(p.seen * 1000);
+                                                const now = new Date();
+                                                const diffMinutes = Math.floor((now - serverTime) / 60000);
+
+                                                if (diffMinutes < 60) {
+                                                    timeText = diffMinutes + 'мин. назад';
+                                                } else if (diffMinutes < 1440) {
+                                                    timeText = Math.floor(diffMinutes / 60) + 'ч. назад';
+                                                } else {
+                                                    timeText = Math.floor(diffMinutes / 1440) + 'дн. назад';
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return;
+                            }
                         }
                     }
-                }
-            }
-        }
-        return;
-    }
-}
-}
 
                     // notifMessage — новое входящее сообщение в реальном времени
                     if (data.opcode === 128 && data.payload) {
