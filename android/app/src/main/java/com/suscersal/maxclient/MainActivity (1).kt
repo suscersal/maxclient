@@ -6,10 +6,15 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Base64
 import android.view.View
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -49,6 +54,7 @@ class MainActivity : AppCompatActivity() {
 
         private const val NOTIFICATIONS_PERMISSION_REQUEST_CODE = 1001
         private const val CONTACTS_PERMISSION_REQUEST_CODE = 1002
+        private const val STORAGE_PERMISSION_REQUEST_CODE = 1003
     }
 
     private val port = 8080
@@ -185,6 +191,31 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Обычный WebView сам по себе НЕ обрабатывает клики по прямым
+        // ссылкам на файлы (a href="https://cdn/..." download): без
+        // DownloadListener такой клик просто проглатывается — страница не
+        // навигирует (это не html), а никакого скачивания не происходит.
+        // Используется для downloadFileAttach() в index.html (реальные
+        // ссылки на файлы с CDN, в отличие от фото/видео из просмотрщика,
+        // которые идут через blob: и AndroidDownload-мост выше).
+        webView.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
+            try {
+                val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                val request = android.app.DownloadManager.Request(Uri.parse(url)).apply {
+                    setNotificationVisibility(
+                        android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                    )
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                    setMimeType(mimeType)
+                }
+                val manager = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                manager.enqueue(request)
+                Toast.makeText(this, "Загрузка начата: $fileName", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         // Обычный WebView НЕ реализует Web Notification API сам по себе —
         // window.Notification там просто не работает. Даём JS доступ к
         // настоящим системным уведомлениям Android через этот мост.
@@ -196,6 +227,14 @@ class MainActivity : AppCompatActivity() {
         // когда пользователь реально открывает локальный поиск, а не на
         // каждом запуске приложения.
         webView.addJavascriptInterface(AndroidContactsBridge(this), "AndroidContacts")
+
+        // Мост JS -> сохранение фото/видео/gif из чата в галерею устройства.
+        // Раньше JS пытался сохранять файлы через <a download> с blob:-ссылкой —
+        // обычный system WebView такие "скачивания" тихо игнорирует (нет ни
+        // DownloadListener, ни MediaStore-записи), поэтому JS показывал
+        // "успешно сохранено", хотя по факту файла нигде не было.
+        webView.addJavascriptInterface(AndroidDownloadBridge(this), "AndroidDownload")
+        requestLegacyStoragePermissionIfNeeded()
 
         loadingStatus.visibility = View.VISIBLE
 
@@ -273,6 +312,10 @@ class MainActivity : AppCompatActivity() {
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             notifyContactsPermissionResult(granted)
         }
+        // STORAGE_PERMISSION_REQUEST_CODE: специально ничего не делаем — если
+        // пользователь отказал, AndroidDownloadBridge.saveFile() просто вернёт
+        // ошибку в момент реальной попытки сохранения, и JS покажет об этом
+        // сообщение (см. downloadBlobUrl в index.html).
     }
 
     /** Сообщает web-странице результат запроса READ_CONTACTS — вызывает
@@ -295,6 +338,22 @@ class MainActivity : AppCompatActivity() {
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
+        }
+    }
+
+    /** На API 24-28 запись в публичную галерею требует WRITE_EXTERNAL_STORAGE
+     * (на API 29+ используется scoped storage через MediaStore без него). */
+    private fun requestLegacyStoragePermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    STORAGE_PERMISSION_REQUEST_CODE
+                )
+            }
         }
     }
 
@@ -469,6 +528,106 @@ class MainActivity : AppCompatActivity() {
                 // просто отдаём то, что успели собрать.
             }
             return result.toString()
+        }
+    }
+
+    /** Мост JS -> сохранение файла (фото/gif/видео) в публичную галерею
+     * устройства. Обычный `<a download>` c blob:-ссылкой, который использует
+     * index.html, в system WebView ничего не сохраняет — там нет ни
+     * DownloadListener (он не срабатывает для blob:), ни доступа к
+     * MediaStore, поэтому JS раньше просто врал об успехе. Здесь JS передаёт
+     * содержимое файла как base64, а метод сам решает, в какую коллекцию
+     * MediaStore его положить, по mimeType. */
+    inner class AndroidDownloadBridge(private val ctx: Context) {
+
+        @JavascriptInterface
+        fun isAvailable(): Boolean = true
+
+        /** Сохраняет файл в галерею. Возвращает "true" при успехе, иначе
+         * текст ошибки (начинается с "error:") — так JS может показать
+         * пользователю осмысленное сообщение без лишнего try/catch на своей
+         * стороне. Вызывается синхронно из JS (обычный JavascriptInterface). */
+        @JavascriptInterface
+        fun saveFile(base64Data: String, filename: String, mimeType: String): String {
+            return try {
+                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                val isVideo = mimeType.startsWith("video/")
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    saveViaMediaStoreQ(bytes, filename, mimeType, isVideo)
+                } else {
+                    saveViaLegacyStorage(bytes, filename, mimeType, isVideo)
+                }
+                if (uri == null) {
+                    "error: не удалось создать файл (нет доступа к хранилищу)"
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(
+                            ctx,
+                            "Сохранено: $filename",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    "true"
+                }
+            } catch (e: SecurityException) {
+                "error: нет разрешения на запись в хранилище"
+            } catch (e: Exception) {
+                "error: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+
+        private fun saveViaMediaStoreQ(
+            bytes: ByteArray,
+            filename: String,
+            mimeType: String,
+            isVideo: Boolean
+        ): Uri? {
+            val collection = if (isVideo) {
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+            val relativeDir = if (isVideo) "Movies/MaxClient" else "Pictures/MaxClient"
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = ctx.contentResolver
+            val uri = resolver.insert(collection, values) ?: return null
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return null
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            return uri
+        }
+
+        /** API 24-28: scoped storage ещё нет, MediaStore.RELATIVE_PATH не
+         * существует — пишем напрямую в публичную директорию и сканируем
+         * файл, чтобы он тут же появился в галерее. Требует
+         * WRITE_EXTERNAL_STORAGE (см. requestLegacyStoragePermissionIfNeeded). */
+        private fun saveViaLegacyStorage(
+            bytes: ByteArray,
+            filename: String,
+            mimeType: String,
+            isVideo: Boolean
+        ): Uri? {
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                return null
+            }
+            val publicDir = Environment.getExternalStoragePublicDirectory(
+                if (isVideo) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES
+            )
+            val targetDir = File(publicDir, "MaxClient").apply { mkdirs() }
+            val targetFile = File(targetDir, filename)
+            targetFile.writeBytes(bytes)
+            android.media.MediaScannerConnection.scanFile(
+                ctx, arrayOf(targetFile.absolutePath), arrayOf(mimeType), null
+            )
+            return Uri.fromFile(targetFile)
         }
     }
 }

@@ -2855,10 +2855,45 @@
             currentPhotoUrl = null;
         }
 
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    // reader.result выглядит как "data:<mime>;base64,<data>" —
+                    // мосту на Android нужна только часть после запятой.
+                    const commaIdx = reader.result.indexOf(',');
+                    resolve(commaIdx >= 0 ? reader.result.slice(commaIdx + 1) : reader.result);
+                };
+                reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+                reader.readAsDataURL(blob);
+            });
+        }
+
         async function downloadBlobUrl(url, filename) {
             try {
                 const res = await fetch(url);
                 const blob = await res.blob();
+                const mimeType = blob.type || 'application/octet-stream';
+
+                // Внутри Android-приложения (system WebView) обычный
+                // `<a download>` с blob:-ссылкой ничего не сохраняет — там
+                // нет ни DownloadListener (он не срабатывает для blob:), ни
+                // доступа к MediaStore напрямую из страницы. Поэтому раньше
+                // здесь просто показывалось "успешно скачан", хотя файла
+                // нигде не было. Если есть нативный мост — сохраняем через
+                // него (запись в MediaStore/галерею), иначе (обычный браузер,
+                // desktop_launcher.py) — старый способ через <a download>.
+                if (window.AndroidDownload && window.AndroidDownload.isAvailable()) {
+                    const base64 = await blobToBase64(blob);
+                    const result = window.AndroidDownload.saveFile(base64, filename, mimeType);
+                    if (result === 'true') {
+                        log(`✅ «${filename}» сохранён в галерею`, 'success');
+                    } else {
+                        log('❌ Ошибка сохранения: ' + (result || 'неизвестная ошибка'), 'error');
+                    }
+                    return;
+                }
+
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
                 a.download = filename;
@@ -2878,7 +2913,12 @@
 
         function downloadCurrentPhoto() {
             if (!currentPhotoUrl) return;
-            downloadBlobUrl(currentPhotoUrl, `photo_${currentViewerMessageId || Date.now()}.jpg`);
+            // GIF нужно сохранять с расширением .gif (и правильным mime),
+            // иначе в галерее файл ляжет как "photo.jpg" и не будет
+            // анимироваться при просмотре.
+            const isGif = /\.gif(\?|$)/i.test(currentPhotoUrl) || currentPhotoUrl.startsWith('data:image/gif');
+            const ext = isGif ? 'gif' : 'jpg';
+            downloadBlobUrl(currentPhotoUrl, `photo_${currentViewerMessageId || Date.now()}.${ext}`);
         }
 
         function jumpToMessageFromViewer() {
@@ -2934,6 +2974,75 @@
             </div>
         `;
             return html;
+        }
+
+        // GIF-вложения. У сервера тут может быть два разных формата:
+        //  1) "настоящий" анимированный файл (baseUrl/url/baseRawUrl,
+        //     оканчивающийся на .gif или отданный как image/gif) — тогда
+        //     достаточно обычного <img>, он анимируется сам.
+        //  2) GIF, перекодированный сервером в короткое немое зацикленное
+        //     видео (как делают многие мессенджеры ради размера трафика) —
+        //     тогда рендерим как <video autoplay loop muted>, без плашки
+        //     "▶" и без тапа для воспроизведения (в отличие от VIDEO), т.к.
+        //     GIF должен проигрываться сразу и сам по себе.
+        function createGifPreview(messageId, chatId, attach) {
+            const rawUrl = attach.baseRawUrl || attach.baseUrl || attach.url;
+            const looksLikeImage = rawUrl && (/\.gif(\?|$)/i.test(rawUrl) || attach.mimeType === 'image/gif');
+
+            if (looksLikeImage) {
+                const src = '/img?url=' + encodeURIComponent(rawUrl);
+                return `<img class="msg-img" src="${src}" alt="GIF" loading="lazy" style="max-width:100%;border-radius:8px;display:block;" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '')">`;
+            }
+
+            // Иначе считаем, что это видео-GIF — тот же протокол, что и у
+            // VIDEO-вложений: token/videoId сами по себе не воспроизводимая
+            // ссылка, их сперва нужно обменять на реальный источник через
+            // /api/video-sources (см. inlineVideoTap), поэтому здесь рисуем
+            // постер-заглушку, а сам src подставляется асинхронно в
+            // initGifVideo() после вставки элемента в DOM.
+            const uid = 'gif_' + Math.random().toString(36).slice(2, 9);
+            const posterUrl = attach.thumbnail ? '/img?url=' + encodeURIComponent(attach.thumbnail) : '';
+            const token = attach.token || attach.videoToken || '';
+            const videoId = attach.videoId || 0;
+            return `
+            <div class="msg-gif-container" id="${uid}" data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${escapeHtml(token)}" data-video-id="${videoId}" style="position:relative;max-width:100%;border-radius:8px;overflow:hidden;">
+                ${posterUrl ? `<img src="${posterUrl}" alt="GIF" style="width:100%;display:block;">` : `<div style="aspect-ratio:1;background:#1a1a1a;"></div>`}
+            </div>`;
+        }
+
+        /** Догружает реальный видео-источник для GIF-плейсхолдера и
+         * подставляет вместо постера автоплеящийся <video>. Вызывается для
+         * всех новых GIF-контейнеров после вставки сообщений в DOM (см.
+         * renderMessages), аналогично loadLottieSticker для стикеров. */
+        async function initGifVideo(container) {
+            const token = container.dataset.token;
+            const videoId = container.dataset.videoId;
+            const messageId = container.dataset.msgId;
+            const chatId = container.dataset.chatId;
+            if (!token || !videoId || !chatId) return;
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+                const best = sources['480p'] || sources['720p'] || Object.values(sources)[0];
+                if (!best) return;
+                const posterEl = container.querySelector('img');
+                const v = document.createElement('video');
+                v.src = '/video?url=' + encodeURIComponent(best);
+                v.loop = true;
+                v.muted = true;
+                v.autoplay = true;
+                v.playsInline = true;
+                v.style.cssText = 'width:100%;display:block;';
+                if (posterEl) posterEl.replaceWith(v); else container.appendChild(v);
+                v.play().catch(() => { });
+            } catch (e) {
+                console.log('[maxclient] не удалось загрузить GIF-видео:', e);
+            }
         }
 
         // ========================================
@@ -4104,11 +4213,15 @@
             if (attach?._type === 'VIDEO') {
                 return '🎬 Видео';
             }
+            if (attach?._type === 'GIF') {
+                return '🎞️ GIF';
+            }
             if (m.text && !isTranslationKey) return m.text.slice(0, 80);
             if (attach) {
                 const labels = {
                     PHOTO: '🖼️ Фото',
                     VIDEO: '🎬 Видео',
+                    GIF: '🎞️ GIF',
                     FILE: '📎 ' + (attach.name || 'Файл'),
                     CALL: attach.callType === 'VIDEO' ? '📞 Видеозвонок' : '📞 Звонок',
                 };
@@ -4295,6 +4408,10 @@
                 }
                 if (a._type === 'VIDEO') {
                     attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
+                    return;
+                }
+                if (a._type === 'GIF') {
+                    attachesHtml += `<div class="msg-attach">${createGifPreview(m.id, currentChatId, a)}</div>`;
                     return;
                 }
                 if (a._type === 'FILE') {
@@ -5182,6 +5299,19 @@
                 const holderId = container.dataset.holderId;
                 if (url && holderId) {
                     loadLottieSticker(holderId, url);
+                }
+            });
+
+            // --------------------------------------------
+            // Догружаем видео-источник для GIF-вложений, у которых нет
+            // прямой ссылки на анимированный файл (см. createGifPreview) —
+            // только для тех, что ещё не подменены на <video> (без него
+            // internal <img> — постер-заглушка, поэтому проверяем именно
+            // его отсутствие, а не факт "новизны" контейнера).
+            const gifContainers = list.querySelectorAll('.msg-gif-container');
+            gifContainers.forEach(container => {
+                if (!container.querySelector('video')) {
+                    initGifVideo(container);
                 }
             });
         }
