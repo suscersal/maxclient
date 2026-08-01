@@ -853,6 +853,21 @@
         .msg-text {
             margin-top: 4px;
             word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .msg-inline-code {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.92em;
+            background: rgba(0, 0, 0, 0.06);
+            border-radius: 4px;
+            padding: 1px 5px;
+        }
+
+        .msg-heading {
+            font-weight: 700;
+            font-size: 1.05em;
+            margin: 4px 0 2px;
         }
 
         .msg-code-block {
@@ -3154,7 +3169,7 @@
         //     { "name": "WeatherBot", "url": "http://myhost.example.com:9090", "description": "Прогноз погоды" }
         //   ]
 
-        const DEFAULT_BOT_REGISTRY_URL = 'https://raw.githubusercontent.com/suscersal/maxclient/main/bots.json';
+        const DEFAULT_BOT_REGISTRY_URL = 'https://raw.githubusercontent.com/example-org/max-custom-bots/main/bots.json';
         let botRegistryCache = [];
         let activeBotChatId = null;
 
@@ -3176,7 +3191,7 @@
         }
 
         function renderBotsPage() {
-            const bots = getCustomBots();
+            const bots = getCustomBotsSorted();
             const installedHtml = bots.length
                 ? bots.map(bot => `
                     <div class="chat-profile-option" style="align-items:flex-start;">
@@ -3184,6 +3199,7 @@
                         <div style="flex:1;min-width:0;">
                             <div style="font-weight:600;">${escapeHtml(bot.name)}</div>
                             <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(bot.url)}</div>
+                            <div style="font-size:11px;color:#aaa;margin-top:2px;">${bot.source === 'manual' ? 'добавлен вручную' : 'из реестра'}${bot.lastUsedAt ? ' · запускался' : ''}</div>
                         </div>
                         <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openBotChatModal('${bot.id}')">💬 Чат</button>
                         <button class="settings-menu-item danger" style="width:auto;padding:6px 10px;" onclick="removeCustomBot('${bot.id}')">🗑️</button>
@@ -3264,27 +3280,61 @@
         function addCustomBotFromRegistry(idx) {
             const bot = botRegistryCache[idx];
             if (!bot) return;
-            addCustomBot(bot.name || bot.url, normalizeBotBaseUrl(bot.url));
+            addCustomBot(bot.name || bot.url, normalizeBotBaseUrl(bot.url), 'registry');
         }
 
         function addManualCustomBot() {
             const name = (document.getElementById('manualBotName')?.value || '').trim();
             const url = normalizeBotBaseUrl(document.getElementById('manualBotUrl')?.value || '');
             if (!url) { log('❌ Укажите адрес бота (с портом)', 'error'); return; }
-            addCustomBot(name || url, url);
+            addCustomBot(name || url, url, 'manual');
         }
 
-        function addCustomBot(name, url) {
+        // source: 'manual' — бот, адрес которого пользователь ввёл сам (высокий
+        // приоритет в поиске), 'registry' — добавлен из GitHub-реестра.
+        function addCustomBot(name, url, source) {
             if (!url) return;
             const bots = getCustomBots();
             if (bots.some(b => b.url === url)) {
                 log('ℹ️ Такой бот уже добавлен', 'info');
                 return;
             }
-            bots.push({ id: 'bot_' + Math.random().toString(36).slice(2, 10), name: name || url, url, addedAt: Date.now() });
+            bots.push({
+                id: 'bot_' + Math.random().toString(36).slice(2, 10),
+                name: name || url,
+                url,
+                source: source || 'manual',
+                addedAt: Date.now(),
+                lastUsedAt: null,
+            });
             saveCustomBotsList(bots);
             log('✅ Бот добавлен: ' + (name || url), 'success');
             settingsMenu.refreshPage('bots');
+        }
+
+        // Отмечает бота как «запускавшийся» — влияет на порядок в поиске
+        // (недавно открытые/использованные боты поднимаются выше).
+        function touchCustomBot(botId) {
+            const bots = getCustomBots();
+            const bot = bots.find(b => b.id === botId);
+            if (!bot) return;
+            bot.lastUsedAt = Date.now();
+            saveCustomBotsList(bots);
+        }
+
+        // Приоритет: сначала боты, которые пользователь добавил сам вручную
+        // (source === 'manual'), затем — по недавнему использованию
+        // (те, что «запускались» позже, — выше), затем по дате добавления.
+        function getCustomBotsSorted() {
+            return getCustomBots().slice().sort((a, b) => {
+                const aManual = a.source === 'manual' ? 1 : 0;
+                const bManual = b.source === 'manual' ? 1 : 0;
+                if (aManual !== bManual) return bManual - aManual;
+                const aUsed = a.lastUsedAt || 0;
+                const bUsed = b.lastUsedAt || 0;
+                if (aUsed !== bUsed) return bUsed - aUsed;
+                return (b.addedAt || 0) - (a.addedAt || 0);
+            });
         }
 
         function removeCustomBot(id) {
@@ -3304,22 +3354,18 @@
             localStorage.setItem('maxclient_bot_chat_' + botId, JSON.stringify(history.slice(-200)));
         }
 
-        // Рендерит текст сообщения бота: экранирование + блоки кода ``` ``` + ссылки,
-        // тем же способом, что и для обычных сообщений MAX (см. createMessageElement).
+        // Рендерит текст сообщения бота: та же логика, что и для обычных сообщений
+        // MAX без elements — экранирование + блоки кода ``` ``` + ссылки
+        // (см. renderPlainMessageText / buildMessageTextHtml).
         function renderBotMessageText(text) {
-            let processed = escapeHtml(text || '');
-            const { text: withoutCode, blocks } = extractCodeBlocks(processed);
-            processed = withoutCode;
-            processed = processed.replace(/(https?:\/\/[^\s<>"']+)/gi, (url) =>
-                `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`);
-            processed = reinsertCodeBlocks(processed, blocks);
-            return processed;
+            return renderPlainMessageText(text || '');
         }
 
         function openBotChatModal(botId) {
             const bot = getCustomBots().find(b => b.id === botId);
             if (!bot) return;
             activeBotChatId = botId;
+            touchCustomBot(botId);
             document.getElementById('botChatTitle').textContent = '🤖 ' + bot.name;
             renderBotChatMessages();
             document.getElementById('botChatModal').classList.add('active');
@@ -3357,6 +3403,7 @@
             const bot = getCustomBots().find(b => b.id === activeBotChatId);
             if (!bot) return;
             input.value = '';
+            touchCustomBot(activeBotChatId);
 
             const history = getBotChatHistory(activeBotChatId);
             history.push({ role: 'user', text, ts: Date.now() });
@@ -4033,6 +4080,110 @@
         }
 
         // ========================================
+        // ТЕКСТ СООБЩЕНИЙ: разметка MAX (elements: MONOSPACED/STRONG/HEADING/...)
+        // + фолбэк на markdown ``` для кастомных ботов + ссылки/упоминания
+        // ========================================
+        //
+        // Реальные сообщения MAX (в т.ч. от встроенных ботов вроде GigaChat)
+        // размечаются НЕ через markdown-символы в тексте, а через отдельный
+        // массив `elements`: [{ type: 'MONOSPACED'|'STRONG'|'HEADING'|..., from, length }],
+        // где from/length — смещения в исходном m.text (индексы UTF-16 code unit,
+        // как и обычная длина JS-строки). Если elements нет (например, у
+        // кастомных ботов, отвечающих обычным текстом) — используется прежний
+        // markdown-парсинг ``` код ``` .
+
+        function buildMessageTextHtml(m) {
+            const text = m.text || '';
+            if (Array.isArray(m.elements) && m.elements.length) {
+                return renderTextWithMaxElements(text, m.elements);
+            }
+            return renderPlainMessageText(text);
+        }
+
+        // Ссылки на max.ru, обычные http(s)-ссылки и @упоминания — общая логика,
+        // применяется только к «простым» (неразмеченным) кускам текста.
+        function linkifyPlainSegment(escapedSegment) {
+            let out = escapedSegment;
+            const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
+            out = out.replace(maxLinkRegex, function (url) {
+                return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
+            });
+            const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+            out = out.replace(urlRegex, function (url) {
+                if (/max\.ru\//i.test(url)) return url; // уже обработано выше
+                return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`;
+            });
+            const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
+            out = out.replace(mentionRegex, function (full, pre, username) {
+                return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
+            });
+            return out;
+        }
+
+        // Прежний путь: обычный текст (например, от кастомного бота), в котором
+        // ``` код ``` — единственный источник разметки.
+        function renderPlainMessageText(text) {
+            let processedText = escapeHtml(text);
+            const { text: textWithoutCode, blocks: codeBlocks } = extractCodeBlocks(processedText);
+            processedText = linkifyPlainSegment(textWithoutCode);
+            processedText = reinsertCodeBlocks(processedText, codeBlocks);
+            return processedText;
+        }
+
+        // Новый путь: реальный формат MAX с массивом elements.
+        function renderTextWithMaxElements(text, elements) {
+            const els = elements
+                .filter(e => e && typeof e.from === 'number' && typeof e.length === 'number' && e.length > 0)
+                .sort((a, b) => (a.from - b.from) || (b.length - a.length));
+
+            let html = '';
+            let pos = 0;
+            els.forEach(el => {
+                const start = el.from;
+                const end = el.from + el.length;
+                // Защита от некорректных/пересекающихся диапазонов — пропускаем,
+                // если элемент выходит за пределы текста или залезает на предыдущий.
+                if (start < pos || end > text.length || end <= start) return;
+                html += linkifyPlainSegment(escapeHtml(text.slice(pos, start)));
+                html += wrapMaxElement(el, text.slice(start, end));
+                pos = end;
+            });
+            html += linkifyPlainSegment(escapeHtml(text.slice(pos)));
+            return html;
+        }
+
+        function wrapMaxElement(el, rawInner) {
+            const inner = escapeHtml(rawInner);
+            switch (String(el.type || '').toUpperCase()) {
+                case 'MONOSPACED':
+                    return `<code class="msg-inline-code">${inner}</code>`;
+                case 'STRONG':
+                case 'BOLD':
+                    return `<b>${inner}</b>`;
+                case 'EMPHASIZED':
+                case 'ITALIC':
+                    return `<i>${inner}</i>`;
+                case 'STRIKETHROUGH':
+                case 'STRIKE':
+                    return `<s>${inner}</s>`;
+                case 'UNDERLINE':
+                    return `<u>${inner}</u>`;
+                case 'HEADING':
+                    return `<div class="msg-heading">${inner}</div>`;
+                case 'LINK': {
+                    const url = el.url || el.link || '';
+                    return url
+                        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${inner}</a>`
+                        : inner;
+                }
+                default:
+                    // Неизвестный тип разметки — показываем как обычный текст,
+                    // чтобы сообщение не потерялось из-за нового/незнакомого типа.
+                    return inner;
+            }
+        }
+
+        // ========================================
         // MARKDOWN: блоки кода ```lang ... ``` с подсветкой языка и кнопкой «Копировать»
         // ========================================
         //
@@ -4306,6 +4457,28 @@
             return false;
         }
 
+        // Строка списка для кастомного бота (добавлен вручную или из GitHub-реестра) —
+        // по клику открывает локальный чат с ботом по его HTTP API (см. openBotChatModal).
+        function customBotSearchStrings(bot) {
+            return [bot.name, bot.url];
+        }
+
+        function buildCustomBotItemEl(bot) {
+            const el = document.createElement('div');
+            el.className = 'chat-item';
+            el.dataset.botId = bot.id;
+            const initial = getInitials(bot.name);
+            el.innerHTML = `
+                <div class="chat-avatar" data-initials="${initial}" style="background:${avatarGradient(bot.id)};">🤖</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHtml(bot.name)}</div>
+                    <div class="chat-preview">Кастомный бот · нажмите, чтобы написать</div>
+                </div>
+            `;
+            el.onclick = () => openBotChatModal(bot.id);
+            return el;
+        }
+
         // Строка списка для контакта, с которым ещё нет чата — по клику
         // открывает/создаёт диалог (та же логика, что у peopleSearchPanel).
         function buildContactItemEl(contact) {
@@ -4466,6 +4639,15 @@
                     list.appendChild(buildContactItemEl(contact));
                 });
 
+                // Кастомные боты (добавлены вручную или из GitHub-реестра) — идут
+                // после реальных контактов MAX, но до локальных телефонных контактов.
+                // Порядок внутри: сначала добавленные вручную, затем недавно
+                // запускавшиеся (см. getCustomBotsSorted).
+                getCustomBotsSorted().forEach(bot => {
+                    if (!textMatchesQuery(customBotSearchStrings(bot), qRaw, qDigits)) return;
+                    list.appendChild(buildCustomBotItemEl(bot));
+                });
+
                 const shownPhones = new Set();
                 localPhoneContacts.forEach(localContact => {
                     const tail = phoneDigitsTail(localContact.phone);
@@ -4475,6 +4657,27 @@
                     shownPhones.add(tail);
                     list.appendChild(buildLocalContactItemEl(localContact));
                 });
+
+                // Если запрос похож на @username или ссылку max.ru — предлагаем
+                // найти/открыть его напрямую на сервере MAX (люди и боты, которых
+                // ещё нет ни в контактах, ни в кэше чатов). Это самый нижний
+                // приоритет — сначала показываем то, что уже есть локально.
+                const trimmedRaw = (chatFilterQuery || '').trim();
+                const usernameMatch = trimmedRaw.match(/^@([A-Za-z][A-Za-z0-9_]{2,31})$/);
+                const isMaxLink = /^https?:\/\/(www\.)?max\.ru\//i.test(trimmedRaw);
+                if (usernameMatch || isMaxLink) {
+                    const el = document.createElement('div');
+                    el.className = 'chat-item';
+                    el.innerHTML = `
+                        <div class="chat-avatar" style="background:#eee;color:#888;">🔎</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Найти в MAX: ${escapeHtml(trimmedRaw)}</div>
+                            <div class="chat-preview">Открыть профиль, чат или бота по ссылке/@юзернейму</div>
+                        </div>
+                    `;
+                    el.onclick = () => resolveMaxLink(usernameMatch ? ('https://max.ru/' + usernameMatch[1]) : trimmedRaw);
+                    list.appendChild(el);
+                }
             }
 
             if (qRaw && !list.children.length) {
@@ -4919,38 +5122,7 @@
             const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
             let textHtml = '';
             if (m.text && !(isTranslationKey && hasControlAttach)) {
-                // Регулярное выражение находит http(s)-ссылки
-                const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
-                let processedText = escapeHtml(m.text);
-
-                // Блоки кода ```lang ... ``` вырезаем первыми, чтобы их содержимое
-                // не попало под замену ссылок/упоминаний ниже.
-                const { text: textWithoutCode, blocks: codeBlocks } = extractCodeBlocks(processedText);
-                processedText = textWithoutCode;
-
-                // max.ru-ссылки (в т.ч. на профиль/канал/приглашение) резолвим
-                // через LINK_INFO вместо перехода во внешнюю вкладку.
-                const maxLinkRegex = /(https?:\/\/(?:www\.)?max\.ru\/[^\s<>"']+)/gi;
-                processedText = processedText.replace(maxLinkRegex, function (url) {
-                    return `<span class="mention-link" onclick="resolveMaxLink('${url.replace(/'/g, "\\'")}')">${url}</span>`;
-                });
-
-                // Заменяем найденные http(s)-ссылки на кликабельные теги <a>
-                processedText = processedText.replace(urlRegex, function (url) {
-                    if (/max\.ru\//i.test(url)) return url; // уже обработано выше
-                    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#007bff;text-decoration:underline;">${url}</a>`;
-                });
-
-                // @username-упоминания делаем кликабельными
-                const mentionRegex = /(^|[^\w@/])@([A-Za-z][A-Za-z0-9_]{2,31})/g;
-                processedText = processedText.replace(mentionRegex, function (full, pre, username) {
-                    return `${pre}<span class="mention-link" onclick="handleMentionClick('${username.replace(/'/g, "\\'")}')">@${username}</span>`;
-                });
-
-                // Возвращаем на место готовый HTML блоков кода
-                processedText = reinsertCodeBlocks(processedText, codeBlocks);
-
-                textHtml = `<div class=\"msg-text\">${processedText}</div>`;
+                textHtml = `<div class="msg-text">${buildMessageTextHtml(m)}</div>`;
             }
             const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             const chat = chatsById[currentChatId];
