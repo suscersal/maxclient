@@ -2,17 +2,6 @@
 
 [![Скачать APK (последний релиз)](https://img.shields.io/github/v/release/suscersal/maxclient?label=Download%20APK&logo=android&logoColor=white)](https://github.com/suscersal/maxclient/releases/latest/download/app-debug.apk)
 
-## Форматирование сообщений
-
-В тексте сообщений поддерживаются блоки кода в формате Markdown:
-
-<pre>
-```python
-print("hello")
-```
-</pre>
-
-Такой блок отрисовывается с подсветкой языка в шапке и кнопкой **«📋 Копировать»**, копирующей код в буфер обмена одним нажатием. Работает как в обычных чатах MAX, так и в чате с кастомными ботами (см. ниже).
 
 ## Кастомные боты
 
