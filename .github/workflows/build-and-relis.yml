@@ -141,7 +141,7 @@ jobs:
       - name: Build debug APK
         working-directory: android
         env:
-          ANDROID_KEYSTORE_PATH: app/maxclient-release.jks
+          ANDROID_KEYSTORE_PATH: maxclient-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
