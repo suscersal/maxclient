@@ -37,9 +37,48 @@ android {
         }
     }
 
+    // ВАЖНО: без этого блока CI (GitHub Actions) собирает debug-APK на
+    // одноразовом раннере, где каждый раз генерируется НОВЫЙ случайный
+    // debug.keystore — то есть каждая сборка подписана разным ключом.
+    // Android при установке APK сверяет подпись с уже установленным
+    // приложением и отказывает в обновлении "поверх", если подпись другая
+    // (требуя сначала удалить старую версию) — это и есть причина проблемы
+    // "нельзя обновиться без удаления". Раньше это было незаметно локально,
+    // где debug.keystore один и тот же на диске разработчика.
+    //
+    // Решение — подписывать ВСЕ сборки (и debug, и release) одним и тем же
+    // постоянным keystore. Он не хранится в репозитории (см. .gitignore) —
+    // на CI его подкладывает шаг "Decode signing keystore" в workflow из
+    // GitHub Secret (ANDROID_KEYSTORE_BASE64), передавая путь/пароли через
+    // переменные окружения. Локально, если этих переменных нет, используется
+    // обычная временная debug-подпись Android Studio/Gradle — сборка при
+    // этом не ломается, просто такой APK нельзя будет обновить поверх
+    // "официального" CI-билда без переустановки (это ожидаемо для локальной
+    // разработки).
+    def hasCustomSigning = System.getenv("ANDROID_KEYSTORE_PATH") != null
+
+    if (hasCustomSigning) {
+        signingConfigs {
+            custom {
+                storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasCustomSigning) {
+                signingConfig signingConfigs.custom
+            }
+        }
         release {
             minifyEnabled false
+            if (hasCustomSigning) {
+                signingConfig signingConfigs.custom
+            }
         }
     }
 

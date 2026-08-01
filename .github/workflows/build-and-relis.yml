@@ -127,8 +127,24 @@ jobs:
           file android/app/src/main/assets/loading.gif
           echo "size: $(stat -c%s android/app/src/main/assets/loading.gif) bytes"
 
+      # Подписываем APK одним и тем же постоянным keystore на каждой
+      # сборке — иначе GitHub Actions генерирует новый случайный
+      # debug.keystore на каждом раннере, и пользователи не могут
+      # обновиться поверх старой версии (Android требует совпадения
+      # подписи для установки "поверх"). Секрет ANDROID_KEYSTORE_BASE64
+      # нужно один раз завести в Settings → Secrets and variables →
+      # Actions этого репозитория.
+      - name: Decode signing keystore
+        working-directory: .
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/maxclient-release.jks
+
       - name: Build debug APK
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: app/maxclient-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle assembleDebug --stacktrace
 
       - name: Verify loading.gif ended up inside the built APK
