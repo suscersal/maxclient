@@ -153,7 +153,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # разрешает запросы из браузера (см. раздел про CORS выше)
+CORS(app)  # разрешает запросы из браузера (клиент открыт на другом origin)
+
 
 @app.route("/api/info")
 def info():
@@ -163,15 +164,31 @@ def info():
         "version": "1.0",
     })
 
+
 @app.route("/api/message", methods=["POST"])
 def message():
     data = request.get_json(force=True)
     text = data.get("text", "")
-    return jsonify({"text": f"Эхо: {text}"})
+
+    if text == '/about':
+        user_info = data.get('user', {})
+        if isinstance(user_info, dict):
+            user_name = user_info.get('name', 'Unknown')
+            user_id = user_info.get('id', 'Unknown')
+            output_text = f"Имя: {user_name}, ID: {user_id}"
+        else:
+            output_text = f"{user_info}"
+
+        return jsonify({"text": output_text})
+    else:
+        return jsonify({
+            "text": f"Эхо: {text}"
+        })
+
 
 if __name__ == "__main__":
-    # Не забудь открыть порт наружу (сетевой доступ, firewall, проброс порта и т.п.)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=1904)
+
 ```
 
 После запуска добавь бота в реестр (`bots.json`) или вручную в клиенте, указав `http://<твой-адрес>:8080`.

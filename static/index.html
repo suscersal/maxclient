@@ -3395,6 +3395,34 @@
                 </div>`).join('');
             container.scrollTop = container.scrollHeight;
         }
+        function getCurrentUserName() {
+            // 1. Проверяем, есть ли у нас загруженный профиль
+            if (currentProfilePayload && currentProfilePayload.names) {
+                // Ищем имя с типом ONEME или CUSTOM
+                const nameEntry = currentProfilePayload.names.find(
+                    n => n.type === 'ONEME' || n.type === 'CUSTOM'
+                );
+                if (nameEntry && nameEntry.name) {
+                    return nameEntry.name;
+                }
+            }
+
+            // 2. Если профиля нет или там нет имени, пробуем взять из contactsById
+            if (selfId && contactsById[selfId]) {
+                const contact = contactsById[selfId];
+                if (contact.names) {
+                    const nameEntry = contact.names.find(
+                        n => n.type === 'ONEME' || n.type === 'CUSTOM'
+                    );
+                    if (nameEntry && nameEntry.name) {
+                        return nameEntry.name;
+                    }
+                }
+            }
+
+            // 3. Если ничего не нашли — возвращаем заглушку
+            return 'Пользователь MAX';
+        }
 
         async function sendBotChatMessage() {
             const input = document.getElementById('botChatInput');
@@ -3416,7 +3444,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         chat_id: activeBotChatId,
-                        user: { id: selfId || null, name: 'Пользователь' },
+                        user: { id: selfId || null, name: getCurrentUserName() },
                         text,
                         history: history.slice(-20),
                     }),
