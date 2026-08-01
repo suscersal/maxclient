@@ -5421,23 +5421,91 @@
                         return;
                     }
                     if (data.opcode === 132 && data.payload) {
-                        const uid = data.payload.userId;
-                        const p = data.payload.presence;
-                        if (uid != null && p) {
-                            presenceById[uid] = { online: p.status === 1, seen: p.seen || 0 };
-                            if (currentChatId) {
-                                const chat = chatsById[currentChatId];
-                                if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
-                                    const statusEl = document.getElementById('chatDetailStatus');
-                                    if (statusEl) {
-                                        statusEl.textContent = p.status === 1 ? 'в сети' : 'был(а) в сети';
-                                        statusEl.style.color = p.status === 1 ? '#4caf50' : '#888';
-                                    }
-                                }
-                            }
+const uid = data.payload.userId;
+const p = data.payload.presence;
+
+if (uid != null && p) {
+    // 🔥 ЗАГРУЗКА: получаем сохранённое время последнего визита
+    let savedLastSeen = null;
+    try {
+        const allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
+        savedLastSeen = allPresences[uid]?.lastSeen || null;
+    } catch (e) {}
+    
+    // Обновляем текущий статус
+    presenceById[uid] = { 
+        online: p.status === 1, 
+        seen: p.seen || 0 
+    };
+    
+    // 🔥 СОХРАНЕНИЕ: записываем текущее присутствие
+    try {
+        let allPresences = JSON.parse(localStorage.getItem('user\_presences')) || {};
+        
+        allPresences[uid] = {
+            online: p.status === 1,
+            lastSeen: Date.now(),
+            rawSeen: p.seen || 0,
+            statusCode: p.status
+        };
+        
+        // Ограничиваем до 50 последних пользователей
+        const userIds = Object.keys(allPresences);
+        if (userIds.length > 50) {
+            const sorted = userIds.sort((a, b) => allPresences[b].lastSeen - allPresences[a].lastSeen);
+            for (let i = 50; i < sorted.length; i++) {
+                delete allPresences[sorted[i]];
+            }
+        }
+        
+        localStorage.setItem('user\_presences', JSON.stringify(allPresences));
+    } catch (e) {}
+    
+    if (currentChatId) {
+        const chat = chatsById[currentChatId];
+        if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
+            const statusEl = document.getElementById('chatDetailStatus');
+            if (statusEl) {
+                if (p.status === 1) {
+                    // Пользователь онлайн
+                    statusEl.textContent = 'в сети';
+                    statusEl.style.color = '#4caf50';
+                } else {
+                    // Пользователь офлайн — показываем время
+                    let timeText = '';
+                    
+                    if (savedLastSeen) {
+                        const diffMs = Date.now() - savedLastSeen;
+                        const diffMins = Math.floor(diffMs / 60000);
+                        
+                        if (diffMins < 60) {
+                            timeText = `{diffMins} мин. назад`;
+                        } else if (diffMins < 1440) {
+                            timeText = `{Math.floor(diffMins / 60)} ч. назад`;
+                        } else {
+                            timeText = `{Math.floor(diffMins / 1440)} дн. назад`;
                         }
-                        return;
+                    } else if (p.seen) {
+                        // Fallback на серверные данные
+                        const serverTime = new Date(p.seen * 1000);
+                        const now = new Date();
+                        const diffMinutes = Math.floor((now - serverTime) / 60000);
+                        
+                        if (diffMinutes < 60) {
+                            timeText = diffMinutes + 'мин. назад';
+                        } else if (diffMinutes < 1440) {
+                            timeText = Math.floor(diffMinutes / 60) + 'ч. назад';
+                        } else {
+                            timeText = Math.floor(diffMinutes / 1440) + 'дн. назад';
+                        }
                     }
+                }
+            }
+        }
+        return;
+    }
+}
+}
 
                     // notifMessage — новое входящее сообщение в реальном времени
                     if (data.opcode === 128 && data.payload) {
