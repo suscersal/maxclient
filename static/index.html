@@ -3267,6 +3267,21 @@
                     <button class="btn-save" onclick="saveScamCheckSettings()">💾 Сохранить</button>
                 </div>
                 <div id="scamCheckStatus" style="font-size:12px;color:#888;margin-top:8px;"></div>
+
+                <hr class="settings-menu-divider">
+                <div style="margin:14px 0 6px;font-weight:600;">🧪 Проверить текст вручную</div>
+                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-bottom:8px;">
+                    Отправляет текст на /api/scam-check напрямую, минуя очередь и чат —
+                    удобно для отладки, показывает сырой ответ сервера целиком (включая ошибки).
+                </div>
+                <div class="settings-row">
+                    <textarea id="scamCheckTestInput" placeholder="Например: Переведите деньги срочно на карту, иначе заблокируем счёт"
+                              style="width:100%;min-height:70px;resize:vertical;font-family:inherit;font-size:14px;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.15);"></textarea>
+                </div>
+                <div class="settings-content-footer">
+                    <button class="btn-save" onclick="runScamCheckTest()">▶️ Проверить</button>
+                </div>
+                <pre id="scamCheckTestResult" style="white-space:pre-wrap;word-break:break-word;font-size:12px;background:rgba(0,0,0,0.05);border-radius:8px;padding:8px;margin-top:8px;display:none;"></pre>
             `;
         }
 
@@ -3310,11 +3325,52 @@
             refreshScamCheckModelStatus();
         }
 
+        async function runScamCheckTest() {
+            const input = document.getElementById('scamCheckTestInput');
+            const out = document.getElementById('scamCheckTestResult');
+            const text = input?.value.trim();
+            if (!out) return;
+            if (!text) {
+                out.style.display = '';
+                out.textContent = 'Введите текст для проверки.';
+                return;
+            }
+            out.style.display = '';
+            out.textContent = '⏳ Отправляю запрос...';
+            console.log('[scam-check][manual test] request', text);
+            try {
+                const res = await fetch('/api/scam-check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text }),
+                });
+                const bodyText = await res.text();
+                console.log('[scam-check][manual test] response', res.status, bodyText);
+                let pretty = bodyText;
+                try { pretty = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (e) { /* не JSON — покажем как есть */ }
+                out.textContent = `HTTP ${res.status}\n\n${pretty}`;
+            } catch (e) {
+                console.warn('[scam-check][manual test] fetch failed', e);
+                out.textContent = '❌ Запрос не выполнен (fetch exception): ' + (e.message || e);
+            }
+        }
+
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
         // на обычном железе не тянет параллельные запросы без деградации.
         function queueScamCheck(msgId, text) {
-            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) return;
-            if (!text || scamVerdictCache[msgId]) return;
+            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
+                console.log('[scam-check] skip: проверка выключена или настройки ещё не загружены', { msgId, settings: scamCheckSettingsCache });
+                return;
+            }
+            if (!text) {
+                console.log('[scam-check] skip: пустой текст сообщения', { msgId });
+                return;
+            }
+            if (scamVerdictCache[msgId]) {
+                console.log('[scam-check] skip: вердикт уже в кэше', { msgId, verdict: scamVerdictCache[msgId] });
+                return;
+            }
+            console.log('[scam-check] queued', { msgId, text });
             scamCheckQueue.push({ msgId, text });
             processScamCheckQueue();
         }
@@ -3324,6 +3380,7 @@
             const job = scamCheckQueue.shift();
             if (!job) return;
             scamCheckBusy = true;
+            console.log('[scam-check] sending request', job);
             try {
                 const res = await fetch('/api/scam-check', {
                     method: 'POST',
@@ -3332,11 +3389,15 @@
                 });
                 if (res.ok) {
                     const verdict = await res.json();
+                    console.log('[scam-check] verdict received', { msgId: job.msgId, verdict });
                     scamVerdictCache[job.msgId] = verdict;
                     applyScamVerdictToDom(job.msgId, verdict);
+                } else {
+                    const errText = await res.text();
+                    console.warn('[scam-check] server returned error', res.status, errText);
                 }
             } catch (e) {
-                // Локальный сервер недоступен — молча пропускаем, не мешаем чату.
+                console.warn('[scam-check] request failed (fetch exception)', e);
             } finally {
                 scamCheckBusy = false;
                 if (scamCheckQueue.length) processScamCheckQueue();
@@ -3345,7 +3406,10 @@
 
         function applyScamVerdictToDom(msgId, verdict) {
             const el = document.querySelector(`.msg-bubble[data-msg-id="${msgId}"] .msg-scam-badge`);
-            if (!el) return;
+            if (!el) {
+                console.warn('[scam-check] badge element not found in DOM for msgId', msgId, '(сообщение уже перерисовано/удалено?)');
+                return;
+            }
             if (verdict.is_scam) {
                 el.style.display = '';
                 el.textContent = `⚠️ Похоже на скам (${verdict.confidence ?? '?'}%): ${verdict.reason || ''}`;

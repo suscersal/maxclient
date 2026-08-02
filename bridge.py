@@ -1726,25 +1726,54 @@ def scam_check():
     ничего никуда не уходит) -> если недоступна (десктоп/модель ещё не
     скачана) — внешний OpenAI-совместимый сервер из настроек."""
     cfg = _get_scam_check_settings()
+    logger.info(f"[scam-check] request received, enabled={cfg['enabled']}")
     if not cfg["enabled"]:
+        logger.info("[scam-check] rejected: disabled in settings")
         return jsonify({"error": "disabled"}), 400
 
     data = request.get_json(force=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
+        logger.info("[scam-check] rejected: empty text")
         return jsonify({"error": "empty text"}), 400
     text = text[:2000]  # не гоняем через LLM гигантские сообщения
+    logger.info(
+        f"[scam-check] checking text ({len(text)} chars): {text[:120]!r}")
 
     llm = get_on_device_llm()
+    on_device_status = (
+        "ready" if llm is not None else
+        ("no_android_context" if _android_context is None else
+         ("model_not_downloaded" if not os.path.exists(GEMMA_MODEL_FILE) else "init_failed"))
+    )
+    logger.info(f"[scam-check] on-device engine available: {llm is not None} "
+                f"(android_context={_android_context is not None}, "
+                f"model_file_exists={os.path.exists(GEMMA_MODEL_FILE)})")
+    on_device_error = None
     if llm is not None:
         try:
             prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
             content = llm.generateResponse(prompt)
-            return jsonify({**_parse_scam_verdict_text(content), "engine": "on-device"})
+            logger.info(
+                f"[scam-check] on-device raw response: {content[:300]!r}")
+            verdict = _parse_scam_verdict_text(content)
+            logger.info(f"[scam-check] on-device verdict: {verdict}")
+            return jsonify({**verdict, "engine": "on-device"})
         except Exception as e:
+            on_device_error = str(e)
+            on_device_status = "inference_failed"
             logger.warning(
                 f"[scam-check] on-device inference failed, falling back: {e}")
             # падаем ниже на внешний сервер (если он настроен), а не наружу с ошибкой
+    else:
+        logger.info(
+            f"[scam-check] no on-device engine ({on_device_status}), falling back to external server")
+
+    # debug-поле — не влияет на логику, только чтобы фронт мог показать в
+    # 🐞-консоли (console.log перехватывается ею), ПОЧЕМУ пошли во внешний
+    # сервер вместо on-device.
+    debug_info = {"onDeviceStatus": on_device_status,
+                  "onDeviceError": on_device_error}
 
     body = json.dumps({
         "model": cfg["model"],
@@ -1768,21 +1797,22 @@ def scam_check():
         return jsonify({
             "error": "no engine available (on-device model not ready, external server unreachable)",
             "details": str(e),
+            **debug_info,
         }), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": str(e), **debug_info}), 502
 
     try:
         content = raw["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        return jsonify({"error": "unexpected response from local model", "raw": raw}), 502
+        return jsonify({"error": "unexpected response from local model", "raw": raw, **debug_info}), 502
 
     try:
         verdict = _parse_scam_verdict_text(content)
     except json.JSONDecodeError:
-        return jsonify({"error": "model did not return valid JSON", "raw_text": content}), 502
+        return jsonify({"error": "model did not return valid JSON", "raw_text": content, **debug_info}), 502
 
-    return jsonify({**verdict, "engine": "external"})
+    return jsonify({**verdict, "engine": "external", **debug_info})
 
 
 @app.route("/api/chats-cache", methods=["GET"])
