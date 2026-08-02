@@ -477,6 +477,17 @@
             color: #e53935;
         }
 
+        .msg-scam-badge {
+            font-size: 11px;
+            color: #e53935;
+            background: rgba(229, 57, 53, 0.1);
+            border: 1px solid rgba(229, 57, 53, 0.3);
+            border-radius: 6px;
+            padding: 4px 6px;
+            margin-top: 4px;
+            line-height: 1.35;
+        }
+
         .bot-webapp-bar {
             display: flex;
             align-items: center;
@@ -3140,6 +3151,153 @@
         }
 
         // ========================================
+        // СКАМ-ПРОВЕРКА СООБЩЕНИЙ ЛОКАЛЬНОЙ ИИ-МОДЕЛЬЮ
+        // ========================================
+        //
+        // На Android бридж (bridge.py) прогоняет сообщения через ИИ-модель,
+        // работающую ПРЯМО В ПРИЛОЖЕНИИ (MediaPipe LLM Inference через
+        // Chaquopy) — ничего ставить/настраивать не нужно, модель качается
+        // один раз в фоне сама. На десктопе (или пока модель ещё не
+        // скачалась) используется fallback на внешний OpenAI-совместимый
+        // сервер (Ollama/llama.cpp/LM Studio), см. поля URL/модель ниже.
+
+        let scamCheckSettingsCache = null;
+        const scamVerdictCache = {}; // msgId -> { is_scam, confidence, reason }
+        let scamCheckQueue = [];
+        let scamCheckBusy = false;
+
+        async function loadScamCheckSettings() {
+            try {
+                const res = await fetch('/api/scam-check/settings');
+                scamCheckSettingsCache = await res.json();
+            } catch (e) {
+                scamCheckSettingsCache = { enabled: false, url: '', model: '' };
+            }
+            return scamCheckSettingsCache;
+        }
+
+        async function refreshScamCheckModelStatus() {
+            const el = document.getElementById('scamCheckModelStatus');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/scam-check/model-status');
+                const st = await res.json();
+                if (!st.onDeviceSupported) {
+                    el.textContent = 'On-device модель недоступна (не Android-сборка) — используется внешний сервер ниже.';
+                } else if (st.modelReady) {
+                    el.textContent = '✅ Модель на устройстве готова, проверка работает автоматически.';
+                } else if (st.downloading) {
+                    el.textContent = '⏳ Модель скачивается в фоне (один раз, несколько сотен МБ)…';
+                    setTimeout(refreshScamCheckModelStatus, 3000);
+                } else if (st.error) {
+                    el.textContent = '❌ Не удалось скачать модель: ' + st.error;
+                } else {
+                    el.textContent = 'Модель ещё не скачана — начнётся автоматически после включения проверки.';
+                }
+            } catch (e) {
+                el.textContent = '';
+            }
+        }
+
+        function renderScamCheckPage() {
+            const cfg = scamCheckSettingsCache || { enabled: false, url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1' };
+            setTimeout(refreshScamCheckModelStatus, 0);
+            return `
+                <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
+                    Проверка новых сообщений на скам/мошенничество ИИ-моделью. На Android
+                    модель работает прямо в приложении (скачивается один раз в фоне после
+                    включения) — текст сообщений никуда не отправляется.
+                </div>
+                <div class="settings-row">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="scamCheckEnabled" ${cfg.enabled ? 'checked' : ''}>
+                        Включить проверку
+                    </label>
+                </div>
+                <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 12px;"></div>
+                <hr class="settings-menu-divider">
+                <div style="margin:14px 0 6px;font-weight:600;">Внешний сервер (fallback, для десктопа)</div>
+                <div class="settings-row">
+                    <input class="setting-key" id="scamCheckUrl" placeholder="http://localhost:11434/v1/chat/completions"
+                           value="${escapeHtml(cfg.url || '')}" style="flex:1;">
+                </div>
+                <div class="settings-row">
+                    <input class="setting-value" id="scamCheckModel" placeholder="Имя модели (например llama3.1)"
+                           value="${escapeHtml(cfg.model || '')}" style="flex:1;">
+                </div>
+                <div class="settings-content-footer">
+                    <button class="btn-save" onclick="saveScamCheckSettings()">💾 Сохранить</button>
+                </div>
+                <div id="scamCheckStatus" style="font-size:12px;color:#888;margin-top:8px;"></div>
+            `;
+        }
+
+        async function saveScamCheckSettings() {
+            const enabled = document.getElementById('scamCheckEnabled')?.checked || false;
+            const url = document.getElementById('scamCheckUrl')?.value.trim() || '';
+            const model = document.getElementById('scamCheckModel')?.value.trim() || '';
+            const statusEl = document.getElementById('scamCheckStatus');
+            try {
+                const res = await fetch('/api/scam-check/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, url, model }),
+                });
+                const json = await res.json();
+                if (!json.ok) throw new Error(json.error || 'unknown error');
+                scamCheckSettingsCache = json;
+                if (statusEl) statusEl.textContent = '✅ Сохранено';
+                refreshScamCheckModelStatus();
+            } catch (e) {
+                if (statusEl) statusEl.textContent = '❌ Ошибка: ' + (e.message || e);
+            }
+        }
+
+        // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
+        // на обычном железе не тянет параллельные запросы без деградации.
+        function queueScamCheck(msgId, text) {
+            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) return;
+            if (!text || scamVerdictCache[msgId]) return;
+            scamCheckQueue.push({ msgId, text });
+            processScamCheckQueue();
+        }
+
+        async function processScamCheckQueue() {
+            if (scamCheckBusy) return;
+            const job = scamCheckQueue.shift();
+            if (!job) return;
+            scamCheckBusy = true;
+            try {
+                const res = await fetch('/api/scam-check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: job.text }),
+                });
+                if (res.ok) {
+                    const verdict = await res.json();
+                    scamVerdictCache[job.msgId] = verdict;
+                    applyScamVerdictToDom(job.msgId, verdict);
+                }
+            } catch (e) {
+                // Локальный сервер недоступен — молча пропускаем, не мешаем чату.
+            } finally {
+                scamCheckBusy = false;
+                if (scamCheckQueue.length) processScamCheckQueue();
+            }
+        }
+
+        function applyScamVerdictToDom(msgId, verdict) {
+            const el = document.querySelector(`.msg-bubble[data-msg-id="${msgId}"] .msg-scam-badge`);
+            if (!el) return;
+            if (verdict.is_scam) {
+                el.style.display = '';
+                el.textContent = `⚠️ Похоже на скам (${verdict.confidence ?? '?'}%): ${verdict.reason || ''}`;
+            } else {
+                el.remove();
+            }
+        }
+
+        // ========================================
         // КАСТОМНЫЕ БОТЫ: реестр на GitHub + локальный чат по HTTP API бота
         // ========================================
         //
@@ -3846,6 +4004,7 @@
             .addItem({ id: 'device', icon: '📱', label: 'Устройство', page: renderDevicePage })
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
+            .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
             .render();
 
         // Подгружаем данные профиля устройства сразу после того, как страница
@@ -5195,6 +5354,18 @@
                     encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
                 }
             }
+            // Бейдж скам-проверки: пустой и скрытый, пока не пришёл вердикт
+            // от локальной ИИ-модели (см. queueScamCheck/applyScamVerdictToDom).
+            let scamBadgeHtml = '';
+            if (!isOwn && m.text) {
+                const cached = scamVerdictCache[m.id];
+                if (cached && cached.is_scam) {
+                    scamBadgeHtml = `<div class="msg-scam-badge">⚠️ Похоже на скам (${cached.confidence ?? '?'}%): ${escapeHtml(cached.reason || '')}</div>`;
+                } else if (!cached) {
+                    scamBadgeHtml = '<div class="msg-scam-badge" style="display:none;"></div>';
+                    queueScamCheck(m.id, m.text);
+                }
+            }
             (m.attaches || []).forEach(a => {
                 if (a._type === 'PHOTO') {
                     let src = a.baseRawUrl || a.baseUrl;
@@ -5322,7 +5493,7 @@
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
             const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
         }
 
@@ -7175,6 +7346,7 @@
             Notification.requestPermission();
         }
 
+        loadScamCheckSettings();
         connect();
 
         window.addEventListener('online', () => {

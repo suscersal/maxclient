@@ -381,7 +381,11 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val py = Python.getInstance()
             val launcher = py.getModule("bridge_launcher")
-            launcher.callAttr("start_server", sessionFile, port, hotpatchPath)
+            // applicationContext (а не this/Activity!) — он переживает
+            // пересоздание Activity и не течёт: on-device ИИ-модель
+            // (MediaPipe, см. bridge.py/get_on_device_llm) держит эту
+            // ссылку в Python-модуле всё время жизни процесса.
+            launcher.callAttr("start_server", sessionFile, port, hotpatchPath, applicationContext)
         }.start()
     }
 
