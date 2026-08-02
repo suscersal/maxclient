@@ -3681,14 +3681,84 @@
         }
 
 
+        function renderDevicePage() {
+            return `
+        <div style="padding:4px 0;">
+            <div style="font-size:13px;color:#888;margin-bottom:12px;">
+                Эти данные передаются серверу MAX при подключении (какое устройство и версия
+                системы "видит" сервер). Смена профиля не требует новой авторизации; смена
+                Device ID — требует (сервер увидит это как новое устройство).
+            </div>
+
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <label style="font-size:13px;font-weight:600;">Профиль устройства</label>
+                <select id="deviceProfileSelect" style="padding:8px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:14px;">
+                <label style="font-size:13px;font-weight:600;">Device ID</label>
+                <div id="deviceIdDisplay" style="font-family:monospace;font-size:12px;background:#f5f5f5;padding:8px;border-radius:8px;word-break:break-all;color:#555;">—</div>
+                <button class="settings-menu-item danger" style="width:auto;padding:8px 14px;margin-top:4px;"
+                        onclick="regenerateDeviceId()">🔄 Пересоздать Device ID</button>
+            </div>
+        </div>
+    `;
+        }
+
+        async function loadDeviceSettings() {
+            try {
+                const res = await fetch('/api/device-settings');
+                const data = await res.json();
+                const select = document.getElementById('deviceProfileSelect');
+                if (!select) return;
+                select.innerHTML = Object.entries(data.profiles || {})
+                    .map(([id, label]) => `<option value="${id}">${escapeHtml(label)}</option>`)
+                    .join('');
+                select.value = data.profile;
+                select.onchange = async () => {
+                    await fetch('/api/device-settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ profile: select.value }),
+                    });
+                    log('✅ Профиль устройства изменён (подключится со следующего коннекта)', 'success');
+                };
+                const idEl = document.getElementById('deviceIdDisplay');
+                if (idEl) idEl.textContent = data.deviceId;
+            } catch (e) {
+                console.error('[device-settings] failed to load', e);
+            }
+        }
+
+        async function regenerateDeviceId() {
+            if (!confirm('Сервер MAX увидит это как новое устройство — может потребоваться заново пройти вход по коду. Продолжить?')) return;
+            try {
+                const res = await fetch('/api/device-settings/regenerate', { method: 'POST' });
+                const data = await res.json();
+                const idEl = document.getElementById('deviceIdDisplay');
+                if (idEl) idEl.textContent = data.deviceId;
+                log('✅ Device ID пересоздан', 'success');
+            } catch (e) {
+                log('❌ Не удалось пересоздать Device ID: ' + e.message, 'error');
+            }
+        }
+
         const settingsMenu = new SettingsMenu();
         settingsMenu
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
+            .addItem({ id: 'device', icon: '📱', label: 'Устройство', page: renderDevicePage })
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .render();
+
+        // Подгружаем данные профиля устройства сразу после того, как страница
+        // "Устройство" будет вставлена в DOM (render() уже вызвал innerHTML для
+        // всех страниц синхронно, так что элементы уже существуют).
+        loadDeviceSettings();
 
         function renderGifPreviewPage() {
             return `

@@ -244,6 +244,62 @@ def get_or_create_device_id() -> str:
     return sess["deviceId"]
 
 
+def regenerate_device_id() -> str:
+    """Полная пересборка ID устройства — сервер MAX увидит это как новое
+    устройство (может потребовать заново пройти авторизацию/код)."""
+    sess = load_session()
+    sess["deviceId"] = str(uuid.uuid4())
+    save_session(sess)
+    return sess["deviceId"]
+
+
+# Пресеты профилей устройства для handshake (userAgent). Ключ — id, значение —
+# сами поля userAgent, кроме appVersion (она всегда берётся отдельно, через
+# get_latest_app_version()).
+DEVICE_PROFILES = {
+    "samsung_s23": {
+        "label": "Samsung Galaxy S23 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Samsung Galaxy S23", "screen": "xxhdpi 480dpi 1080x2340",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "pixel_8": {
+        "label": "Google Pixel 8 / Android 15",
+        "deviceType": "ANDROID", "osVersion": "Android 15",
+        "deviceName": "Google Pixel 8", "screen": "xxhdpi 420dpi 1080x2400",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "xiaomi_14": {
+        "label": "Xiaomi 14 / Android 14 (HyperOS)",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Xiaomi 14", "screen": "xxxhdpi 480dpi 1200x2670",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "poco_x6": {
+        "label": "Poco X6 Pro / Android 14 (HyperOS)",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Poco X6 Pro", "screen": "xhdpi 440dpi 1220x2712",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+}
+DEFAULT_DEVICE_PROFILE = "samsung_s23"
+
+
+def get_device_profile_id() -> str:
+    sess = load_session()
+    pid = sess.get("deviceProfile", DEFAULT_DEVICE_PROFILE)
+    return pid if pid in DEVICE_PROFILES else DEFAULT_DEVICE_PROFILE
+
+
+def set_device_profile_id(profile_id: str) -> bool:
+    if profile_id not in DEVICE_PROFILES:
+        return False
+    sess = load_session()
+    sess["deviceProfile"] = profile_id
+    save_session(sess)
+    return True
+
+
 def save_auth_token(token: str):
     sess = load_session()
     sess["authToken"] = token
@@ -410,22 +466,23 @@ class MaxClient:
         self._send_handshake(existing_token)
 
     def _send_handshake(self, existing_token: str = None):
+        profile = DEVICE_PROFILES[get_device_profile_id()]
         payload = {
             "mt_instanceid": str(uuid.uuid4()),
             "clientSessionId": random.randint(1, 100),
             "deviceId": get_or_create_device_id(),
             "userAgent": {
-                "deviceType": "ANDROID",
+                "deviceType": profile["deviceType"],
                 "locale": "ru",
                 "deviceLocale": "ru",
-                "osVersion": "Android 14",
-                "deviceName": "Samsung Galaxy S23",
+                "osVersion": profile["osVersion"],
+                "deviceName": profile["deviceName"],
                 "appVersion": get_latest_app_version(),
-                "screen": "xxhdpi 480dpi 1080x2340",
+                "screen": profile["screen"],
                 "timezone": "Europe/Moscow",
                 "pushDeviceType": "GCM",
-                "arch": "arm64-v8a",
-                "buildNumber": 6498,
+                "arch": profile["arch"],
+                "buildNumber": profile["buildNumber"],
             },
         }
         if existing_token:
@@ -976,6 +1033,31 @@ def check_auth():
     if token:
         return jsonify({"authenticated": True})
     return jsonify({"authenticated": False})
+
+
+@app.route("/api/device-settings", methods=["GET"])
+def get_device_settings():
+    return jsonify({
+        "deviceId": get_or_create_device_id(),
+        "profile": get_device_profile_id(),
+        "profiles": {pid: p["label"] for pid, p in DEVICE_PROFILES.items()},
+    })
+
+
+@app.route("/api/device-settings", methods=["POST"])
+def set_device_settings():
+    data = request.get_json(force=True) or {}
+    profile_id = data.get("profile")
+    if not profile_id or not set_device_profile_id(profile_id):
+        return jsonify({"error": "unknown profile"}), 400
+    return jsonify({"ok": True, "profile": profile_id})
+
+
+@app.route("/api/device-settings/regenerate", methods=["POST"])
+def regenerate_device_settings():
+    new_id = regenerate_device_id()
+    logger.info(f"[device] deviceId regenerated: {new_id}")
+    return jsonify({"ok": True, "deviceId": new_id})
 
 
 @app.route("/api/chats-cache", methods=["GET"])
