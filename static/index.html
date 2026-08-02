@@ -3171,36 +3171,58 @@
                 const res = await fetch('/api/scam-check/settings');
                 scamCheckSettingsCache = await res.json();
             } catch (e) {
-                scamCheckSettingsCache = { enabled: false, url: '', model: '' };
+                scamCheckSettingsCache = { enabled: false, url: '', model: '', hfToken: '' };
             }
             return scamCheckSettingsCache;
         }
 
+        function formatBytes(n) {
+            if (!n) return '0 МБ';
+            return (n / (1024 * 1024)).toFixed(0) + ' МБ';
+        }
+
         async function refreshScamCheckModelStatus() {
-            const el = document.getElementById('scamCheckModelStatus');
-            if (!el) return;
+            const box = document.getElementById('scamCheckModelStatus');
+            const barWrap = document.getElementById('scamCheckProgressWrap');
+            const bar = document.getElementById('scamCheckProgressBar');
+            const deleteBtn = document.getElementById('scamCheckDeleteBtn');
+            const retryBtn = document.getElementById('scamCheckRetryBtn');
+            if (!box) return;
             try {
                 const res = await fetch('/api/scam-check/model-status');
                 const st = await res.json();
+                if (barWrap) barWrap.style.display = 'none';
+                if (deleteBtn) deleteBtn.style.display = 'none';
+                if (retryBtn) retryBtn.style.display = 'none';
+
                 if (!st.onDeviceSupported) {
-                    el.textContent = 'On-device модель недоступна (не Android-сборка) — используется внешний сервер ниже.';
+                    box.textContent = 'On-device модель недоступна (не Android-сборка) — используется внешний сервер ниже.';
                 } else if (st.modelReady) {
-                    el.textContent = '✅ Модель на устройстве готова, проверка работает автоматически.';
+                    box.textContent = '✅ Модель на устройстве готова, проверка работает автоматически.';
+                    if (deleteBtn) deleteBtn.style.display = '';
                 } else if (st.downloading) {
-                    el.textContent = '⏳ Модель скачивается в фоне (один раз, несколько сотен МБ)…';
-                    setTimeout(refreshScamCheckModelStatus, 3000);
+                    const pct = st.totalBytes ? Math.round(st.downloadedBytes / st.totalBytes * 100) : null;
+                    box.textContent = pct != null
+                        ? `⏳ Скачивается модель: ${pct}% (${formatBytes(st.downloadedBytes)} / ${formatBytes(st.totalBytes)})`
+                        : `⏳ Скачивается модель: ${formatBytes(st.downloadedBytes)}…`;
+                    if (barWrap && bar) {
+                        barWrap.style.display = '';
+                        bar.style.width = (pct != null ? pct : 0) + '%';
+                    }
+                    setTimeout(refreshScamCheckModelStatus, 1500);
                 } else if (st.error) {
-                    el.textContent = '❌ Не удалось скачать модель: ' + st.error;
+                    box.textContent = '❌ Не удалось скачать модель: ' + st.error;
+                    if (retryBtn) retryBtn.style.display = '';
                 } else {
-                    el.textContent = 'Модель ещё не скачана — начнётся автоматически после включения проверки.';
+                    box.textContent = 'Модель ещё не скачана — начнётся автоматически после включения проверки.';
                 }
             } catch (e) {
-                el.textContent = '';
+                box.textContent = '';
             }
         }
 
         function renderScamCheckPage() {
-            const cfg = scamCheckSettingsCache || { enabled: false, url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1' };
+            const cfg = scamCheckSettingsCache || { enabled: false, url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1', hfToken: '' };
             setTimeout(refreshScamCheckModelStatus, 0);
             return `
                 <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
@@ -3214,7 +3236,23 @@
                         Включить проверку
                     </label>
                 </div>
-                <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 12px;"></div>
+                <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
+                <div id="scamCheckProgressWrap" style="display:none;height:6px;border-radius:3px;background:rgba(0,0,0,0.08);overflow:hidden;margin-bottom:10px;">
+                    <div id="scamCheckProgressBar" style="height:100%;width:0%;background:#4caf50;transition:width .3s;"></div>
+                </div>
+                <div style="display:flex;gap:8px;margin-bottom:10px;">
+                    <button id="scamCheckDeleteBtn" class="settings-menu-item danger" style="display:none;width:auto;padding:6px 10px;" onclick="deleteScamCheckModel()">🗑️ Удалить модель с устройства</button>
+                    <button id="scamCheckRetryBtn" class="settings-menu-item" style="display:none;width:auto;padding:6px 10px;" onclick="retryScamCheckDownload()">🔁 Повторить скачивание</button>
+                </div>
+                <div class="settings-row">
+                    <input class="setting-key" id="scamCheckHfToken" type="password" placeholder="HuggingFace токен (для gated-моделей Gemma)"
+                           value="${escapeHtml(cfg.hfToken || '')}" style="flex:1;">
+                </div>
+                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-bottom:12px;">
+                    Ошибка 401/403 при скачивании значит, что модель Gemma на HuggingFace gated:
+                    зайдите на страницу модели, нажмите "Acknowledge license", затем создайте токен
+                    в Settings → Access Tokens на huggingface.co и вставьте его сюда.
+                </div>
                 <hr class="settings-menu-divider">
                 <div style="margin:14px 0 6px;font-weight:600;">Внешний сервер (fallback, для десктопа)</div>
                 <div class="settings-row">
@@ -3236,12 +3274,13 @@
             const enabled = document.getElementById('scamCheckEnabled')?.checked || false;
             const url = document.getElementById('scamCheckUrl')?.value.trim() || '';
             const model = document.getElementById('scamCheckModel')?.value.trim() || '';
+            const hfToken = document.getElementById('scamCheckHfToken')?.value.trim() || '';
             const statusEl = document.getElementById('scamCheckStatus');
             try {
                 const res = await fetch('/api/scam-check/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled, url, model }),
+                    body: JSON.stringify({ enabled, url, model, hfToken }),
                 });
                 const json = await res.json();
                 if (!json.ok) throw new Error(json.error || 'unknown error');
@@ -3251,6 +3290,24 @@
             } catch (e) {
                 if (statusEl) statusEl.textContent = '❌ Ошибка: ' + (e.message || e);
             }
+        }
+
+        async function deleteScamCheckModel() {
+            try {
+                await fetch('/api/scam-check/model', { method: 'DELETE' });
+            } catch (e) { /* ignore */ }
+            refreshScamCheckModelStatus();
+        }
+
+        async function retryScamCheckDownload() {
+            // Токен из поля мог поменяться, но ещё не сохранён — сохраняем
+            // настройки заново перед повторной попыткой, чтобы бридж уже
+            // использовал актуальный hfToken.
+            await saveScamCheckSettings();
+            try {
+                await fetch('/api/scam-check/model/redownload', { method: 'POST' });
+            } catch (e) { /* ignore */ }
+            refreshScamCheckModelStatus();
         }
 
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
