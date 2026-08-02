@@ -3552,6 +3552,9 @@
                 const pageDiv = document.getElementById('page-' + id);
                 if (pageDiv) {
                     pageDiv.innerHTML = pageFn();
+                    if (id === 'device' && typeof loadDeviceSettings === 'function') {
+                        loadDeviceSettings();
+                    }
                 }
             }
 
@@ -3686,8 +3689,8 @@
         <div style="padding:4px 0;">
             <div style="font-size:13px;color:#888;margin-bottom:12px;">
                 Эти данные передаются серверу MAX при подключении (какое устройство и версия
-                системы "видит" сервер). Смена профиля не требует новой авторизации; смена
-                Device ID — требует (сервер увидит это как новое устройство).
+                системы "видит" сервер). Смена профиля или Device ID не требует новой
+                авторизации.
             </div>
 
             <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
@@ -3703,6 +3706,17 @@
                 <button class="settings-menu-item danger" style="width:auto;padding:8px 14px;margin-top:4px;"
                         onclick="regenerateDeviceId()">🔄 Пересоздать Device ID</button>
             </div>
+
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:14px;">
+                <label style="font-size:13px;font-weight:600;">Или выбрать из полного каталога Google Play</label>
+                <div style="font-size:12px;color:#888;" id="catalogCountLabel">Каталог скачивается с сайта Google и обновляется раз в неделю…</div>
+                <input id="catalogSearchInput" type="text" placeholder="Начните вводить модель, например: Redmi, Galaxy, Poco..."
+                       style="padding:8px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+                <div id="catalogResults" style="max-height:180px;overflow-y:auto;border:1px solid #eee;border-radius:8px;"></div>
+                <div id="customDeviceActive" style="font-size:12px;color:#555;"></div>
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:4px;"
+                        onclick="refreshDeviceCatalog()">🔄 Обновить каталог с сайта Google</button>
+            </div>
         </div>
     `;
         }
@@ -3710,13 +3724,16 @@
         async function loadDeviceSettings() {
             try {
                 const res = await fetch('/api/device-settings');
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
                 const data = await res.json();
                 const select = document.getElementById('deviceProfileSelect');
                 if (!select) return;
                 select.innerHTML = Object.entries(data.profiles || {})
                     .map(([id, label]) => `<option value="${id}">${escapeHtml(label)}</option>`)
                     .join('');
-                select.value = data.profile;
+                select.value = data.profile === 'custom' ? '' : data.profile;
                 select.onchange = async () => {
                     await fetch('/api/device-settings', {
                         method: 'POST',
@@ -3724,16 +3741,92 @@
                         body: JSON.stringify({ profile: select.value }),
                     });
                     log('✅ Профиль устройства изменён (подключится со следующего коннекта)', 'success');
+                    loadDeviceSettings();
                 };
                 const idEl = document.getElementById('deviceIdDisplay');
                 if (idEl) idEl.textContent = data.deviceId;
+
+                const countEl = document.getElementById('catalogCountLabel');
+                if (countEl) {
+                    countEl.textContent = data.catalogCount > 0
+                        ? `в каталоге ${data.catalogCount.toLocaleString('ru-RU')} устройств`
+                        : 'каталог ещё скачивается, попробуйте обновить через минуту';
+                }
+                const activeEl = document.getElementById('customDeviceActive');
+                if (activeEl) {
+                    activeEl.textContent = data.profile === 'custom' && data.customDeviceName
+                        ? `Сейчас активно: ${data.customDeviceName}`
+                        : '';
+                }
+                initDeviceCatalogSearch();
             } catch (e) {
                 console.error('[device-settings] failed to load', e);
+                const select = document.getElementById('deviceProfileSelect');
+                if (select) select.innerHTML = '<option value="">Ошибка загрузки</option>';
+                const idEl = document.getElementById('deviceIdDisplay');
+                if (idEl) idEl.textContent = 'Ошибка: ' + e.message;
+            }
+        }
+
+        let _catalogSearchTimer = null;
+        function initDeviceCatalogSearch() {
+            const input = document.getElementById('catalogSearchInput');
+            const results = document.getElementById('catalogResults');
+            if (!input || !results || input.dataset.wired) return;
+            input.dataset.wired = '1';
+            input.addEventListener('input', () => {
+                clearTimeout(_catalogSearchTimer);
+                const q = input.value.trim();
+                if (!q) { results.innerHTML = ''; return; }
+                _catalogSearchTimer = setTimeout(async () => {
+                    try {
+                        const res = await fetch('/api/device-catalog?q=' + encodeURIComponent(q) + '&limit=30');
+                        const data = await res.json();
+                        if (!data.ready) {
+                            results.innerHTML = '<div style="padding:8px;color:#888;font-size:12px;">Каталог ещё не скачан</div>';
+                            return;
+                        }
+                        if (!data.matches.length) {
+                            results.innerHTML = '<div style="padding:8px;color:#888;font-size:12px;">Ничего не найдено</div>';
+                            return;
+                        }
+                        results.innerHTML = data.matches.map(name => `
+                            <div class="catalog-result-item" style="padding:8px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;"
+                                 onclick="selectCatalogDevice('${name.replace(/'/g, "\\'")}')">${escapeHtml(name)}</div>
+                        `).join('');
+                    } catch (e) {
+                        results.innerHTML = '<div style="padding:8px;color:#c00;font-size:12px;">Ошибка поиска: ' + escapeHtml(e.message) + '</div>';
+                    }
+                }, 250);
+            });
+        }
+
+        async function selectCatalogDevice(name) {
+            try {
+                await fetch('/api/device-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customDeviceName: name }),
+                });
+                log(`✅ Устройство выбрано: ${name} (подключится со следующего коннекта)`, 'success');
+                document.getElementById('catalogSearchInput').value = '';
+                document.getElementById('catalogResults').innerHTML = '';
+                loadDeviceSettings();
+            } catch (e) {
+                log('❌ Не удалось выбрать устройство: ' + e.message, 'error');
+            }
+        }
+
+        async function refreshDeviceCatalog() {
+            try {
+                await fetch('/api/device-catalog/refresh', { method: 'POST' });
+                log('🔄 Обновление каталога запущено в фоне, попробуйте поиск через 10-20 секунд', 'success');
+            } catch (e) {
+                log('❌ Не удалось запустить обновление каталога: ' + e.message, 'error');
             }
         }
 
         async function regenerateDeviceId() {
-            if (!confirm('Сервер MAX увидит это как новое устройство — может потребоваться заново пройти вход по коду. Продолжить?')) return;
             try {
                 const res = await fetch('/api/device-settings/regenerate', { method: 'POST' });
                 const data = await res.json();
@@ -3758,7 +3851,9 @@
         // Подгружаем данные профиля устройства сразу после того, как страница
         // "Устройство" будет вставлена в DOM (render() уже вызвал innerHTML для
         // всех страниц синхронно, так что элементы уже существуют).
-        loadDeviceSettings();
+        setTimeout(() => {
+            loadDeviceSettings();
+        }, 50);
 
         function renderGifPreviewPage() {
             return `

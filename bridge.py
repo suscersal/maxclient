@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 import gzip
+import html
 
 import msgpack
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
@@ -22,6 +23,8 @@ import urllib.error
 import urllib.parse
 import base64
 import hashlib
+import csv
+import io
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -49,6 +52,19 @@ MESSAGES_CACHE_LIMIT = 20
 LOTTIE_CACHE_FILE = os.getenv("LOTTIE_CACHE_FILE", os.path.join(
     os.path.dirname(SESSION_FILE), "lottie.min.js"))
 LOTTIE_DOWNLOAD_URL = "https://raw.githubusercontent.com/airbnb/lottie-web/master/build/player/lottie.min.js"
+# Полный каталог устройств, сертифицированных Google Play (Retail Branding /
+# Marketing Name / Device / Model) — официальный публичный список Google,
+# обновляется у них регулярно. Качаем один раз и кэшируем на диск (как
+# lottie.min.js выше), чтобы список профилей устройств не был захардкожен и
+# не требовал обновления бриджа вручную при выходе новых телефонов.
+DEVICE_CATALOG_URL = "https://storage.googleapis.com/play_public/supported_devices.csv"
+# Запасной вариант на случай, если .csv когда-нибудь станет недоступен —
+# та же самая таблица, но отдаётся как HTML-страница (с той же датой
+# обновления). Пробуем эту ссылку только если CSV не скачался.
+DEVICE_CATALOG_HTML_FALLBACK_URL = "https://storage.googleapis.com/play_public/supported_devices.html"
+DEVICE_CATALOG_FILE = os.getenv("DEVICE_CATALOG_FILE", os.path.join(
+    os.path.dirname(SESSION_FILE), "device_catalog.json"))
+DEVICE_CATALOG_REFRESH_HOURS = 24 * 7  # раз в неделю доскачиваем свежую версию
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
@@ -203,6 +219,189 @@ def _ensure_lottie_cached_background():
 _ensure_lottie_cached_background()
 
 
+# --- Каталог устройств (скачивается из интернета, не хардкодится) ---
+# Официальный CSV Google Play с полным списком Play-сертифицированных
+# устройств (колонки: Retail Branding, Marketing Name, Device, Model).
+# Экран/архитектура/версия Android в этом файле не публикуются — Google
+# отдаёт только названия устройств, поэтому для полей userAgent, которых в
+# CSV нет, используются разумные типовые значения (см. _GENERIC_SCREEN_POOL).
+_GENERIC_SCREEN_POOL = [
+    "xhdpi 400dpi 1080x2400",
+    "xxhdpi 440dpi 1080x2340",
+    "xxhdpi 460dpi 1200x2670",
+    "xxxhdpi 480dpi 1440x3120",
+]
+
+
+def _parse_device_catalog_csv(raw_bytes: bytes) -> list:
+    """Парсит официальный CSV Google Play в список маркетинговых названий
+    устройств. Файл отдаётся в UTF-16 с BOM; на случай изменения формата
+    Google — пробуем несколько кодировок по очереди."""
+    text = None
+    for enc in ("utf-16", "utf-8-sig", "utf-8", "cp1251"):
+        try:
+            text = raw_bytes.decode(enc)
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    if text is None:
+        raise ValueError("Не удалось определить кодировку CSV")
+
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        return []
+
+    header = [h.strip().lower() for h in rows[0]]
+    try:
+        brand_idx = header.index("retail branding")
+    except ValueError:
+        brand_idx = 0
+    try:
+        name_idx = header.index("marketing name")
+    except ValueError:
+        name_idx = 1
+
+    seen = set()
+    names = []
+    for row in rows[1:]:
+        if len(row) <= max(brand_idx, name_idx):
+            continue
+        brand = row[brand_idx].strip()
+        marketing = row[name_idx].strip()
+        if not marketing:
+            continue
+        full_name = marketing if marketing.lower().startswith(
+            brand.lower()) else f"{brand} {marketing}".strip()
+        full_name = " ".join(full_name.split())  # схлопнуть повторные пробелы
+        if full_name and full_name not in seen:
+            seen.add(full_name)
+            names.append(full_name)
+    return names
+
+
+def _parse_device_catalog_html(raw_bytes: bytes) -> list:
+    """Запасной парсер: та же таблица устройств, но со страницы
+    supported_devices.html вместо .csv (используется только если CSV не
+    скачался). Страница — простая HTML-таблица без JS, поэтому регулярки
+    по <tr>/<td> достаточно, без тяжёлых HTML-парсеров."""
+    text = None
+    for enc in ("utf-8", "utf-8-sig", "cp1251"):
+        try:
+            text = raw_bytes.decode(enc)
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    if text is None:
+        raise ValueError("Не удалось определить кодировку HTML")
+
+    def _strip_tags(cell: str) -> str:
+        return html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
+
+    rows = re.findall(r"<tr>(.*?)</tr>", text, re.S)
+    seen = set()
+    names = []
+    header_skipped = False
+    for row in rows:
+        cells = [_strip_tags(c) for c in re.findall(
+            r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)]
+        if not header_skipped:
+            header_skipped = True
+            if cells[:2] == ["Retail Branding", "Marketing Name"]:
+                continue  # это была строка заголовка — пропускаем
+        if len(cells) < 2:
+            continue
+        brand, marketing = cells[0], cells[1]
+        if not marketing:
+            continue
+        full_name = marketing if marketing.lower().startswith(
+            brand.lower()) else f"{brand} {marketing}".strip()
+        full_name = " ".join(full_name.split())
+        if full_name and full_name not in seen:
+            seen.add(full_name)
+            names.append(full_name)
+    return names
+
+
+def ensure_device_catalog_cached(force: bool = False) -> bool:
+    """Качает официальный список устройств Google Play и кэширует его на
+    диск в виде JSON (список названий + время скачивания). Если кэш уже
+    есть и свежий (моложе DEVICE_CATALOG_REFRESH_HOURS) — сеть не трогаем,
+    если force=True — качаем принудительно (см. /api/device-catalog/refresh).
+    Основной источник — CSV; если он недоступен, пробуем HTML-страницу с
+    той же таблицей (см. DEVICE_CATALOG_HTML_FALLBACK_URL)."""
+    if not force and os.path.exists(DEVICE_CATALOG_FILE):
+        try:
+            with open(DEVICE_CATALOG_FILE, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            age_hours = (time.time() - cached.get("fetched_at", 0)) / 3600
+            if age_hours < DEVICE_CATALOG_REFRESH_HOURS and cached.get("devices"):
+                return True
+        except Exception:
+            pass  # кэш повреждён — перекачаем ниже
+
+    names = None
+    source = None
+    try:
+        req = urllib.request.Request(
+            DEVICE_CATALOG_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+        names = _parse_device_catalog_csv(raw)
+        source = "csv"
+    except Exception as e:
+        logger.warning(
+            f"[device-catalog] CSV не скачался, пробуем HTML-фолбэк: {e}")
+        try:
+            req = urllib.request.Request(
+                DEVICE_CATALOG_HTML_FALLBACK_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read()
+            names = _parse_device_catalog_html(raw)
+            source = "html"
+        except Exception as e2:
+            logger.warning(
+                f"[device-catalog] HTML-фолбэк тоже не скачался: {e2}")
+            return False
+
+    if not names:
+        logger.warning(
+            "[device-catalog] Пустой список устройств после парсинга")
+        return False
+
+    payload = {"fetched_at": time.time(), "devices": names, "source": source}
+    tmp_path = DEVICE_CATALOG_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.replace(tmp_path, DEVICE_CATALOG_FILE)
+    logger.info(
+        f"[device-catalog] Скачано {len(names)} устройств ({source}), сохранено в {DEVICE_CATALOG_FILE}")
+    return True
+
+
+def load_device_catalog() -> list:
+    """Читает закэшированный список названий устройств с диска. Если файла
+    ещё нет (сеть при старте была недоступна) — возвращает []."""
+    if not os.path.exists(DEVICE_CATALOG_FILE):
+        return []
+    try:
+        with open(DEVICE_CATALOG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get("devices", [])
+    except Exception as e:
+        logger.warning(f"[device-catalog] failed to load cache: {e}")
+        return []
+
+
+def _ensure_device_catalog_cached_background():
+    threading.Thread(target=ensure_device_catalog_cached, daemon=True).start()
+
+
+# Как и с lottie — качаем сразу при старте в фоновом потоке, не блокируя
+# запуск сервера. Раз в неделю кэш будет обновляться сам при следующем
+# обращении к /api/device-catalog.
+_ensure_device_catalog_cached_background()
+
+
 def load_messages_cache() -> dict:
     """Читает кэш последних сообщений по чатам (зашифрован так же, как
     session.json). Формат: {"<chatId>": {"messages": [...], "savedAt": ms}}."""
@@ -257,10 +456,40 @@ def regenerate_device_id() -> str:
 # сами поля userAgent, кроме appVersion (она всегда берётся отдельно, через
 # get_latest_app_version()).
 DEVICE_PROFILES = {
+    "samsung_s24_ultra": {
+        "label": "Samsung Galaxy S24 Ultra / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Samsung Galaxy S24 Ultra", "screen": "xxxhdpi 480dpi 1440x3120",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "samsung_s24": {
+        "label": "Samsung Galaxy S24 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Samsung Galaxy S24", "screen": "xxhdpi 480dpi 1080x2340",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
     "samsung_s23": {
         "label": "Samsung Galaxy S23 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S23", "screen": "xxhdpi 480dpi 1080x2340",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "samsung_a55": {
+        "label": "Samsung Galaxy A55 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Samsung Galaxy A55", "screen": "xhdpi 420dpi 1080x2340",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "pixel_9_pro": {
+        "label": "Google Pixel 9 Pro / Android 15",
+        "deviceType": "ANDROID", "osVersion": "Android 15",
+        "deviceName": "Google Pixel 9 Pro", "screen": "xxxhdpi 495dpi 1280x2856",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "pixel_9": {
+        "label": "Google Pixel 9 / Android 15",
+        "deviceType": "ANDROID", "osVersion": "Android 15",
+        "deviceName": "Google Pixel 9", "screen": "xxhdpi 422dpi 1080x2424",
         "arch": "arm64-v8a", "buildNumber": 6498,
     },
     "pixel_8": {
@@ -269,16 +498,94 @@ DEVICE_PROFILES = {
         "deviceName": "Google Pixel 8", "screen": "xxhdpi 420dpi 1080x2400",
         "arch": "arm64-v8a", "buildNumber": 6498,
     },
+    "pixel_7": {
+        "label": "Google Pixel 7 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Google Pixel 7", "screen": "xxhdpi 416dpi 1080x2400",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
     "xiaomi_14": {
         "label": "Xiaomi 14 / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Xiaomi 14", "screen": "xxxhdpi 480dpi 1200x2670",
         "arch": "arm64-v8a", "buildNumber": 6498,
     },
+    "redmi_note_14": {
+        "label": "Xiaomi Redmi Note 14 / Android 14 (HyperOS)",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Xiaomi Redmi Note 14", "screen": "xhdpi 395dpi 1080x2400",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
     "poco_x6": {
         "label": "Poco X6 Pro / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Poco X6 Pro", "screen": "xhdpi 440dpi 1220x2712",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "oneplus_13": {
+        "label": "OnePlus 13 / Android 15",
+        "deviceType": "ANDROID", "osVersion": "Android 15",
+        "deviceName": "OnePlus 13", "screen": "xxxhdpi 510dpi 1440x3168",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "oneplus_nord_5": {
+        "label": "OnePlus Nord 5 / Android 15",
+        "deviceType": "ANDROID", "osVersion": "Android 15",
+        "deviceName": "OnePlus Nord 5", "screen": "xhdpi 450dpi 1272x2800",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "honor_magic6": {
+        "label": "Honor Magic6 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Honor Magic6", "screen": "xxhdpi 460dpi 1200x2670",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "huawei_p60": {
+        "label": "Huawei P60 / Android 12",
+        "deviceType": "ANDROID", "osVersion": "Android 12",
+        "deviceName": "Huawei P60", "screen": "xxhdpi 460dpi 1220x2700",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "oppo_reno12": {
+        "label": "Oppo Reno 12 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Oppo Reno 12", "screen": "xhdpi 403dpi 1080x2412",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "vivo_x100": {
+        "label": "Vivo X100 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Vivo X100", "screen": "xxhdpi 450dpi 1260x2800",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "realme_12_pro": {
+        "label": "realme 12 Pro / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "realme 12 Pro", "screen": "xhdpi 401dpi 1080x2412",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "motorola_edge50": {
+        "label": "Motorola Edge 50 / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Motorola Edge 50", "screen": "xhdpi 402dpi 1220x2712",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "nothing_phone_2a": {
+        "label": "Nothing Phone (2a) / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Nothing Phone (2a)", "screen": "xhdpi 394dpi 1080x2412",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "sony_xperia_1_vi": {
+        "label": "Sony Xperia 1 VI / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Sony Xperia 1 VI", "screen": "xxhdpi 460dpi 1080x2340",
+        "arch": "arm64-v8a", "buildNumber": 6498,
+    },
+    "asus_zenfone_11": {
+        "label": "Asus Zenfone 11 Ultra / Android 14",
+        "deviceType": "ANDROID", "osVersion": "Android 14",
+        "deviceName": "Asus Zenfone 11 Ultra", "screen": "xhdpi 395dpi 1080x2400",
         "arch": "arm64-v8a", "buildNumber": 6498,
     },
 }
@@ -288,6 +595,8 @@ DEFAULT_DEVICE_PROFILE = "samsung_s23"
 def get_device_profile_id() -> str:
     sess = load_session()
     pid = sess.get("deviceProfile", DEFAULT_DEVICE_PROFILE)
+    if pid == "custom" and sess.get("customDeviceName"):
+        return "custom"
     return pid if pid in DEVICE_PROFILES else DEFAULT_DEVICE_PROFILE
 
 
@@ -296,8 +605,48 @@ def set_device_profile_id(profile_id: str) -> bool:
         return False
     sess = load_session()
     sess["deviceProfile"] = profile_id
+    sess.pop("customDeviceName", None)
     save_session(sess)
     return True
+
+
+def set_custom_device_name(device_name: str) -> bool:
+    """Выбор устройства из полного каталога Google Play (не из нашего
+    небольшого списка проверенных пресетов). Экран/архитектура/версия ОС
+    для таких устройств не известны Google публично, поэтому берутся
+    типовые значения из _GENERIC_SCREEN_POOL — сам сервер MAX ориентируется
+    в первую очередь на deviceName, а не на точный dpi/разрешение."""
+    device_name = (device_name or "").strip()
+    if not device_name:
+        return False
+    sess = load_session()
+    sess["deviceProfile"] = "custom"
+    sess["customDeviceName"] = device_name
+    save_session(sess)
+    return True
+
+
+def get_active_profile() -> dict:
+    """Возвращает полный профиль (deviceType/osVersion/deviceName/screen/
+    arch/buildNumber) для текущего выбора — либо один из проверенных
+    пресетов DEVICE_PROFILES, либо кастомное устройство из каталога Google
+    Play с типовыми значениями остальных полей."""
+    sess = load_session()
+    pid = sess.get("deviceProfile", DEFAULT_DEVICE_PROFILE)
+    if pid == "custom" and sess.get("customDeviceName"):
+        name = sess["customDeviceName"]
+        screen = _GENERIC_SCREEN_POOL[hash(name) % len(_GENERIC_SCREEN_POOL)]
+        return {
+            "deviceType": "ANDROID",
+            "osVersion": "Android 14",
+            "deviceName": name,
+            "screen": screen,
+            "arch": "arm64-v8a",
+            "buildNumber": 6498,
+        }
+    if pid not in DEVICE_PROFILES:
+        pid = DEFAULT_DEVICE_PROFILE
+    return DEVICE_PROFILES[pid]
 
 
 def save_auth_token(token: str):
@@ -466,7 +815,7 @@ class MaxClient:
         self._send_handshake(existing_token)
 
     def _send_handshake(self, existing_token: str = None):
-        profile = DEVICE_PROFILES[get_device_profile_id()]
+        profile = get_active_profile()
         payload = {
             "mt_instanceid": str(uuid.uuid4()),
             "clientSessionId": random.randint(1, 100),
@@ -1037,10 +1386,13 @@ def check_auth():
 
 @app.route("/api/device-settings", methods=["GET"])
 def get_device_settings():
+    sess = load_session()
     return jsonify({
         "deviceId": get_or_create_device_id(),
         "profile": get_device_profile_id(),
         "profiles": {pid: p["label"] for pid, p in DEVICE_PROFILES.items()},
+        "customDeviceName": sess.get("customDeviceName"),
+        "catalogCount": len(load_device_catalog()),
     })
 
 
@@ -1048,6 +1400,11 @@ def get_device_settings():
 def set_device_settings():
     data = request.get_json(force=True) or {}
     profile_id = data.get("profile")
+    custom_name = data.get("customDeviceName")
+    if custom_name:
+        if not set_custom_device_name(custom_name):
+            return jsonify({"error": "invalid device name"}), 400
+        return jsonify({"ok": True, "profile": "custom", "customDeviceName": custom_name})
     if not profile_id or not set_device_profile_id(profile_id):
         return jsonify({"error": "unknown profile"}), 400
     return jsonify({"ok": True, "profile": profile_id})
@@ -1058,6 +1415,41 @@ def regenerate_device_settings():
     new_id = regenerate_device_id()
     logger.info(f"[device] deviceId regenerated: {new_id}")
     return jsonify({"ok": True, "deviceId": new_id})
+
+
+@app.route("/api/device-catalog", methods=["GET"])
+def get_device_catalog():
+    """Поиск по полному (скачанному из интернета) каталогу устройств Google
+    Play. ?q=строка фильтрует по подстроке (регистронезависимо), ?limit=
+    ограничивает число результатов (по умолчанию 50 — каталог насчитывает
+    десятки тысяч моделей, отдавать его целиком на каждый запрос смысла
+    нет)."""
+    catalog = load_device_catalog()
+    q = (request.args.get("q") or "").strip().lower()
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        limit = 50
+    if q:
+        matches = [name for name in catalog if q in name.lower()]
+    else:
+        matches = catalog
+    return jsonify({
+        "total": len(catalog),
+        "matches": matches[:limit],
+        "matchCount": len(matches),
+        "ready": len(catalog) > 0,
+    })
+
+
+@app.route("/api/device-catalog/refresh", methods=["POST"])
+def refresh_device_catalog():
+    """Принудительно перекачивает каталог устройств с сайта Google, не
+    дожидаясь недельного авто-обновления. Запускается в фоне, чтобы не
+    держать HTTP-запрос открытым на всё время скачивания CSV."""
+    threading.Thread(target=lambda: ensure_device_catalog_cached(
+        force=True), daemon=True).start()
+    return jsonify({"ok": True, "refreshing": True})
 
 
 @app.route("/api/chats-cache", methods=["GET"])
