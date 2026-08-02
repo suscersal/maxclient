@@ -11,7 +11,7 @@ import os
 import sys
 
 
-def start_server(session_file: str, port: int, hotpatch_dir: str = ""):
+def start_server(session_file: str, port: int, hotpatch_dir: str = "", android_context=None):
     # Если Kotlin-сторона скачала обновлённые bridge.py/index.html и т.п.
     # (см. MainActivity.checkForOtaUpdate), они лежат в hotpatch_dir.
     # Подсовываем эту папку В НАЧАЛО sys.path, чтобы `import bridge` нашёл
@@ -29,6 +29,13 @@ def start_server(session_file: str, port: int, hotpatch_dir: str = ""):
     os.environ.setdefault("SOCKET_TIMEOUT", "15")
 
     import bridge  # импорт ПОСЛЕ выставления переменных окружения и sys.path
+
+    # Прокидываем Android Context для on-device ИИ-проверки сообщений на
+    # скам (MediaPipe LLM Inference требует Context для инициализации
+    # модели — см. bridge.get_on_device_llm). android_context прилетает как
+    # Java-объект (applicationContext) из MainActivity.startPythonServerOnce.
+    if android_context is not None and hasattr(bridge, "set_android_context"):
+        bridge.set_android_context(android_context)
 
     # bridge.py не выполнит свой `if __name__ == "__main__":` блок,
     # т.к. импортируется как модуль, а не запускается напрямую —

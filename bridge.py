@@ -67,6 +67,168 @@ DEVICE_CATALOG_FILE = os.getenv("DEVICE_CATALOG_FILE", os.path.join(
 DEVICE_CATALOG_REFRESH_HOURS = 24 * 7  # раз в неделю доскачиваем свежую версию
 VERSION_CACHE_HOURS = 24
 FALLBACK_APP_VERSION = "26.15.0"
+
+# --- Локальная проверка сообщений на скам (опционально, выключено по умолчанию) ---
+# Использует ЛЮБОЙ локальный сервер инференса с OpenAI-совместимым
+# /v1/chat/completions (Ollama — localhost:11434, llama.cpp server —
+# localhost:8080/8081, LM Studio — localhost:1234, и т.п.). Пользователь сам
+# поднимает сервер и сам скачивает модель (например, с HuggingFace или из
+# репозитория на GitHub) — бридж лишь стучится на указанный адрес и никуда
+# больше сообщения не отправляет.
+SCAM_CHECK_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
+SCAM_CHECK_DEFAULT_MODEL = "llama3.1"
+SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "20"))
+SCAM_CHECK_SYSTEM_PROMPT = (
+    "Ты — детектор мошеннических (скам) сообщений в мессенджере. Тебе дают "
+    "текст одного сообщения. Определи, похоже ли оно на мошенничество, "
+    "фишинг или социальную инженерию (просьбы перевести деньги, поддельные "
+    "ссылки на 'службу поддержки', выигрыши/призы, шантаж, поддельные "
+    "начальники/родственники/банки и т.п.). Ответь СТРОГО в виде JSON без "
+    "какого-либо текста вокруг: "
+    '{"is_scam": true|false, "confidence": 0-100, "reason": "краткое объяснение по-русски"}'
+)
+
+
+def _get_scam_check_settings():
+    sess = load_session()
+    cfg = sess.get("scamCheck", {})
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "url": cfg.get("url") or SCAM_CHECK_DEFAULT_URL,
+        "model": cfg.get("model") or SCAM_CHECK_DEFAULT_MODEL,
+    }
+
+
+def _save_scam_check_settings(patch: dict):
+    sess = load_session()
+    cfg = sess.get("scamCheck", {})
+    cfg.update({k: v for k, v in patch.items() if v is not None})
+    sess["scamCheck"] = cfg
+    save_session(sess)
+    return cfg
+
+
+# --- On-device движок (Android): MediaPipe LLM Inference через Chaquopy ---
+# На Android нет способа "просто попросить пользователя поставить Ollama" —
+# поэтому здесь модель выполняется ПРЯМО в процессе приложения через
+# com.google.mediapipe:tasks-genai (см. android/app/build.gradle) — Chaquopy
+# позволяет дёргать этот Java-класс прямо из Python (`from com.google... import`).
+# На обычном ПК (когда bridge.py запускают как python bridge.py, а не внутри
+# APK) этот импорт просто упадёт — тогда используется fallback на внешний
+# OpenAI-совместимый сервер (см. _get_scam_check_settings/url выше).
+GEMMA_MODEL_FILE = os.getenv("GEMMA_MODEL_FILE", os.path.join(
+    os.path.dirname(SESSION_FILE), "gemma3-1b-it-int4.task"))
+# Официальная LiteRT-сборка Gemma 3 1B (4-бит) с HuggingFace — тот же файл,
+# что используется в официальных примерах Google для LLM Inference API.
+GEMMA_MODEL_DOWNLOAD_URL = os.getenv(
+    "GEMMA_MODEL_DOWNLOAD_URL",
+    "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
+)
+
+_android_context = None
+_llm_engine = None
+_llm_engine_lock = threading.Lock()
+_model_download_state = {"downloading": False, "ready": False, "error": None}
+
+
+def set_android_context(ctx):
+    """Вызывается один раз из bridge_launcher.start_server() сразу после
+    импорта модуля — Context нужен MediaPipe для инициализации модели.
+    На десктопе (python bridge.py напрямую) никогда не вызывается — ничего
+    страшного, просто останется None и on-device движок не заработает."""
+    global _android_context
+    _android_context = ctx
+    # Если проверка уже была включена в прошлый раз — начинаем качать модель
+    # сразу в фоне, не дожидаясь первого сообщения.
+    if _get_scam_check_settings()["enabled"]:
+        threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
+
+
+def ensure_gemma_model_cached():
+    """Качает .task-модель (несколько сотен МБ даже в 4-бит квантовании)
+    один раз и кладёт её рядом с session.json. Если файл уже есть — не
+    трогает сеть вообще. Не блокирует запуск бриджа — вызывается в фоновом
+    потоке (см. set_android_context и /api/scam-check/settings)."""
+    if os.path.exists(GEMMA_MODEL_FILE):
+        _model_download_state["ready"] = True
+        return True
+    if _model_download_state["downloading"]:
+        return False
+    _model_download_state["downloading"] = True
+    _model_download_state["error"] = None
+    try:
+        logger.info(
+            "[scam-check] downloading on-device model (one-time, ~500MB+)…")
+        req = urllib.request.Request(
+            GEMMA_MODEL_DOWNLOAD_URL, headers={"User-Agent": "Mozilla/5.0"})
+        tmp_path = GEMMA_MODEL_FILE + ".part"
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        os.replace(tmp_path, GEMMA_MODEL_FILE)
+        logger.info("[scam-check] model downloaded successfully")
+        _model_download_state["ready"] = True
+        return True
+    except Exception as e:
+        logger.warning(f"[scam-check] model download failed: {e}")
+        _model_download_state["error"] = str(e)
+        return False
+    finally:
+        _model_download_state["downloading"] = False
+
+
+def get_on_device_llm():
+    """Ленивая инициализация on-device движка. Возвращает None (без
+    исключений), если приложение не на Android, зависимость tasks-genai не
+    подключена в Gradle, или модель ещё не скачана — вызывающий код тогда
+    сам решает, использовать ли fallback на внешний сервер."""
+    global _llm_engine
+    if _llm_engine is not None:
+        return _llm_engine
+    if _android_context is None:
+        return None
+    with _llm_engine_lock:
+        if _llm_engine is not None:
+            return _llm_engine
+        try:
+            from com.google.mediapipe.tasks.genai.llminference import LlmInference
+        except Exception as e:
+            logger.info(
+                f"[scam-check] MediaPipe недоступен (не Android-сборка?): {e}")
+            return None
+        if not os.path.exists(GEMMA_MODEL_FILE):
+            return None
+        try:
+            options = LlmInference.LlmInferenceOptions.builder() \
+                .setModelPath(GEMMA_MODEL_FILE) \
+                .setMaxTokens(512) \
+                .build()
+            _llm_engine = LlmInference.createFromOptions(
+                _android_context, options)
+            logger.info("[scam-check] on-device LLM initialized")
+        except Exception as e:
+            logger.warning(f"[scam-check] failed to init on-device model: {e}")
+            _llm_engine = None
+        return _llm_engine
+
+
+def _parse_scam_verdict_text(content: str):
+    """Общий разбор ответа модели (и on-device, и внешней) — модели любят
+    оборачивать JSON в ```json ... ```, снимаем обёртку и парсим."""
+    cleaned = re.sub(r"^```(?:json)?|```$", "", content.strip(),
+                     flags=re.MULTILINE).strip()
+    verdict = json.loads(cleaned)
+    return {
+        "is_scam": bool(verdict.get("is_scam", False)),
+        "confidence": verdict.get("confidence"),
+        "reason": verdict.get("reason", ""),
+    }
+
+
 TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "15"))
 # Сколько ждём подключения к серверу MAX, прежде чем считать, что интернета
 # нет, и сообщить об этом клиенту, а не зависать навсегда (см. connect() и
@@ -1450,6 +1612,100 @@ def refresh_device_catalog():
     threading.Thread(target=lambda: ensure_device_catalog_cached(
         force=True), daemon=True).start()
     return jsonify({"ok": True, "refreshing": True})
+
+
+@app.route("/api/scam-check/settings", methods=["GET"])
+def get_scam_check_settings():
+    return jsonify(_get_scam_check_settings())
+
+
+@app.route("/api/scam-check/settings", methods=["POST"])
+def set_scam_check_settings():
+    data = request.get_json(force=True) or {}
+    cfg = _save_scam_check_settings({
+        "enabled": data.get("enabled"),
+        "url": (data.get("url") or "").strip() or None,
+        "model": (data.get("model") or "").strip() or None,
+    })
+    if cfg.get("enabled") and _android_context is not None:
+        threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
+    return jsonify({"ok": True, **cfg, "onDevice": _android_context is not None})
+
+
+@app.route("/api/scam-check/model-status", methods=["GET"])
+def scam_check_model_status():
+    """Фронт опрашивает это, пока показывает 'модель скачивается...'."""
+    return jsonify({
+        "onDeviceSupported": _android_context is not None,
+        "modelReady": os.path.exists(GEMMA_MODEL_FILE),
+        **_model_download_state,
+    })
+
+
+@app.route("/api/scam-check", methods=["POST"])
+def scam_check():
+    """Прогоняет текст ОДНОГО сообщения через ИИ и возвращает вердикт.
+    Приоритет: on-device модель (MediaPipe, работает прямо в приложении,
+    ничего никуда не уходит) -> если недоступна (десктоп/модель ещё не
+    скачана) — внешний OpenAI-совместимый сервер из настроек."""
+    cfg = _get_scam_check_settings()
+    if not cfg["enabled"]:
+        return jsonify({"error": "disabled"}), 400
+
+    data = request.get_json(force=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "empty text"}), 400
+    text = text[:2000]  # не гоняем через LLM гигантские сообщения
+
+    llm = get_on_device_llm()
+    if llm is not None:
+        try:
+            prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
+            content = llm.generateResponse(prompt)
+            return jsonify({**_parse_scam_verdict_text(content), "engine": "on-device"})
+        except Exception as e:
+            logger.warning(
+                f"[scam-check] on-device inference failed, falling back: {e}")
+            # падаем ниже на внешний сервер (если он настроен), а не наружу с ошибкой
+
+    body = json.dumps({
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": SCAM_CHECK_SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        "temperature": 0,
+        "stream": False,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        cfg["url"], data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=SCAM_CHECK_TIMEOUT) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        return jsonify({
+            "error": "no engine available (on-device model not ready, external server unreachable)",
+            "details": str(e),
+        }), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+    try:
+        content = raw["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return jsonify({"error": "unexpected response from local model", "raw": raw}), 502
+
+    try:
+        verdict = _parse_scam_verdict_text(content)
+    except json.JSONDecodeError:
+        return jsonify({"error": "model did not return valid JSON", "raw_text": content}), 502
+
+    return jsonify({**verdict, "engine": "external"})
 
 
 @app.route("/api/chats-cache", methods=["GET"])
