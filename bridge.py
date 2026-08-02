@@ -1719,26 +1719,17 @@ def scam_check_redownload_model():
     return jsonify({"ok": True, "started": True})
 
 
-@app.route("/api/scam-check", methods=["POST"])
-def scam_check():
-    """Прогоняет текст ОДНОГО сообщения через ИИ и возвращает вердикт.
-    Приоритет: on-device модель (MediaPipe, работает прямо в приложении,
-    ничего никуда не уходит) -> если недоступна (десктоп/модель ещё не
-    скачана) — внешний OpenAI-совместимый сервер из настроек."""
+def _run_scam_check(text: str) -> dict:
+    """Общая логика: on-device -> fallback на внешний сервер. Используется и
+    одиночным роутом /api/scam-check, и массовым сканером всех чатов
+    (scan_all_cached_chats). Кидает исключение при полном отказе (обе ветки
+    недоступны/сломаны) — вызывающий код сам решает, что делать с ошибкой."""
     cfg = _get_scam_check_settings()
-    logger.info(f"[scam-check] request received, enabled={cfg['enabled']}")
     if not cfg["enabled"]:
-        logger.info("[scam-check] rejected: disabled in settings")
-        return jsonify({"error": "disabled"}), 400
-
-    data = request.get_json(force=True) or {}
-    text = (data.get("text") or "").strip()
+        raise RuntimeError("disabled")
+    text = (text or "").strip()[:2000]
     if not text:
-        logger.info("[scam-check] rejected: empty text")
-        return jsonify({"error": "empty text"}), 400
-    text = text[:2000]  # не гоняем через LLM гигантские сообщения
-    logger.info(
-        f"[scam-check] checking text ({len(text)} chars): {text[:120]!r}")
+        raise RuntimeError("empty text")
 
     llm = get_on_device_llm()
     on_device_status = (
@@ -1746,32 +1737,20 @@ def scam_check():
         ("no_android_context" if _android_context is None else
          ("model_not_downloaded" if not os.path.exists(GEMMA_MODEL_FILE) else "init_failed"))
     )
-    logger.info(f"[scam-check] on-device engine available: {llm is not None} "
-                f"(android_context={_android_context is not None}, "
-                f"model_file_exists={os.path.exists(GEMMA_MODEL_FILE)})")
     on_device_error = None
     if llm is not None:
         try:
             prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
             content = llm.generateResponse(prompt)
-            logger.info(
-                f"[scam-check] on-device raw response: {content[:300]!r}")
             verdict = _parse_scam_verdict_text(content)
-            logger.info(f"[scam-check] on-device verdict: {verdict}")
-            return jsonify({**verdict, "engine": "on-device"})
+            return {**verdict, "engine": "on-device",
+                    "onDeviceStatus": "ready", "onDeviceError": None}
         except Exception as e:
             on_device_error = str(e)
             on_device_status = "inference_failed"
             logger.warning(
                 f"[scam-check] on-device inference failed, falling back: {e}")
-            # падаем ниже на внешний сервер (если он настроен), а не наружу с ошибкой
-    else:
-        logger.info(
-            f"[scam-check] no on-device engine ({on_device_status}), falling back to external server")
 
-    # debug-поле — не влияет на логику, только чтобы фронт мог показать в
-    # 🐞-консоли (console.log перехватывается ею), ПОЧЕМУ пошли во внешний
-    # сервер вместо on-device.
     debug_info = {"onDeviceStatus": on_device_status,
                   "onDeviceError": on_device_error}
 
@@ -1784,35 +1763,149 @@ def scam_check():
         "temperature": 0,
         "stream": False,
     }).encode("utf-8")
-
     req = urllib.request.Request(
         cfg["url"], data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        headers={"Content-Type": "application/json"}, method="POST",
     )
+    with urllib.request.urlopen(req, timeout=SCAM_CHECK_TIMEOUT) as resp:
+        raw = json.loads(resp.read().decode("utf-8"))
+    content = raw["choices"][0]["message"]["content"]
+    verdict = _parse_scam_verdict_text(content)
+    return {**verdict, "engine": "external", **debug_info}
+
+
+@app.route("/api/scam-check", methods=["POST"])
+def scam_check():
+    """Прогоняет текст ОДНОГО сообщения через ИИ и возвращает вердикт (см.
+    _run_scam_check). Приоритет: on-device -> fallback на внешний сервер."""
+    data = request.get_json(force=True) or {}
+    text = (data.get("text") or "").strip()
+    logger.info(f"[scam-check] request received, text_len={len(text)}")
+    if not text:
+        return jsonify({"error": "empty text"}), 400
     try:
-        with urllib.request.urlopen(req, timeout=SCAM_CHECK_TIMEOUT) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
+        result = _run_scam_check(text)
+        logger.info(f"[scam-check] result: {result}")
+        return jsonify(result)
+    except RuntimeError as e:
+        if str(e) == "disabled":
+            return jsonify({"error": "disabled"}), 400
+        return jsonify({"error": str(e)}), 400
     except urllib.error.URLError as e:
         return jsonify({
             "error": "no engine available (on-device model not ready, external server unreachable)",
             "details": str(e),
-            **debug_info,
         }), 502
+    except (KeyError, IndexError, TypeError) as e:
+        return jsonify({"error": f"unexpected response from external server: {e}"}), 502
+    except json.JSONDecodeError as e:
+        return jsonify({"error": f"model did not return valid JSON: {e}"}), 502
     except Exception as e:
-        return jsonify({"error": str(e), **debug_info}), 502
+        logger.warning(f"[scam-check] unexpected error: {e}")
+        return jsonify({"error": str(e)}), 502
+
+
+# --- Массовая проверка всех сохранённых (закэшированных) чатов ---
+# Ручная кнопка "Проверить все чаты" в настройках: идёт по messages_cache.json
+# (последние MESSAGES_CACHE_LIMIT сообщений на каждый чат, которые и так уже
+# лежат на диске для офлайн-режима — см. load_messages_cache/load_chats_cache
+# выше), прогоняет каждое чужое сообщение через _run_scam_check и копит
+# результаты. Работает в фоновом потоке с прогрессом (тот же паттерн, что у
+# скачивания модели), т.к. может быть много сообщений и каждая проверка —
+# не мгновенная (особенно on-device на слабом телефоне).
+_scan_state = {
+    "running": False,
+    "checked": 0,
+    "total": 0,
+    # [{chatId, chatName, msgId, text, confidence, reason, engine}]
+    "flagged": [],
+    "error": None,
+    "finishedAt": None,
+}
+_scan_lock = threading.Lock()
+
+
+def scan_all_cached_chats(self_id=None):
+    global _scan_state
+    with _scan_lock:
+        if _scan_state["running"]:
+            return
+        _scan_state = {"running": True, "checked": 0, "total": 0,
+                       "flagged": [], "error": None, "finishedAt": None}
 
     try:
-        content = raw["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        return jsonify({"error": "unexpected response from local model", "raw": raw, **debug_info}), 502
+        chats_cache = load_chats_cache() or {}
+        chats_by_id = {str(c.get("id")): c for c in (
+            chats_cache.get("chats") or [])}
+        messages_cache = load_messages_cache() or {}
 
-    try:
-        verdict = _parse_scam_verdict_text(content)
-    except json.JSONDecodeError:
-        return jsonify({"error": "model did not return valid JSON", "raw_text": content, **debug_info}), 502
+        # Собираем плоский список (chatId, message) для всех чужих сообщений
+        # с текстом — свои (self_id) пропускаем, как и на фронте.
+        jobs = []
+        for chat_id, entry in messages_cache.items():
+            for m in (entry.get("messages") or []):
+                text = (m.get("text") or "").strip()
+                if not text:
+                    continue
+                if self_id is not None and str(m.get("sender")) == str(self_id):
+                    continue
+                jobs.append((chat_id, m))
 
-    return jsonify({**verdict, "engine": "external", **debug_info})
+        _scan_state["total"] = len(jobs)
+        logger.info(f"[scam-check][scan-all] starting, {len(jobs)} messages across "
+                    f"{len(messages_cache)} cached chats")
+
+        for chat_id, m in jobs:
+            try:
+                result = _run_scam_check(m.get("text", ""))
+                if result.get("is_scam"):
+                    chat = chats_by_id.get(str(chat_id))
+                    chat_name = (chat.get("title")
+                                 if chat else None) or f"Чат #{chat_id}"
+                    _scan_state["flagged"].append({
+                        "chatId": chat_id,
+                        "chatName": chat_name,
+                        "msgId": m.get("id"),
+                        "text": m.get("text", "")[:300],
+                        "confidence": result.get("confidence"),
+                        "reason": result.get("reason", ""),
+                        "engine": result.get("engine"),
+                    })
+            except Exception as e:
+                logger.warning(
+                    f"[scam-check][scan-all] failed on message in chat {chat_id}: {e}")
+            finally:
+                _scan_state["checked"] += 1
+
+        _scan_state["flagged"].sort(
+            key=lambda f: f.get("confidence") or 0, reverse=True)
+        logger.info(f"[scam-check][scan-all] done: {_scan_state['checked']} checked, "
+                    f"{len(_scan_state['flagged'])} flagged")
+    except Exception as e:
+        logger.warning(f"[scam-check][scan-all] fatal error: {e}")
+        _scan_state["error"] = str(e)
+    finally:
+        _scan_state["running"] = False
+        _scan_state["finishedAt"] = int(time.time() * 1000)
+
+
+@app.route("/api/scam-check/scan-all", methods=["POST"])
+def scam_check_scan_all():
+    cfg = _get_scam_check_settings()
+    if not cfg["enabled"]:
+        return jsonify({"error": "disabled"}), 400
+    if _scan_state["running"]:
+        return jsonify({"error": "already running"}), 409
+    data = request.get_json(force=True, silent=True) or {}
+    self_id = data.get("selfId")
+    threading.Thread(target=scan_all_cached_chats,
+                     args=(self_id,), daemon=True).start()
+    return jsonify({"ok": True, "started": True})
+
+
+@app.route("/api/scam-check/scan-all/status", methods=["GET"])
+def scam_check_scan_all_status():
+    return jsonify(_scan_state)
 
 
 @app.route("/api/chats-cache", methods=["GET"])
