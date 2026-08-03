@@ -3393,7 +3393,7 @@
             }
             const pct = verdict.confidence ?? '?';
             el.style.display = '';
-            if (verdict.is_scam and pct<=80) {
+            if (verdict.is_scam && pct<=80) {
                 el.classList.remove('msg-scam-badge-safe');
                 el.textContent = `⚠️ Похоже на скам (${pct}%): ${verdict.reason || ''}`;
             } else {
