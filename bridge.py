@@ -14,6 +14,7 @@ import uuid
 import gzip
 import html
 import zipfile
+
 import msgpack
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
 from flask_sock import Sock
@@ -346,10 +347,24 @@ def get_on_device_llm():
             # не повторяем тяжёлый нативный вызов зря.
             return None
         try:
-            options = LlmInference.LlmInferenceOptions.builder() \
+            builder = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
-                .setMaxTokens(512) \
-                .build()
+                .setMaxTokens(512)
+            try:
+                # Детерминированная (greedy) генерация — без этого одно и то
+                # же сообщение может каждый раз давать разный вердикт. Но эти
+                # методы есть не во всех версиях tasks-genai (могли переехать
+                # в LlmInferenceSessionOptions) — если билдер их не поддерживает,
+                # не должны терять весь движок из-за этого, просто едем без
+                # принудительного детерминизма.
+                builder = builder.setTemperature(0.0) \
+                    .setTopK(1) \
+                    .setRandomSeed(0)
+            except Exception as opt_e:
+                logger.warning(
+                    f"[scam-check] temperature/topK/randomSeed unsupported on "
+                    f"this LlmInferenceOptions builder, continuing without them: {opt_e}")
+            options = builder.build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
             _llm_init_error = None
@@ -375,6 +390,13 @@ def _parse_scam_verdict_text(content: str):
         # числа — приводим к int, чтобы фронт не получал мусор.
         m = re.search(r"-?\d+", confidence)
         confidence = int(m.group()) if m else None
+    if isinstance(confidence, (int, float)):
+        # Маленькие on-device модели периодически выдают отрицательные или
+        # выходящие за 0-100 значения (модель "путает" знак/шкалу) — не
+        # передаём такое на фронт как есть.
+        confidence = max(0, min(100, int(round(abs(confidence)))))
+    else:
+        confidence = None
     return {
         "is_scam": bool(verdict.get("is_scam", False)),
         "confidence": confidence,
@@ -2121,6 +2143,17 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                 logger.warning(
                     f"[scam-check][scan-all] failed on message {m.get('id')} "
                     f"in chat {chat_name!r} ({chat_id}): {e}")
+                _scan_state["results"].append({
+                    "chatId": chat_id,
+                    "chatName": chat_name,
+                    "msgId": m.get("id"),
+                    "text": text[:300],
+                    "confidence": None,
+                    "reason": None,
+                    "engine": None,
+                    "is_scam": False,
+                    "error": str(e),
+                })
             finally:
                 _scan_state["checked"] += 1
 
