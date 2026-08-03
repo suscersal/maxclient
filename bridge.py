@@ -13,6 +13,7 @@ import time
 import uuid
 import gzip
 import html
+import zipfile
 
 import msgpack
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
@@ -194,6 +195,20 @@ def ensure_gemma_model_cached():
                     f.write(chunk)
                     downloaded += len(chunk)
                     _model_download_state["downloadedBytes"] = downloaded
+        # HuggingFace на gated-репозиториях без валидного токена иногда
+        # отдаёт 200 OK с HTML-страницей ("примите лицензию" / логин) вместо
+        # самого файла — HTTPError тогда не срабатывает, а файл на диске
+        # получается битым. .task-файл — это zip-бандл, так что валидный
+        # результат ОБЯЗАН открываться как zip; иначе не принимаем скачивание.
+        if not zipfile.is_zipfile(tmp_path):
+            os.remove(tmp_path)
+            msg = ("скачанный файл не является валидной моделью (не zip) — "
+                   "вероятно, HuggingFace вернул HTML-страницу вместо файла "
+                   "из-за отсутствующего/неверного токена доступа к gated-репозиторию; "
+                   "проверьте hfToken в настройках")
+            logger.warning(f"[scam-check] model download failed: {msg}")
+            _model_download_state["error"] = msg
+            return False
         os.replace(tmp_path, GEMMA_MODEL_FILE)
         logger.info("[scam-check] model downloaded successfully")
         _model_download_state["ready"] = True
