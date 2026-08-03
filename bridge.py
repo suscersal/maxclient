@@ -137,6 +137,7 @@ GEMMA_MODEL_DOWNLOAD_URL = os.getenv(
 _android_context = None
 _llm_engine = None
 _llm_engine_lock = threading.Lock()
+_model_download_lock = threading.Lock()
 _model_download_state = {
     "downloading": False,
     "ready": False,
@@ -168,12 +169,23 @@ def ensure_gemma_model_cached():
     if os.path.exists(GEMMA_MODEL_FILE):
         _model_download_state["ready"] = True
         return True
-    if _model_download_state["downloading"]:
-        return False
-    _model_download_state.update({
-        "downloading": True, "error": None,
-        "downloadedBytes": 0, "totalBytes": 0,
-    })
+    # Атомарно проверяем-и-выставляем "downloading" под локом — иначе
+    # set_android_context (авто-старт при запуске бриджа) и ручной вызов
+    # /api/scam-check/model/redownload могут оба проскочить проверку
+    # "downloading" до того, как её выставит другой поток, и одновременно
+    # писать в один и тот же .part-файл (двойной трафик, гонка на диске).
+    with _model_download_lock:
+        if os.path.exists(GEMMA_MODEL_FILE):
+            _model_download_state["ready"] = True
+            return True
+        if _model_download_state["downloading"]:
+            return False
+        _model_download_state.update({
+            "downloading": True, "error": None,
+            "downloadedBytes": 0, "totalBytes": 0,
+        })
+
+    tmp_path = GEMMA_MODEL_FILE + ".part"
     try:
         logger.info(
             "[scam-check] downloading on-device model (one-time, ~500MB+)…")
@@ -182,10 +194,10 @@ def ensure_gemma_model_cached():
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
         req = urllib.request.Request(GEMMA_MODEL_DOWNLOAD_URL, headers=headers)
-        tmp_path = GEMMA_MODEL_FILE + ".part"
         with urllib.request.urlopen(req, timeout=60) as resp:
-            total = resp.getheader("Content-Length")
-            _model_download_state["totalBytes"] = int(total) if total else 0
+            total_header = resp.getheader("Content-Length")
+            total = int(total_header) if total_header else 0
+            _model_download_state["totalBytes"] = total
             with open(tmp_path, "wb") as f:
                 downloaded = 0
                 while True:
@@ -195,6 +207,17 @@ def ensure_gemma_model_cached():
                     f.write(chunk)
                     downloaded += len(chunk)
                     _model_download_state["downloadedBytes"] = downloaded
+        # Если сервер прислал Content-Length и мы скачали меньше — соединение
+        # оборвалось на середине. Раньше это тихо принималось как "успех",
+        # что и оставляло битый .task-файл (та самая "Unable to open zip
+        # archive"). Теперь не принимаем неполный файл вообще.
+        if total and downloaded < total:
+            os.remove(tmp_path)
+            msg = (f"скачивание оборвалось: получено {downloaded} из {total} байт "
+                   f"— проверьте соединение и попробуйте ещё раз")
+            logger.warning(f"[scam-check] model download failed: {msg}")
+            _model_download_state["error"] = msg
+            return False
         # HuggingFace на gated-репозиториях без валидного токена иногда
         # отдаёт 200 OK с HTML-страницей ("примите лицензию" / логин) вместо
         # самого файла — HTTPError тогда не срабатывает, а файл на диске
@@ -227,6 +250,14 @@ def ensure_gemma_model_cached():
         _model_download_state["error"] = str(e)
         return False
     finally:
+        # Не оставляем недокачанный/битый .part валяться на диске в ЛЮБОМ
+        # случае провала — именно эти висящие остатки раздувают занятое
+        # приложением место на телефоне.
+        if os.path.exists(tmp_path) and not os.path.exists(GEMMA_MODEL_FILE):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
         _model_download_state["downloading"] = False
 
 
