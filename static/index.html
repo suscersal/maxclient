@@ -7808,13 +7808,13 @@
             log('✅ Голосовое сообщение отправлено', 'success');
         }
 
-        document.getElementById('voiceRecordBtn').addEventListener('click', () => {
-            if (voiceRecordingActive) {
-                stopVoiceRecording(false);
-            } else {
-                startVoiceRecording();
-            }
-        });
+        // document.getElementById('voiceRecordBtn').addEventListener('click', () => {
+        //     if (voiceRecordingActive) {
+        //         stopVoiceRecording(false);
+        //     } else {
+        //         startVoiceRecording();
+        //     }
+        // });
 
         // ========================================
         // ВИДЕО-КРУЖОЧКИ (video note, videoType: 1)
@@ -7986,13 +7986,13 @@
             log('✅ Видео-кружок отправлен', 'success');
         }
 
-        document.getElementById('videoNoteRecordBtn').addEventListener('click', () => {
-            if (videoNoteRecordingActive) {
-                stopVideoNoteRecording(false);
-            } else {
-                startVideoNoteRecording();
-            }
-        });
+        // document.getElementById('videoNoteRecordBtn').addEventListener('click', () => {
+        //     if (videoNoteRecordingActive) {
+        //         stopVideoNoteRecording(false);
+        //     } else {
+        //         startVideoNoteRecording();
+        //     }
+        // });
 
         document.getElementById('messageText').addEventListener('input', (e) => {
             if (currentChatId) saveDraft(currentChatId, e.target.value);
