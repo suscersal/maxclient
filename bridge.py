@@ -2563,6 +2563,90 @@ def upload_file():
     })
 
 
+@app.route("/api/upload-audio", methods=["POST"])
+def upload_audio():
+    """Загружает голосовое сообщение (opcode 82, VIDEO_UPLOAD с type=2 —
+
+    аудио и видео в протоколе MAX используют один и тот же аплоадер,
+    отличаясь только полем "type": 2 = аудио, см. requestAudioUploadUrl()
+    в Komet (lib/backend/modules/messages.dart)).
+
+    Ожидает multipart/form-data с полем "file" (готовый OGG/Opus-файл —
+    кодирование делается на клиенте, см. static/index.html). Возвращает
+    audioId/token — их нужно вставить в attaches сообщения как
+    {"_type": "AUDIO", "token": token, "duration": <мс>, "wave": [...]}
+    и отправить через /relay (opcode 64), как обычное текстовое сообщение.
+    """
+    f = request.files.get("file")
+    if f is None:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    filename = f.filename or "voice.ogg"
+    data = f.read()
+    total = len(data)
+    if total == 0:
+        return jsonify({"error": "Пустой файл"}), 400
+
+    try:
+        packet = fetch_once(
+            82, {"uploaderType": 1, "type": 2, "count": 1},
+            wait_opcode=82, timeout=20)
+    except Exception as e:
+        logger.warning(f"[upload-audio] videoUpload request failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_msg = packet.get("payload", {}).get(
+            "localizedMessage", "Не удалось получить ссылку для загрузки") if packet else "Нет ответа от сервера"
+        return jsonify({"error": error_msg}), 502
+
+    info_list = (packet.get("payload") or {}).get("info") or []
+    if not info_list:
+        return jsonify({"error": "Сервер не вернул данные для загрузки"}), 502
+
+    info = info_list[0]
+    upload_url = info.get("url")
+    audio_id = info.get("videoId")
+    token = info.get("token")
+    if not upload_url:
+        return jsonify({"error": "Сервер не вернул URL загрузки"}), 502
+
+    try:
+        req = urllib.request.Request(
+            upload_url,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-binary; charset=x-user-defined",
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Range": f"bytes 0-{total - 1}/{total}",
+                "Content-Length": str(total),
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        logger.warning(f"[upload-audio] upload HTTP error: {e}")
+        return jsonify({"error": f"Ошибка загрузки: HTTP {e.code}"}), 502
+    except Exception as e:
+        logger.warning(f"[upload-audio] upload failed: {e}")
+        return jsonify({"error": str(e)}), 502
+
+    if status != 200:
+        return jsonify({"error": f"Ошибка загрузки: HTTP {status}"}), 502
+
+    logger.info(
+        f"[upload-audio] Uploaded {filename} ({total} bytes), audioId={audio_id}")
+    return jsonify({
+        "success": True,
+        "audioId": audio_id,
+        "token": token,
+        "name": filename,
+        "size": total,
+    })
+
+
 @app.route("/api/upload-photo", methods=["POST"])
 def upload_photo():
     """Загружает фото (opcode 80, PHOTO_UPLOAD).

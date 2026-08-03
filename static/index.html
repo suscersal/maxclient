@@ -2199,6 +2199,13 @@
             <path fill="currentColor"
                 d="M18.561 13.453q.117-.435.228-.887l.024-.082c.455-1.803.88-3.757 1.183-5.212.362-1.742-.348-3.69-2.118-4.511a8.4 8.4 0 0 0-1.329-.5 8.4 8.4 0 0 0-1.4-.232c-1.944-.174-3.533 1.159-4.09 2.848a140 140 0 0 0-1.426 4.56 41 41 0 0 0-.445 1.709 181 181 0 0 0-.713 3.045c-.259 1.145.045 2.674 1.4 3.351.182.09.39.179.612.238.23.062.461.09.669.1 1.471.074 2.455-1.067 2.803-2.135.425-1.304 1.08-3.37 1.552-5.132l.04-.151a.99.99 0 0 0-.705-1.21 1.01 1.01 0 0 0-1.233.719l-.034.125c-.457 1.707-1.098 3.732-1.521 5.03-.184.564-.557.769-.8.757a1.3 1.3 0 0 1-.253-.034 1.3 1.3 0 0 1-.236-.096c-.247-.123-.48-.52-.343-1.122.195-.866.463-2.027.75-3.196a37 37 0 0 1 .424-1.596c.45-1.539.955-3.115 1.358-4.336.322-.975 1.16-1.558 2.012-1.482.396.036.763.092 1.062.172.298.08.643.214 1.005.382.775.36 1.21 1.284 1 2.29a130 130 0 0 1-1.125 4.977 1 1 0 0 0-.03.1q-.123.51-.253.993c-.369 1.378-.892 2.912-1.394 4.274-.704 1.909-2.534 3.067-4.383 2.722a12 12 0 0 1-.878-.196 13 13 0 0 1-1.121-.363c-1.747-.644-2.78-2.492-2.547-4.46a119 119 0 0 1 .817-5.637 1.004 1.004 0 0 0-.729-1.135.997.997 0 0 0-1.242.797c-.325 1.95-.604 3.812-.832 5.74-.327 2.765 1.116 5.567 3.84 6.571.432.16.872.305 1.296.419.334.09.681.165 1.03.23 2.954.55 5.639-1.32 6.625-3.996.512-1.388 1.058-2.986 1.45-4.448" />
         </symbol>
+        <symbol id="icon_mic" viewBox="0 0 24 24">
+            <path fill="currentColor"
+                d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 0 0-7 0v5A3.5 3.5 0 0 0 12 15m5.5-3.5a5.5 5.5 0 0 1-11 0a1 1 0 0 0-2 0 7.5 7.5 0 0 0 6.5 7.44V21a1 1 0 0 0 2 0v-2.06a7.5 7.5 0 0 0 6.5-7.44a1 1 0 0 0-2 0" />
+        </symbol>
+        <symbol id="icon_mic_stop" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M7 7h10v10H7z" />
+        </symbol>
     </svg>
     <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
     <script>
@@ -2629,6 +2636,13 @@
                 </svg>
             </label>
             <input type="text" id="messageText" placeholder="Сообщение">
+            <button type="button" id="voiceRecordBtn" title="Голосовое сообщение"
+                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px; cursor:pointer; background:transparent; border:none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
+                    <use href="#icon_mic"></use>
+                </svg>
+            </button>
+            <span id="voiceRecordTimer" class="hidden" style="flex:0 0 auto; font-variant-numeric: tabular-nums; padding:0 6px; color:#e53935;">0:00</span>
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
     </div>
@@ -3075,6 +3089,31 @@
             }
         });
 
+        // Плеер голосового сообщения. Своё только что отправленное аудио ещё
+        // до ответа сервера рендерится с локальным blob: URL (см.
+        // sendVoiceMessage) — тогда attach.__localBlobUrl уже указывает на
+        // готовый к проигрыванию файл и прокси не нужен. Для входящих/уже
+        // сохранённых сообщений используем attach.baseUrl/attach.url через
+        // тот же бинарный прокси, что и для видео (/video?url=...) — он
+        // отдаёт Content-Type по ответу апстрима и поддерживает Range,
+        // который нужен <audio> для перемотки.
+        function createAudioPlayer(messageId, attach) {
+            const duration = attach.duration ? formatTime(Math.round(attach.duration / 1000)) : '';
+            let src = attach.__localBlobUrl || null;
+            if (!src) {
+                const raw = attach.baseUrl || attach.fileUrl || attach.url;
+                if (raw) src = '/video?url=' + encodeURIComponent(raw);
+            }
+            if (!src) {
+                return `<div class="msg-file" style="color:#888;">🎤 Голосовое сообщение ${duration ? '(' + duration + ')' : ''} — недоступно</div>`;
+            }
+            return `
+          <div class="msg-audio-player" style="display:flex;align-items:center;gap:8px;min-width:200px;">
+            <audio controls preload="none" style="max-width:260px;height:32px;" src="${src}"></audio>
+            ${duration ? `<span style="font-size:12px;color:#888;">${duration}</span>` : ''}
+          </div>`;
+        }
+
         function createVideoPreview(messageId, chatId, attach) {
             const poster = attach.thumbnail ? '/img?url=' + encodeURIComponent(attach.thumbnail) :
                 attach.previewData ? hexPreviewToDataUrl(attach.previewData) : null;
@@ -3188,6 +3227,10 @@
         // сервер (Ollama/llama.cpp/LM Studio), см. поля URL/модель ниже.
 
         let scamCheckSettingsCache = null;
+        // Промис первичной загрузки настроек — нужен, чтобы queueScamCheck()
+        // не "молча" пропускал сообщения, которые отрендерились ДО того, как
+        // настройки успели прийти с сервера (см. комментарий в queueScamCheck).
+        let scamCheckSettingsPromise = null;
         const scamVerdictCache = {}; // msgId -> { is_scam, confidence, reason }
         let scamCheckQueue = [];
         let scamCheckBusy = false;
@@ -3220,6 +3263,16 @@
                 scamCheckSettingsCache = { enabled: false, url: '', model: '', hfToken: '' };
             }
             return scamCheckSettingsCache;
+        }
+
+        // Гарантирует, что scamCheckSettingsCache уже загружен (или загрузка
+        // хотя бы запущена), переиспользуя один и тот же промис при
+        // повторных вызовах — чтобы не слать лишние запросы /settings.
+        function ensureScamCheckSettingsLoaded() {
+            if (!scamCheckSettingsPromise) {
+                scamCheckSettingsPromise = loadScamCheckSettings();
+            }
+            return scamCheckSettingsPromise;
         }
 
         function formatBytes(n) {
@@ -3352,11 +3405,7 @@
 
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
         // на обычном железе не тянет параллельные запросы без деградации.
-        function queueScamCheck(msgId, text, context) {
-            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
-                console.log('[scam-check] skip: проверка выключена или настройки ещё не загружены', { msgId, settings: scamCheckSettingsCache });
-                return;
-            }
+        async function queueScamCheck(msgId, text, context) {
             if (!text) {
                 console.log('[scam-check] skip: пустой текст сообщения', { msgId });
                 return;
@@ -3365,6 +3414,29 @@
                 console.log('[scam-check] skip: вердикт уже в кэше', { msgId, verdict: scamVerdictCache[msgId] });
                 return;
             }
+            // РАНЬШЕ здесь была проверка `if (!scamCheckSettingsCache || ...) return`
+            // ДО первого ответа /api/scam-check/settings — а loadScamCheckSettings()
+            // на старте приложения не await-ится (см. вызов рядом с connect()).
+            // Из-за этого первые же сообщения, отрисованные при открытии/подгрузке
+            // истории чата СРАЗУ после старта, вызывали queueScamCheck() раньше,
+            // чем настройки успевали прийти с сервера — проверка тихо
+            // пропускалась. А т.к. msgId сразу попадает в existingIds при
+            // рендере, повторно этот же элемент никогда не перерисовывается —
+            // сообщение так и оставалось непроверенным навсегда, даже когда
+            // проверка включена и настройки в итоге загрузились.
+            // Теперь вместо немедленного skip — дожидаемся первой загрузки
+            // настроек (или её результата, если уже загружены) и только
+            // потом решаем, продолжать проверку или нет.
+            if (!scamCheckSettingsCache) {
+                await ensureScamCheckSettingsLoaded();
+            }
+            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
+                console.log('[scam-check] skip: проверка выключена', { msgId, settings: scamCheckSettingsCache });
+                return;
+            }
+            // Вердикт мог прийти, пока мы ждали настройки (или сообщение уже
+            // поставлено в очередь другим путём) — проверяем ещё раз.
+            if (scamVerdictCache[msgId]) return;
             console.log('[scam-check] queued', { msgId, text, contextLen: (context || '').length });
             scamCheckQueue.push({ msgId, text, context: context || '' });
             processScamCheckQueue();
@@ -5494,6 +5566,9 @@
             if (attach?._type === 'VIDEO') {
                 return '🎬 Видео';
             }
+            if (attach?._type === 'AUDIO') {
+                return '🎤 Голосовое сообщение';
+            }
             if (attach?._type === 'GIF') {
                 return '🎞️ GIF';
             }
@@ -5754,6 +5829,10 @@
                 }
                 if (a._type === 'VIDEO') {
                     attachesHtml += `<div class="msg-attach">${createVideoPreview(m.id, currentChatId, a)}</div>`;
+                    return;
+                }
+                if (a._type === 'AUDIO') {
+                    attachesHtml += `<div class="msg-attach msg-audio">${createAudioPlayer(m.id, a)}</div>`;
                     return;
                 }
                 if (a._type === 'GIF') {
@@ -7415,6 +7494,198 @@
             log(`✅ «${file.name}» отправлен`, 'success');
         }
 
+        // ========================================
+        // ГОЛОСОВЫЕ СООБЩЕНИЯ (запись через MediaRecorder + upload-audio)
+        // ========================================
+        //
+        // Формат: браузерный MediaRecorder умеет писать только в контейнер
+        // webm/ogg с кодеком Opus (сам звук — Opus, как и ожидает MAX/Komet,
+        // см. lib/frontend/screens/chats/chat/voice_record_controller.dart и
+        // core/media/opus_ogg_encoder.dart), но перепаковать webm-контейнер
+        // в "чистый" .ogg без внешних WASM-библиотек в браузере нельзя.
+        // Поэтому сервер получает сырой webm/opus файл как есть — сам аудио-
+        // поток внутри него декодируется штатным Opus-плеером, но нативные
+        // MAX-клиенты, которые ждут именно .ogg-контейнер, могут не
+        // воспроизвести такое сообщение. Если это станет проблемой —
+        // нужен серверный транскод (ffmpeg -i in.webm -c:a copy out.ogg)
+        // в /api/upload-audio на bridge.py перед аплоадом на сервер MAX.
+        let voiceRecorder = null;
+        let voiceChunks = [];
+        let voiceStream = null;
+        let voiceStartedAt = 0;
+        let voiceTimerInterval = null;
+        let voiceRecordingActive = false;
+
+        function pickVoiceMimeType() {
+            const candidates = [
+                'audio/ogg;codecs=opus',
+                'audio/webm;codecs=opus',
+                'audio/webm',
+            ];
+            for (const type of candidates) {
+                if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) {
+                    return type;
+                }
+            }
+            return '';
+        }
+
+        function updateVoiceTimerLabel() {
+            const el = document.getElementById('voiceRecordTimer');
+            if (!el) return;
+            const secs = Math.max(0, Math.floor((Date.now() - voiceStartedAt) / 1000));
+            const mm = Math.floor(secs / 60);
+            const ss = secs % 60;
+            el.textContent = `${mm}:${String(ss).padStart(2, '0')}`;
+        }
+
+        function setVoiceRecordingUi(active) {
+            const btn = document.getElementById('voiceRecordBtn');
+            const timer = document.getElementById('voiceRecordTimer');
+            const messageText = document.getElementById('messageText');
+            if (!btn) return;
+            const iconUse = btn.querySelector('use');
+            if (active) {
+                if (iconUse) iconUse.setAttribute('href', '#icon_mic_stop');
+                btn.title = 'Остановить запись';
+                btn.style.color = '#e53935';
+                if (timer) timer.classList.remove('hidden');
+                if (messageText) messageText.disabled = true;
+            } else {
+                if (iconUse) iconUse.setAttribute('href', '#icon_mic');
+                btn.title = 'Голосовое сообщение';
+                btn.style.color = '';
+                if (timer) { timer.classList.add('hidden'); timer.textContent = '0:00'; }
+                if (messageText) messageText.disabled = false;
+            }
+        }
+
+        async function startVoiceRecording() {
+            if (!currentChatId) {
+                log('❌ Сначала откройте чат', 'error');
+                return;
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('❌ Браузер не поддерживает запись звука', 'error');
+                return;
+            }
+            try {
+                voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (err) {
+                log('❌ Нет доступа к микрофону: ' + err, 'error');
+                return;
+            }
+            const mimeType = pickVoiceMimeType();
+            try {
+                voiceRecorder = mimeType
+                    ? new MediaRecorder(voiceStream, { mimeType })
+                    : new MediaRecorder(voiceStream);
+            } catch (err) {
+                log('❌ Не удалось начать запись: ' + err, 'error');
+                voiceStream.getTracks().forEach(t => t.stop());
+                voiceStream = null;
+                return;
+            }
+            voiceChunks = [];
+            voiceRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) voiceChunks.push(e.data);
+            };
+            voiceRecorder.onstop = onVoiceRecordingStopped;
+            voiceRecorder.start();
+            voiceRecordingActive = true;
+            voiceStartedAt = Date.now();
+            updateVoiceTimerLabel();
+            voiceTimerInterval = setInterval(updateVoiceTimerLabel, 500);
+            setVoiceRecordingUi(true);
+        }
+
+        function stopVoiceRecording(cancel) {
+            if (!voiceRecordingActive || !voiceRecorder) return;
+            voiceRecorder.__cancelled = !!cancel;
+            if (voiceRecorder.state !== 'inactive') voiceRecorder.stop();
+        }
+
+        async function onVoiceRecordingStopped() {
+            const cancelled = !!voiceRecorder?.__cancelled;
+            const mimeType = voiceRecorder?.mimeType || 'audio/webm';
+            const durationMs = Date.now() - voiceStartedAt;
+
+            clearInterval(voiceTimerInterval);
+            voiceTimerInterval = null;
+            voiceRecordingActive = false;
+            setVoiceRecordingUi(false);
+            if (voiceStream) {
+                voiceStream.getTracks().forEach(t => t.stop());
+                voiceStream = null;
+            }
+
+            const chunks = voiceChunks;
+            voiceChunks = [];
+            voiceRecorder = null;
+
+            if (cancelled || durationMs < 500) {
+                if (cancelled) log('🎤 Запись отменена', 'info');
+                else log('🎤 Слишком короткая запись — не отправлено', 'info');
+                return;
+            }
+            const blob = new Blob(chunks, { type: mimeType });
+            await uploadAndSendVoice(blob, durationMs, mimeType);
+        }
+
+        async function uploadAndSendVoice(blob, durationMs, mimeType) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ Нет соединения — не могу отправить голосовое сообщение', 'error');
+                return;
+            }
+            const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+            const filename = `voice_${Date.now()}.${ext}`;
+            const formData = new FormData();
+            formData.append('file', blob, filename);
+
+            log('⏳ Загружаю голосовое сообщение...', 'info');
+            let data;
+            try {
+                const res = await fetch('/api/upload-audio', { method: 'POST', body: formData });
+                data = await res.json().catch(() => ({}));
+                if (!res.ok || data.error) {
+                    log(`❌ Не удалось загрузить голосовое сообщение: ${data.error || res.status}`, 'error');
+                    return;
+                }
+            } catch (err) {
+                log(`❌ Ошибка загрузки голосового сообщения: ${err}`, 'error');
+                return;
+            }
+
+            const attach = {
+                _type: 'AUDIO',
+                token: data.token,
+                duration: durationMs,
+                // Пустая "плоская" волна — на сервере это не валидируется,
+                // а честный waveform требует анализа амплитуды во время
+                // записи (AnalyserNode); оставлено на доработку.
+                wave: new Array(80).fill(0),
+            };
+
+            send(64, {
+                chatId: currentChatId,
+                message: {
+                    text: '',
+                    cid: Date.now(),
+                    attaches: [attach]
+                },
+                notify: true
+            });
+            log('✅ Голосовое сообщение отправлено', 'success');
+        }
+
+        document.getElementById('voiceRecordBtn').addEventListener('click', () => {
+            if (voiceRecordingActive) {
+                stopVoiceRecording(false);
+            } else {
+                startVoiceRecording();
+            }
+        });
+
         document.getElementById('messageText').addEventListener('input', (e) => {
             if (currentChatId) saveDraft(currentChatId, e.target.value);
         });
@@ -7717,7 +7988,7 @@
             Notification.requestPermission();
         }
 
-        loadScamCheckSettings();
+        ensureScamCheckSettingsLoaded();
         connect();
 
         window.addEventListener('online', () => {
