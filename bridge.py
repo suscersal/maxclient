@@ -350,6 +350,9 @@ def get_on_device_llm():
             options = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
                 .setMaxTokens(512) \
+                .setTemperature(0.0) \
+                .setTopK(1) \
+                .setRandomSeed(0) \
                 .build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
@@ -376,6 +379,13 @@ def _parse_scam_verdict_text(content: str):
         # числа — приводим к int, чтобы фронт не получал мусор.
         m = re.search(r"-?\d+", confidence)
         confidence = int(m.group()) if m else None
+    if isinstance(confidence, (int, float)):
+        # Маленькие on-device модели периодически выдают отрицательные или
+        # выходящие за 0-100 значения (модель "путает" знак/шкалу) — не
+        # передаём такое на фронт как есть.
+        confidence = max(0, min(100, int(round(abs(confidence)))))
+    else:
+        confidence = None
     return {
         "is_scam": bool(verdict.get("is_scam", False)),
         "confidence": confidence,
