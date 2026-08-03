@@ -4138,7 +4138,16 @@
             const chatId = chatProfileChatId;
             const label = document.getElementById('scamCheckChatBtnLabel');
             const out = document.getElementById('scamCheckChatResult');
-            if (!chatId) return;
+            // Логируем ПЕРВЫМ делом, до всех проверок — иначе при раннем
+            // return (например, chatId не задан) в консоли не будет вообще
+            // ничего, и непонятно, сработал ли клик по кнопке.
+            console.log('[scam-check][chat-check] нажата кнопка "Проверить чат на скам"',
+                { chatId, settingsEnabled: !!(scamCheckSettingsCache && scamCheckSettingsCache.enabled) });
+            if (!chatId) {
+                console.warn('[scam-check][chat-check] chatProfileChatId не задан — профиль чата открыт некорректно, проверять нечего');
+                if (out) out.textContent = '❌ Не удалось определить чат — откройте профиль чата заново и повторите.';
+                return;
+            }
             if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
                 if (out) out.textContent = '⚠️ Сначала включите скам-проверку в настройках (🛡️ Скам-проверка (ИИ)).';
                 console.log('[scam-check][chat-check] skipped: не включено', scamCheckSettingsCache);
