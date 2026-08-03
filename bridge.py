@@ -1817,8 +1817,15 @@ def _run_scam_check(text: str) -> dict:
         cfg["url"], data=body,
         headers={"Content-Type": "application/json"}, method="POST",
     )
-    with urllib.request.urlopen(req, timeout=SCAM_CHECK_TIMEOUT) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=SCAM_CHECK_TIMEOUT) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        # Пробрасываем debug_info дальше вместе с ошибкой, иначе роут
+        # /api/scam-check вернёт только generic "no engine available" и
+        # настоящая причина отказа on-device движка потеряется.
+        e.scam_debug_info = debug_info
+        raise
     content = raw["choices"][0]["message"]["content"]
     verdict = _parse_scam_verdict_text(content)
     return {**verdict, "engine": "external", **debug_info}
@@ -1848,10 +1855,14 @@ def scam_check():
             return jsonify({"error": "disabled"}), 400
         return jsonify({"error": str(e)}), 400
     except urllib.error.URLError as e:
-        return jsonify({
+        resp = {
             "error": "no engine available (on-device model not ready, external server unreachable)",
             "details": str(e),
-        }), 502
+        }
+        debug_info = getattr(e, "scam_debug_info", None)
+        if debug_info:
+            resp.update(debug_info)
+        return jsonify(resp), 502
     except (KeyError, IndexError, TypeError) as e:
         return jsonify({"error": f"unexpected response from external server: {e}"}), 502
     except json.JSONDecodeError as e:
