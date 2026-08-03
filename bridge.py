@@ -79,14 +79,23 @@ FALLBACK_APP_VERSION = "26.15.0"
 SCAM_CHECK_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
 SCAM_CHECK_DEFAULT_MODEL = "llama3.1"
 SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "20"))
+# Таймаут на нативный on-device инференс (MediaPipe generateResponse). Это
+# отдельный, обычно бОльший бюджет, т.к. локальная LLM на телефоне — особенно
+# при первом прогреве/на слабом железе — может думать намного дольше, чем
+# HTTP-запрос к внешнему серверу. Без этого таймаута зависший нативный вызов
+# вешал весь скан навечно (checked не растёт, running остаётся true).
+SCAM_CHECK_ONDEVICE_TIMEOUT = int(os.getenv("SCAM_CHECK_ONDEVICE_TIMEOUT", "45"))
 SCAM_CHECK_SYSTEM_PROMPT = (
     "Ты — детектор мошеннических (скам) сообщений в мессенджере. Тебе дают "
     "текст одного сообщения. Определи, похоже ли оно на мошенничество, "
     "фишинг или социальную инженерию (просьбы перевести деньги, поддельные "
     "ссылки на 'службу поддержки', выигрыши/призы, шантаж, поддельные "
-    "начальники/родственники/банки и т.п.). Ответь СТРОГО в виде JSON без "
-    "какого-либо текста вокруг: "
-    '{"is_scam": true|false, "confidence": 0-100, "reason": "краткое объяснение по-русски"}'
+    "начальники/родственники/банки и т.п.). "
+    "Ответь СТРОГО одной строкой JSON, без markdown, без ```, без пояснений "
+    "до или после JSON, без переносов строк внутри значений: "
+    '{"is_scam": true|false, "confidence": 0-100, "reason": "не более 8 слов по-русски"}'
+    " Поле reason — короткая фраза-причина (например: 'просьба перевести деньги "
+    "срочно'), НЕ развёрнутое объяснение."
 )
 
 
@@ -137,6 +146,12 @@ GEMMA_MODEL_DOWNLOAD_URL = os.getenv(
 _android_context = None
 _llm_engine = None
 _llm_engine_lock = threading.Lock()
+# MediaPipe LlmInference НЕ поддерживает параллельные вызовы generateResponse
+# на одном экземпляре движка — одновременный вызов из живой проверки входящих
+# сообщений и из фонового скана чата (scan-all) виснет/крашит нативный код.
+# Этим локом сериализуем ВСЕ обращения к движку, из какого бы места (одиночная
+# проверка, scan-all) они ни пришли.
+_llm_call_lock = threading.Lock()
 _model_download_lock = threading.Lock()
 _model_download_state = {
     "downloading": False,
@@ -288,7 +303,6 @@ def delete_gemma_model():
 
 _llm_init_error = None
 _llm_init_failed_for_mtime = None
-
 
 def get_on_device_llm():
     """Ленивая инициализация on-device движка. Возвращает None (без
@@ -1857,17 +1871,44 @@ def _run_scam_check(text: str) -> dict:
     )
     on_device_error = _llm_init_error if on_device_status == "init_failed" else None
     if llm is not None:
-        try:
-            prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
-            content = llm.generateResponse(prompt)
-            verdict = _parse_scam_verdict_text(content)
-            return {**verdict, "engine": "on-device",
-                    "onDeviceStatus": "ready", "onDeviceError": None}
-        except Exception as e:
-            on_device_error = str(e)
-            on_device_status = "inference_failed"
+        got_lock = _llm_call_lock.acquire(timeout=SCAM_CHECK_ONDEVICE_TIMEOUT)
+        if not got_lock:
+            on_device_error = "on-device engine busy with another request"
+            on_device_status = "engine_busy"
             logger.warning(
-                f"[scam-check] on-device inference failed, falling back: {e}")
+                "[scam-check] on-device engine busy (concurrent call), falling back")
+        else:
+            try:
+                prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
+                # Отдельный одноразовый daemon-поток на каждый вызов (а не общий
+                # пул) — если нативный вызов реально зависнет навечно, теряется
+                # только этот один поток, а не воркер, который заблокировал бы
+                # ВСЕ последующие попытки таймаута.
+                _box = {}
+                def _call_native():
+                    try:
+                        _box["content"] = llm.generateResponse(prompt)
+                    except Exception as inner_e:
+                        _box["error"] = inner_e
+                t = threading.Thread(target=_call_native, daemon=True)
+                t.start()
+                t.join(timeout=SCAM_CHECK_ONDEVICE_TIMEOUT)
+                if t.is_alive():
+                    raise RuntimeError(
+                        f"on-device inference timed out after {SCAM_CHECK_ONDEVICE_TIMEOUT}s")
+                if "error" in _box:
+                    raise _box["error"]
+                content = _box.get("content")
+                verdict = _parse_scam_verdict_text(content)
+                return {**verdict, "engine": "on-device",
+                        "onDeviceStatus": "ready", "onDeviceError": None}
+            except Exception as e:
+                on_device_error = str(e)
+                on_device_status = "inference_failed"
+                logger.warning(
+                    f"[scam-check] on-device inference failed, falling back: {e}")
+            finally:
+                _llm_call_lock.release()
 
     debug_info = {"onDeviceStatus": on_device_status,
                   "onDeviceError": on_device_error}
