@@ -497,6 +497,14 @@
             border: 1px solid rgba(0, 0, 0, 0.08);
         }
 
+        /* Средняя категория риска: confidence в [50, 90) — "вероятно скам".
+           Оранжевый, чтобы отличать от явного красного скама (>=90). */
+        .msg-scam-badge.msg-scam-badge-likely {
+            color: #e07b00;
+            background: rgba(224, 123, 0, 0.1);
+            border: 1px solid rgba(224, 123, 0, 0.3);
+        }
+
         .bot-webapp-bar {
             display: flex;
             align-items: center;
@@ -3183,6 +3191,22 @@
         const scamVerdictCache = {}; // msgId -> { is_scam, confidence, reason }
         let scamCheckQueue = [];
         let scamCheckBusy = false;
+
+        // Три категории риска по проценту confidence (те же пороги, что и на
+        // бэкенде — см. SCAM_THRESHOLD_LIKELY/SCAM_THRESHOLD_SCAM в bridge.py):
+        // <50 — не скам, [50,90) — вероятно скам, >=90 — скам (красным).
+        // verdict.category уже приходит с бэкенда, но пересчитываем на всякий
+        // случай (например, для старого кэша без этого поля).
+        function scamCategory(verdict) {
+            if (verdict && verdict.category) return verdict.category;
+            const pct = verdict ? verdict.confidence : null;
+            if (typeof pct === 'number') {
+                if (pct >= 90) return 'scam';
+                if (pct >= 50) return 'likely';
+                return 'safe';
+            }
+            return (verdict && verdict.is_scam) ? 'scam' : 'safe';
+        }
         // Сколько записей из st.results уже выведено в консоль при опросе
         // /api/scam-check/scan-all/status — чтобы при поллинге логировать
         // только НОВЫЕ проверенные сообщения, а не весь список каждый раз.
@@ -3392,13 +3416,17 @@
                 return;
             }
             const pct = verdict.confidence ?? '?';
+            const cat = scamCategory(verdict);
             el.style.display = '';
-            if (verdict.is_scam && pct>=75) {
-                el.classList.remove('msg-scam-badge-safe');
+            el.classList.remove('msg-scam-badge-safe', 'msg-scam-badge-likely');
+            if (cat === 'scam') {
                 el.textContent = `⚠️ Похоже на скам (${pct}%): ${verdict.reason || ''}`;
+            } else if (cat === 'likely') {
+                el.classList.add('msg-scam-badge-likely');
+                el.textContent = `⚠️ Вероятно скам (${pct}%): ${verdict.reason || ''}`;
             } else {
                 // Раньше бейдж просто удалялся для "чистых" сообщений — теперь
-                // процент риска показываем всегда, даже когда is_scam=false.
+                // процент риска показываем всегда, даже когда это не скам.
                 el.classList.add('msg-scam-badge-safe');
                 el.textContent = `✅ Скам-проверка: ${pct}% риска`;
             }
@@ -4282,15 +4310,27 @@
                     out.innerHTML = 'ℹ️ Не найдено сообщений этого чата в кэше (откройте чат, полистайте сообщения и попробуйте снова).';
                 } else {
                     const results = st.results || st.flagged || [];
-                    const renderRow = (f, flagged) => `
-                        <div style="border:1px solid ${flagged ? 'rgba(229,57,53,0.3)' : 'rgba(0,0,0,0.08)'};background:${flagged ? 'rgba(229,57,53,0.06)' : 'rgba(0,0,0,0.03)'};border-radius:8px;padding:8px 10px;margin-top:8px;">
-                            <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${flagged ? '⚠️' : '✅'} ${f.confidence ?? '?'}%</span></div>
+                    const CAT_STYLE = {
+                        scam:   { border: 'rgba(229,57,53,0.3)',  bg: 'rgba(229,57,53,0.06)',  icon: '⚠️' },
+                        likely: { border: 'rgba(224,123,0,0.35)', bg: 'rgba(224,123,0,0.07)',  icon: '⚠️' },
+                        safe:   { border: 'rgba(0,0,0,0.08)',     bg: 'rgba(0,0,0,0.03)',      icon: '✅' },
+                    };
+                    const renderRow = (f) => {
+                        const cat = scamCategory(f);
+                        const s = CAT_STYLE[cat] || CAT_STYLE.safe;
+                        return `
+                        <div style="border:1px solid ${s.border};background:${s.bg};border-radius:8px;padding:8px 10px;margin-top:8px;">
+                            <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${s.icon} ${f.confidence ?? '?'}%</span></div>
                             ${f.reason ? `<div style="color:#666;margin-top:2px;">${escapeHtml(f.reason)}</div>` : ''}
                             <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
                         </div>
                     `;
-                    const summary = st.flagged.length
-                        ? `⚠️ Проверено ${st.checked}, найдено подозрительных: ${st.flagged.length}`
+                    };
+                    // "Флагнутые" в сводке — вероятно скам ИЛИ скам (confidence >= 50),
+                    // а не только жёсткая категория "scam" (>=90).
+                    const flaggedCount = results.filter(f => scamCategory(f) !== 'safe').length;
+                    const summary = flaggedCount
+                        ? `⚠️ Проверено ${st.checked}, найдено подозрительных: ${flaggedCount}`
                         : `✅ Проверено ${st.checked} сообщений — подозрительных не найдено.`;
                     // Список ВСЕХ проверенных сообщений с процентом скама у
                     // каждого (не только у флагнутых) — скрыт по умолчанию,
@@ -4299,7 +4339,7 @@
                         (results.length ? `
                             <details style="margin-top:8px;">
                                 <summary style="cursor:pointer;color:#888;">Показать все проверенные (${results.length})</summary>
-                                ${results.map(f => renderRow(f, !!f.is_scam)).join('')}
+                                ${results.map(f => renderRow(f)).join('')}
                             </details>
                         ` : '');
                 }
@@ -5682,11 +5722,16 @@
                 const cached = scamVerdictCache[m.id];
                 if (cached) {
                     const pct = cached.confidence ?? '?';
+                    const cat = scamCategory(cached);
                     // Процент риска показываем для ЛЮБОГО проверенного
                     // сообщения, не только для помеченных как скам.
-                    scamBadgeHtml = cached.is_scam
-                        ? `<div class="msg-scam-badge">⚠️ Похоже на скам (${pct}%): ${escapeHtml(cached.reason || '')}</div>`
-                        : `<div class="msg-scam-badge msg-scam-badge-safe">✅ Скам-проверка: ${pct}% риска</div>`;
+                    if (cat === 'scam') {
+                        scamBadgeHtml = `<div class="msg-scam-badge">⚠️ Похоже на скам (${pct}%): ${escapeHtml(cached.reason || '')}</div>`;
+                    } else if (cat === 'likely') {
+                        scamBadgeHtml = `<div class="msg-scam-badge msg-scam-badge-likely">⚠️ Вероятно скам (${pct}%): ${escapeHtml(cached.reason || '')}</div>`;
+                    } else {
+                        scamBadgeHtml = `<div class="msg-scam-badge msg-scam-badge-safe">✅ Скам-проверка: ${pct}% риска</div>`;
+                    }
                 } else {
                     scamBadgeHtml = '<div class="msg-scam-badge" style="display:none;"></div>';
                     let scamContext = '';
