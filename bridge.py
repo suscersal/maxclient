@@ -350,25 +350,27 @@ def get_on_device_llm():
             builder = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
                 .setMaxTokens(512)
-            try:
-                # Детерминированная (greedy) генерация — без этого одно и то
-                # же сообщение может каждый раз давать разный вердикт. Но эти
-                # методы есть не во всех версиях tasks-genai (могли переехать
-                # в LlmInferenceSessionOptions) — если билдер их не поддерживает,
-                # не должны терять весь движок из-за этого, просто едем без
-                # принудительного детерминизма.
-                # temperature=0.0 может вызывать деление на ноль в нативном
-                # сэмплере (сегфолт, который НИКАКОЙ try/except не ловит —
-                # именно так приложение "тихо вылетало без ошибки" при входе
-                # в чат). topK=1 и так даёт фактически жадный выбор, поэтому
-                # берём маленькое положительное значение вместо чистого нуля.
-                builder = builder.setTemperature(0.01) \
-                    .setTopK(1) \
-                    .setRandomSeed(0)
-            except Exception as opt_e:
-                logger.warning(
-                    f"[scam-check] temperature/topK/randomSeed unsupported on "
-                    f"this LlmInferenceOptions builder, continuing without them: {opt_e}")
+            # Принудительный "детерминизм" (temperature/topK/randomSeed) —
+            # ДАЖЕ temperature=0.01 стабильно роняет нативный сэмплер
+            # (SIGSEGV в nativePredictSync — см. tombstone, там же
+            # generateResponse -> LlmTaskRunner.predictSync). Это падает
+            # НЕ на этапе сборки опций (тот try/except его не ловит и не
+            # может поймать — segfault убивает процесс целиком, минуя
+            # любой Python/Java except), а прямо во время генерации ответа.
+            # Поэтому по умолчанию НЕ трогаем эти параметры вообще — движок
+            # работает на дефолтных настройках MediaPipe, как и до наших
+            # правок. Включить принудительно можно через переменную
+            # окружения, если на другом устройстве/версии tasks-genai
+            # это всё же не крашит.
+            if os.getenv("SCAM_CHECK_FORCE_DETERMINISTIC") == "1":
+                try:
+                    builder = builder.setTemperature(0.01) \
+                        .setTopK(1) \
+                        .setRandomSeed(0)
+                except Exception as opt_e:
+                    logger.warning(
+                        f"[scam-check] temperature/topK/randomSeed unsupported on "
+                        f"this LlmInferenceOptions builder, continuing without them: {opt_e}")
             options = builder.build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
