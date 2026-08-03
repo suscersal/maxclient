@@ -3338,7 +3338,7 @@
 
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
         // на обычном железе не тянет параллельные запросы без деградации.
-        function queueScamCheck(msgId, text) {
+        function queueScamCheck(msgId, text, context) {
             if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
                 console.log('[scam-check] skip: проверка выключена или настройки ещё не загружены', { msgId, settings: scamCheckSettingsCache });
                 return;
@@ -3351,8 +3351,8 @@
                 console.log('[scam-check] skip: вердикт уже в кэше', { msgId, verdict: scamVerdictCache[msgId] });
                 return;
             }
-            console.log('[scam-check] queued', { msgId, text });
-            scamCheckQueue.push({ msgId, text });
+            console.log('[scam-check] queued', { msgId, text, contextLen: (context || '').length });
+            scamCheckQueue.push({ msgId, text, context: context || '' });
             processScamCheckQueue();
         }
 
@@ -3366,7 +3366,7 @@
                 const res = await fetch('/api/scam-check', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: job.text }),
+                    body: JSON.stringify({ text: job.text, context: job.context || '' }),
                 });
                 if (res.ok) {
                     const verdict = await res.json();
@@ -5653,7 +5653,7 @@
             }
         }
 
-        function createMessageElement(m) {
+        function createMessageElement(m, allMessages) {
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
             el.className = 'msg-bubble' + (isOwn ? ' own' : '');
@@ -5689,7 +5689,17 @@
                         : `<div class="msg-scam-badge msg-scam-badge-safe">✅ Скам-проверка: ${pct}% риска</div>`;
                 } else {
                     scamBadgeHtml = '<div class="msg-scam-badge" style="display:none;"></div>';
-                    queueScamCheck(m.id, m.text);
+                    let scamContext = '';
+                    if (Array.isArray(allMessages)) {
+                        const idx = allMessages.findIndex(x => x.id === m.id);
+                        if (idx > 0) {
+                            scamContext = allMessages.slice(Math.max(0, idx - 5), idx)
+                                .map(x => (x.text || '').trim())
+                                .filter(Boolean)
+                                .join('\n');
+                        }
+                    }
+                    queueScamCheck(m.id, m.text, scamContext);
                 }
             }
             (m.attaches || []).forEach(a => {
@@ -6554,13 +6564,13 @@
                 const prevScrollHeight = list.scrollHeight;
                 const prevScrollTop = list.scrollTop;
                 const frag = document.createDocumentFragment();
-                newMessages.forEach(m => frag.appendChild(createMessageElement(m)));
+                newMessages.forEach(m => frag.appendChild(createMessageElement(m, messages)));
                 list.insertBefore(frag, list.firstChild);
                 reconcileDateSeparators(list);
                 list.scrollTop = prevScrollTop + (list.scrollHeight - prevScrollHeight);
                 isLoadingMore = false;
             } else {
-                newMessages.forEach(m => insertMessageInOrder(list, createMessageElement(m)));
+                newMessages.forEach(m => insertMessageInOrder(list, createMessageElement(m, messages)));
                 reconcileDateSeparators(list);
                 list.scrollTop = list.scrollHeight;
                 // Открытый чат догнал историю до конца — отмечаем прочитанным.
