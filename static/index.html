@@ -5504,6 +5504,36 @@
             }
         }
 
+        // Вставляет элемент сообщения в правильную хронологическую позицию по
+        // dataset.msgTime, а не всегда в конец списка. Раньше новые сообщения
+        // (и из истории, и входящие через WS) всегда добавлялись через
+        // appendChild — если пакет догрузки истории приходил не строго по
+        // возрастанию времени (например, после переподключения WS), более
+        // новые сообщения оказывались НИЖЕ более старых, которые их обогнали
+        // при appendChild — визуально это выглядело как "сообщения уезжают
+        // назад" после отправки нового.
+        function insertMessageInOrder(list, el) {
+            const time = Number(el.dataset.msgTime) || 0;
+            const children = list.querySelectorAll('.msg-bubble[data-msg-time]');
+            let inserted = false;
+            for (let i = children.length - 1; i >= 0; i--) {
+                const childTime = Number(children[i].dataset.msgTime) || 0;
+                if (childTime <= time) {
+                    children[i].after(el);
+                    inserted = true;
+                    break;
+                }
+            }
+            if (!inserted) {
+                // Либо список пуст, либо это сообщение старше всех текущих.
+                if (children.length) {
+                    children[0].before(el);
+                } else {
+                    list.appendChild(el);
+                }
+            }
+        }
+
         function createMessageElement(m) {
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
@@ -6403,7 +6433,7 @@
                 list.scrollTop = prevScrollTop + (list.scrollHeight - prevScrollHeight);
                 isLoadingMore = false;
             } else {
-                newMessages.forEach(m => list.appendChild(createMessageElement(m)));
+                newMessages.forEach(m => insertMessageInOrder(list, createMessageElement(m)));
                 reconcileDateSeparators(list);
                 list.scrollTop = list.scrollHeight;
                 // Открытый чат догнал историю до конца — отмечаем прочитанным.
@@ -6783,7 +6813,7 @@
                         if (chatId === currentChatId && chatDetailOpen) {
                             const list = document.getElementById('messagesList');
                             const el = createMessageElement(msg);
-                            list.appendChild(el);
+                            insertMessageInOrder(list, el);
                             reconcileDateSeparators(list);
                             list.scrollTop = list.scrollHeight;
                             // Сообщение видно прямо сейчас в открытом чате — читаем.
