@@ -235,9 +235,11 @@ def delete_gemma_model():
     настройках) — освобождает место, если проверка больше не нужна.
     Заодно сбрасывает уже проинициализированный движок в памяти, чтобы
     следующий запрос на скам-проверку не пытался юзать закрытый файл."""
-    global _llm_engine
+    global _llm_engine, _llm_init_error, _llm_init_failed_for_mtime
     with _llm_engine_lock:
         _llm_engine = None
+        _llm_init_error = None
+        _llm_init_failed_for_mtime = None
     removed = False
     for path in (GEMMA_MODEL_FILE, GEMMA_MODEL_FILE + ".part"):
         if os.path.exists(path):
@@ -254,6 +256,7 @@ def delete_gemma_model():
 
 
 _llm_init_error = None
+_llm_init_failed_for_mtime = None
 
 
 def get_on_device_llm():
@@ -263,8 +266,17 @@ def get_on_device_llm():
     вызывающий код тогда сам решает, использовать ли fallback на внешний
     сервер. Причина последнего провала сохраняется в _llm_init_error, чтобы
     её можно было вернуть в API-ответе (см. _run_scam_check), а не только
-    смотреть в adb logcat."""
-    global _llm_engine, _llm_init_error
+    смотреть в adb logcat.
+
+    ВАЖНО: неудачная попытка инициализации кэшируется по mtime файла модели
+    (_llm_init_failed_for_mtime). Нативный createFromOptions() — тяжёлый
+    C++/JNI-вызов; если модель битая, он ВСЕГДА падает с той же ошибкой, а
+    повторять его на КАЖДОЕ проверяемое сообщение (например, во время
+    scan-all по 9+ сообщениям) — не просто медленно, а рискует уронить весь
+    процесс нативным крашем, а не аккуратным Python-исключением. Поэтому
+    после одного провала для конкретного файла модели больше не пытаемся,
+    пока файл не поменяется (удаление + повторное скачивание меняет mtime)."""
+    global _llm_engine, _llm_init_error, _llm_init_failed_for_mtime
     if _llm_engine is not None:
         return _llm_engine
     if _android_context is None:
@@ -282,6 +294,14 @@ def get_on_device_llm():
         if not os.path.exists(GEMMA_MODEL_FILE):
             return None
         try:
+            model_mtime = os.path.getmtime(GEMMA_MODEL_FILE)
+        except OSError:
+            model_mtime = None
+        if _llm_init_failed_for_mtime is not None and _llm_init_failed_for_mtime == model_mtime:
+            # Уже пробовали именно этот файл модели и он не завёлся —
+            # не повторяем тяжёлый нативный вызов зря.
+            return None
+        try:
             options = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
                 .setMaxTokens(512) \
@@ -289,9 +309,11 @@ def get_on_device_llm():
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
             _llm_init_error = None
+            _llm_init_failed_for_mtime = None
             logger.info("[scam-check] on-device LLM initialized")
         except Exception as e:
             _llm_init_error = str(e)
+            _llm_init_failed_for_mtime = model_mtime
             logger.warning(f"[scam-check] failed to init on-device model: {e}")
             _llm_engine = None
         return _llm_engine
