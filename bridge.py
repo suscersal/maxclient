@@ -1795,7 +1795,13 @@ def scam_check():
         return jsonify({"error": "empty text"}), 400
     try:
         result = _run_scam_check(text)
-        logger.info(f"[scam-check] result: {result}")
+        confidence = result.get("confidence")
+        logger.info(
+            f"[scam-check] verdict: is_scam={result.get('is_scam')} "
+            f"confidence={confidence if confidence is not None else '?'}% "
+            f"engine={result.get('engine')} reason={result.get('reason', '')!r} "
+            f"text={text[:80]!r}"
+        )
         return jsonify(result)
     except RuntimeError as e:
         if str(e) == "disabled":
@@ -1827,8 +1833,12 @@ _scan_state = {
     "running": False,
     "checked": 0,
     "total": 0,
-    # [{chatId, chatName, msgId, text, confidence, reason, engine}]
+    # [{chatId, chatName, msgId, text, confidence, reason, engine, is_scam}]
+    # только те, где is_scam == true
     "flagged": [],
+    # то же самое, но ВСЕ проверенные сообщения (с процентом скама у
+    # каждого) — не только флагнутые. См. scan_all_cached_chats().
+    "results": [],
     "error": None,
     "finishedAt": None,
 }
@@ -1844,7 +1854,8 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
         if _scan_state["running"]:
             return
         _scan_state = {"running": True, "checked": 0, "total": 0,
-                       "flagged": [], "error": None, "finishedAt": None}
+                       "flagged": [], "results": [], "error": None,
+                       "finishedAt": None}
 
     try:
         chats_cache = load_chats_cache() or {}
@@ -1870,28 +1881,49 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                     f"(chat_id_filter={chat_id_filter}) across {len(messages_cache)} cached chats")
 
         for chat_id, m in jobs:
+            text = m.get("text", "")
+            chat = chats_by_id.get(str(chat_id))
+            chat_name = (chat.get("title")
+                         if chat else None) or f"Чат #{chat_id}"
             try:
-                result = _run_scam_check(m.get("text", ""))
-                if result.get("is_scam"):
-                    chat = chats_by_id.get(str(chat_id))
-                    chat_name = (chat.get("title")
-                                 if chat else None) or f"Чат #{chat_id}"
-                    _scan_state["flagged"].append({
-                        "chatId": chat_id,
-                        "chatName": chat_name,
-                        "msgId": m.get("id"),
-                        "text": m.get("text", "")[:300],
-                        "confidence": result.get("confidence"),
-                        "reason": result.get("reason", ""),
-                        "engine": result.get("engine"),
-                    })
+                result = _run_scam_check(text)
+                confidence = result.get("confidence")
+                is_scam = bool(result.get("is_scam"))
+                pct_str = f"{confidence}%" if confidence is not None else "?%"
+                # Подробный лог по КАЖДОМУ проверенному сообщению — не только
+                # по флагнутым, чтобы по логу можно было видеть процент
+                # скама для любого сообщения, даже "чистого".
+                logger.info(
+                    f"[scam-check][scan-all] [{_scan_state['checked'] + 1}/{_scan_state['total']}] "
+                    f"chat={chat_name!r} msgId={m.get('id')} -> {pct_str} "
+                    f"(is_scam={is_scam}, engine={result.get('engine')}) "
+                    f"text={text[:80]!r}"
+                )
+                entry = {
+                    "chatId": chat_id,
+                    "chatName": chat_name,
+                    "msgId": m.get("id"),
+                    "text": text[:300],
+                    "confidence": confidence,
+                    "reason": result.get("reason", ""),
+                    "engine": result.get("engine"),
+                    "is_scam": is_scam,
+                }
+                # Полный список — процент скама есть у КАЖДОГО проверенного
+                # сообщения, независимо от вердикта.
+                _scan_state["results"].append(entry)
+                if is_scam:
+                    _scan_state["flagged"].append(entry)
             except Exception as e:
                 logger.warning(
-                    f"[scam-check][scan-all] failed on message in chat {chat_id}: {e}")
+                    f"[scam-check][scan-all] failed on message {m.get('id')} "
+                    f"in chat {chat_name!r} ({chat_id}): {e}")
             finally:
                 _scan_state["checked"] += 1
 
         _scan_state["flagged"].sort(
+            key=lambda f: f.get("confidence") or 0, reverse=True)
+        _scan_state["results"].sort(
             key=lambda f: f.get("confidence") or 0, reverse=True)
         logger.info(f"[scam-check][scan-all] done: {_scan_state['checked']} checked, "
                     f"{len(_scan_state['flagged'])} flagged")

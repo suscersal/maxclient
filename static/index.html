@@ -488,6 +488,15 @@
             line-height: 1.35;
         }
 
+        /* Бейдж для сообщений, которые прошли скам-проверку и НЕ похожи на
+           скам — процент риска всё равно показываем, просто нейтральным
+           цветом, чтобы не путать с предупреждением. */
+        .msg-scam-badge.msg-scam-badge-safe {
+            color: #888;
+            background: rgba(0, 0, 0, 0.04);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
         .bot-webapp-bar {
             display: flex;
             align-items: center;
@@ -3369,11 +3378,16 @@
                 console.warn('[scam-check] badge element not found in DOM for msgId', msgId, '(сообщение уже перерисовано/удалено?)');
                 return;
             }
+            const pct = verdict.confidence ?? '?';
+            el.style.display = '';
             if (verdict.is_scam) {
-                el.style.display = '';
-                el.textContent = `⚠️ Похоже на скам (${verdict.confidence ?? '?'}%): ${verdict.reason || ''}`;
+                el.classList.remove('msg-scam-badge-safe');
+                el.textContent = `⚠️ Похоже на скам (${pct}%): ${verdict.reason || ''}`;
             } else {
-                el.remove();
+                // Раньше бейдж просто удалялся для "чистых" сообщений — теперь
+                // процент риска показываем всегда, даже когда is_scam=false.
+                el.classList.add('msg-scam-badge-safe');
+                el.textContent = `✅ Скам-проверка: ${pct}% риска`;
             }
         }
 
@@ -4172,17 +4186,28 @@
                     out.innerHTML = '❌ ' + escapeHtml(st.error);
                 } else if (!st.checked) {
                     out.innerHTML = 'ℹ️ Не найдено сообщений этого чата в кэше (откройте чат, полистайте сообщения и попробуйте снова).';
-                } else if (!st.flagged.length) {
-                    out.innerHTML = `✅ Проверено ${st.checked} сообщений — подозрительных не найдено.`;
                 } else {
-                    out.innerHTML = `⚠️ Проверено ${st.checked}, найдено подозрительных: ${st.flagged.length}` +
-                        st.flagged.map(f => `
-                            <div style="border:1px solid rgba(229,57,53,0.3);background:rgba(229,57,53,0.06);border-radius:8px;padding:8px 10px;margin-top:8px;">
-                                <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${f.confidence ?? '?'}%</span></div>
-                                <div style="color:#666;margin-top:2px;">${escapeHtml(f.reason || '')}</div>
-                                <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
-                            </div>
-                        `).join('');
+                    const results = st.results || st.flagged || [];
+                    const renderRow = (f, flagged) => `
+                        <div style="border:1px solid ${flagged ? 'rgba(229,57,53,0.3)' : 'rgba(0,0,0,0.08)'};background:${flagged ? 'rgba(229,57,53,0.06)' : 'rgba(0,0,0,0.03)'};border-radius:8px;padding:8px 10px;margin-top:8px;">
+                            <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${flagged ? '⚠️' : '✅'} ${f.confidence ?? '?'}%</span></div>
+                            ${f.reason ? `<div style="color:#666;margin-top:2px;">${escapeHtml(f.reason)}</div>` : ''}
+                            <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
+                        </div>
+                    `;
+                    const summary = st.flagged.length
+                        ? `⚠️ Проверено ${st.checked}, найдено подозрительных: ${st.flagged.length}`
+                        : `✅ Проверено ${st.checked} сообщений — подозрительных не найдено.`;
+                    // Список ВСЕХ проверенных сообщений с процентом скама у
+                    // каждого (не только у флагнутых) — скрыт по умолчанию,
+                    // разворачивается по клику, чтобы не загромождать панель.
+                    out.innerHTML = summary +
+                        (results.length ? `
+                            <details style="margin-top:8px;">
+                                <summary style="cursor:pointer;color:#888;">Показать все проверенные (${results.length})</summary>
+                                ${results.map(f => renderRow(f, !!f.is_scam)).join('')}
+                            </details>
+                        ` : '');
                 }
             } catch (e) {
                 console.warn('[scam-check][chat-check] poll failed', e);
@@ -5561,9 +5586,14 @@
             let scamBadgeHtml = '';
             if (m.text) {
                 const cached = scamVerdictCache[m.id];
-                if (cached && cached.is_scam) {
-                    scamBadgeHtml = `<div class="msg-scam-badge">⚠️ Похоже на скам (${cached.confidence ?? '?'}%): ${escapeHtml(cached.reason || '')}</div>`;
-                } else if (!cached) {
+                if (cached) {
+                    const pct = cached.confidence ?? '?';
+                    // Процент риска показываем для ЛЮБОГО проверенного
+                    // сообщения, не только для помеченных как скам.
+                    scamBadgeHtml = cached.is_scam
+                        ? `<div class="msg-scam-badge">⚠️ Похоже на скам (${pct}%): ${escapeHtml(cached.reason || '')}</div>`
+                        : `<div class="msg-scam-badge msg-scam-badge-safe">✅ Скам-проверка: ${pct}% риска</div>`;
+                } else {
                     scamBadgeHtml = '<div class="msg-scam-badge" style="display:none;"></div>';
                     queueScamCheck(m.id, m.text);
                 }
