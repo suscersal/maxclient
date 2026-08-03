@@ -44,7 +44,7 @@ CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
 # а не пустой список). Хранит не более MESSAGES_CACHE_LIMIT сообщений на чат.
 MESSAGES_CACHE_FILE = os.getenv("MESSAGES_CACHE_FILE", os.path.join(
     os.path.dirname(__file__), "messages_cache.json"))
-MESSAGES_CACHE_LIMIT = 50
+MESSAGES_CACHE_LIMIT = 20
 # lottie-web (анимации стикеров/лоадера) — не бандлим в сборку, а качаем один
 # раз при первом (заведомо онлайн) запуске и кэшируем рядом с session.json.
 # Дальше раздаём с диска (см. ensure_lottie_cached() и роут /lottie.min.js
@@ -77,21 +77,22 @@ FALLBACK_APP_VERSION = "26.15.0"
 # больше сообщения не отправляет.
 SCAM_CHECK_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
 SCAM_CHECK_DEFAULT_MODEL = "llama3.1"
-SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "10"))
+SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "20"))
 # Таймаут на нативный on-device инференс (MediaPipe generateResponse). Это
 # отдельный, обычно бОльший бюджет, т.к. локальная LLM на телефоне — особенно
 # при первом прогреве/на слабом железе — может думать намного дольше, чем
 # HTTP-запрос к внешнему серверу. Без этого таймаута зависший нативный вызов
 # вешал весь скан навечно (checked не растёт, running остаётся true).
-SCAM_CHECK_ONDEVICE_TIMEOUT = int(os.getenv("SCAM_CHECK_ONDEVICE_TIMEOUT", "45"))
-#Промпт
-SCAM_CHECK_SYSTEM_PROMPT = (
-    'Ты — детектор мошенничества. На вход одно сообщение. '
-    'Верни только JSON: {"is_scam": true|false, "confidence": 0-100, "reason": "до 5 слов по-русски"}. '
-    'confidence — целое число 0..100 без % и без минуса. '
-    'reason — короткая причина. '
-    'Никакого текста кроме JSON.'
-)
+SCAM_CHECK_ONDEVICE_TIMEOUT = int(
+    os.getenv("SCAM_CHECK_ONDEVICE_TIMEOUT", "45"))
+# Промпт
+SCAM_CHECK_SYSTEM_PROMPT = """
+Ты — детектор скама. На вход одно сообщение. Верни только JSON:
+{"is_scam": true|false, "confidence": 0-100, "reason": "до 5 слов по-русски"}.
+confidence — целое 0..100 без % и без минуса.
+reason — короткая причина.
+Никакого текста кроме JSON.
+"""
 
 
 def _get_scam_check_settings():
@@ -135,9 +136,8 @@ GEMMA_MODEL_FILE = os.getenv("GEMMA_MODEL_FILE", os.path.join(
 # иначе сервер отвечает 401 — см. hfToken в _get_scam_check_settings.
 GEMMA_MODEL_DOWNLOAD_URL = os.getenv(
     "GEMMA_MODEL_DOWNLOAD_URL",
-    "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
+    "https://media.githubusercontent.com/media/suscersal/task_for_ai_maxclient/refs/heads/main/gemma3-1b-it-int4.task?download=true",
 )
-
 _android_context = None
 _llm_engine = None
 _llm_engine_lock = threading.Lock()
@@ -204,7 +204,7 @@ def ensure_gemma_model_cached():
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
         req = urllib.request.Request(GEMMA_MODEL_DOWNLOAD_URL, headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=20) as resp:
             total_header = resp.getheader("Content-Length")
             total = int(total_header) if total_header else 0
             _model_download_state["totalBytes"] = total
@@ -299,6 +299,7 @@ def delete_gemma_model():
 _llm_init_error = None
 _llm_init_failed_for_mtime = None
 
+
 def get_on_device_llm():
     """Ленивая инициализация on-device движка. Возвращает None (без
     исключений), если приложение не на Android, зависимость tasks-genai не
@@ -344,7 +345,7 @@ def get_on_device_llm():
         try:
             options = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
-                .setMaxTokens(128) \
+                .setMaxTokens(512) \
                 .build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
@@ -1899,6 +1900,7 @@ def _run_scam_check(text: str, context: str = "") -> dict:
                 # только этот один поток, а не воркер, который заблокировал бы
                 # ВСЕ последующие попытки таймаута.
                 _box = {}
+
                 def _call_native():
                     try:
                         _box["content"] = llm.generateResponse(prompt)
@@ -1913,7 +1915,8 @@ def _run_scam_check(text: str, context: str = "") -> dict:
                 if "error" in _box:
                     raise _box["error"]
                 content = _box.get("content")
-                logger.info(f"[scam-check] on-device raw response: {content!r}")
+                logger.info(
+                    f"[scam-check] on-device raw response: {content!r}")
                 verdict = _parse_scam_verdict_text(content)
                 return {**verdict, "engine": "on-device",
                         "onDeviceStatus": "ready", "onDeviceError": None}
@@ -1962,7 +1965,8 @@ def scam_check():
     data = request.get_json(force=True) or {}
     text = (data.get("text") or "").strip()
     context = (data.get("context") or "").strip()
-    logger.info(f"[scam-check] request received, text_len={len(text)}, context_len={len(context)}")
+    logger.info(
+        f"[scam-check] request received, text_len={len(text)}, context_len={len(context)}")
     if not text:
         return jsonify({"error": "empty text"}), 400
     try:
@@ -2064,7 +2068,8 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                 text = (m.get("text") or "").strip()
                 if not text:
                     continue
-                context_msgs = chat_messages[max(0, idx - SCAN_CONTEXT_SIZE):idx]
+                context_msgs = chat_messages[max(
+                    0, idx - SCAN_CONTEXT_SIZE):idx]
                 jobs.append((chat_id, m, context_msgs))
 
         # Новые сначала — по времени самого сообщения, по убыванию.

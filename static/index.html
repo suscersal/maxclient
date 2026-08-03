@@ -3271,66 +3271,56 @@
             const cfg = scamCheckSettingsCache || { enabled: false, url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1', hfToken: '' };
             setTimeout(refreshScamCheckModelStatus, 0);
             return `
-                <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
-                    Проверка новых сообщений на скам/мошенничество ИИ-моделью. На Android
-                    модель работает прямо в приложении (скачивается один раз в фоне после
-                    включения) — текст сообщений никуда не отправляется.
-                </div>
-                <div class="settings-row">
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="scamCheckEnabled" ${cfg.enabled ? 'checked' : ''}>
-                        Включить проверку
-                    </label>
-                </div>
-                <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
-                <div id="scamCheckProgressWrap" style="display:none;height:6px;border-radius:3px;background:rgba(0,0,0,0.08);overflow:hidden;margin-bottom:10px;">
-                    <div id="scamCheckProgressBar" style="height:100%;width:0%;background:#4caf50;transition:width .3s;"></div>
-                </div>
-                <div style="display:flex;gap:8px;margin-bottom:10px;">
-                    <button id="scamCheckDeleteBtn" class="settings-menu-item danger" style="display:none;width:auto;padding:6px 10px;" onclick="deleteScamCheckModel()">🗑️ Удалить модель с устройства</button>
-                    <button id="scamCheckRetryBtn" class="settings-menu-item" style="display:none;width:auto;padding:6px 10px;" onclick="retryScamCheckDownload()">🔁 Повторить скачивание</button>
-                </div>
-                <div class="settings-row">
-                    <input class="setting-key" id="scamCheckHfToken" type="password" placeholder="HuggingFace токен (для gated-моделей Gemma)"
-                           value="${escapeHtml(cfg.hfToken || '')}" style="flex:1;">
-                </div>
-                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-bottom:12px;">
-                    Ошибка 401/403 при скачивании значит, что модель Gemma на HuggingFace gated:
-                    зайдите на страницу модели, нажмите "Acknowledge license", затем создайте токен
-                    в Settings → Access Tokens на huggingface.co и вставьте его сюда.
-                </div>
-                <hr class="settings-menu-divider">
-                <div style="margin:14px 0 6px;font-weight:600;">Внешний сервер (fallback, для десктопа)</div>
-                <div class="settings-row">
-                    <input class="setting-key" id="scamCheckUrl" placeholder="http://localhost:11434/v1/chat/completions"
-                           value="${escapeHtml(cfg.url || '')}" style="flex:1;">
-                </div>
-                <div class="settings-row">
-                    <input class="setting-value" id="scamCheckModel" placeholder="Имя модели (например llama3.1)"
-                           value="${escapeHtml(cfg.model || '')}" style="flex:1;">
-                </div>
-                <div class="settings-content-footer">
-                    <button class="btn-save" onclick="saveScamCheckSettings()">💾 Сохранить</button>
-                </div>
-                <div id="scamCheckStatus" style="font-size:12px;color:#888;margin-top:8px;"></div>
-                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-top:14px;">
-                    Чтобы проверить конкретный чат — откройте его → профиль (иконка/имя
-                    собеседника вверху) → «🛡️ Проверить чат на скам».
-                </div>
-            `;
+        <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
+            Проверка новых сообщений на скам/мошенничество ИИ-моделью. На Android
+            модель работает прямо в приложении (скачивается один раз в фоне после
+            включения) — текст сообщений никуда не отправляется.
+        </div>
+        <div class="settings-row">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="scamCheckEnabled" ${cfg.enabled ? 'checked' : ''}>
+                Включить проверку
+            </label>
+        </div>
+        <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
+        <div id="scamCheckProgressWrap" style="display:none;height:6px;border-radius:3px;background:rgba(0,0,0,0.08);overflow:hidden;margin-bottom:10px;">
+            <div id="scamCheckProgressBar" style="height:100%;width:0%;background:#4caf50;transition:width .3s;"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button id="scamCheckDeleteBtn" class="settings-menu-item danger" style="display:none;width:auto;padding:6px 10px;" onclick="deleteScamCheckModel()">🗑️ Удалить модель с устройства</button>
+            <button id="scamCheckRetryBtn" class="settings-menu-item" style="display:none;width:auto;padding:6px 10px;" onclick="retryScamCheckDownload()">🔁 Повторить скачивание</button>
+        </div>
+        <hr class="settings-menu-divider">
+        <div style="margin:14px 0 6px;font-weight:600;">Внешний сервер (fallback, для десктопа)</div>
+        <div class="settings-row">
+            <input class="setting-key" id="scamCheckUrl" placeholder="http://localhost:11434/v1/chat/completions"
+                   value="${escapeHtml(cfg.url || '')}" style="flex:1;">
+        </div>
+        <div class="settings-row">
+            <input class="setting-value" id="scamCheckModel" placeholder="Имя модели (например llama3.1)"
+                   value="${escapeHtml(cfg.model || '')}" style="flex:1;">
+        </div>
+        <div class="settings-content-footer">
+            <button class="btn-save" onclick="saveScamCheckSettings()">💾 Сохранить</button>
+        </div>
+        <div id="scamCheckStatus" style="font-size:12px;color:#888;margin-top:8px;"></div>
+        <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-top:14px;">
+            Чтобы проверить конкретный чат — откройте его → профиль (иконка/имя
+            собеседника вверху) → «🛡️ Проверить чат на скам».
+        </div>
+    `;
         }
 
         async function saveScamCheckSettings() {
             const enabled = document.getElementById('scamCheckEnabled')?.checked || false;
             const url = document.getElementById('scamCheckUrl')?.value.trim() || '';
             const model = document.getElementById('scamCheckModel')?.value.trim() || '';
-            const hfToken = document.getElementById('scamCheckHfToken')?.value.trim() || '';
             const statusEl = document.getElementById('scamCheckStatus');
             try {
                 const res = await fetch('/api/scam-check/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled, url, model, hfToken }),
+                    body: JSON.stringify({ enabled, url, model }),
                 });
                 const json = await res.json();
                 if (!json.ok) throw new Error(json.error || 'unknown error');
@@ -4311,9 +4301,9 @@
                 } else {
                     const results = st.results || st.flagged || [];
                     const CAT_STYLE = {
-                        scam:   { border: 'rgba(229,57,53,0.3)',  bg: 'rgba(229,57,53,0.06)',  icon: '⚠️' },
-                        likely: { border: 'rgba(224,123,0,0.35)', bg: 'rgba(224,123,0,0.07)',  icon: '⚠️' },
-                        safe:   { border: 'rgba(0,0,0,0.08)',     bg: 'rgba(0,0,0,0.03)',      icon: '✅' },
+                        scam: { border: 'rgba(229,57,53,0.3)', bg: 'rgba(229,57,53,0.06)', icon: '⚠️' },
+                        likely: { border: 'rgba(224,123,0,0.35)', bg: 'rgba(224,123,0,0.07)', icon: '⚠️' },
+                        safe: { border: 'rgba(0,0,0,0.08)', bg: 'rgba(0,0,0,0.03)', icon: '✅' },
                     };
                     const renderRow = (f) => {
                         const cat = scamCategory(f);
