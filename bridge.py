@@ -1852,8 +1852,9 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
             chats_cache.get("chats") or [])}
         messages_cache = load_messages_cache() or {}
 
-        # Собираем плоский список (chatId, message) для всех чужих сообщений
-        # с текстом — свои (self_id) пропускаем, как и на фронте.
+        # Собираем плоский список (chatId, message) для ВСЕХ сообщений с
+        # текстом — включая свои (self_id больше не фильтрует, оставлен в
+        # сигнатуре ради обратной совместимости вызова с фронта).
         jobs = []
         for chat_id, entry in messages_cache.items():
             if chat_id_filter is not None and str(chat_id) != str(chat_id_filter):
@@ -1861,8 +1862,6 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
             for m in (entry.get("messages") or []):
                 text = (m.get("text") or "").strip()
                 if not text:
-                    continue
-                if self_id is not None and str(m.get("sender")) == str(self_id):
                     continue
                 jobs.append((chat_id, m))
 

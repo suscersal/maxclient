@@ -5555,8 +5555,11 @@
             }
             // Бейдж скам-проверки: пустой и скрытый, пока не пришёл вердикт
             // от локальной ИИ-модели (см. queueScamCheck/applyScamVerdictToDom).
+            // Проверяем ВСЕ сообщения, включая свои — не только чужие, т.к.
+            // пользователю важно видеть предупреждение и если он сам
+            // случайно пересылает/копирует скам-текст себе или в другой чат.
             let scamBadgeHtml = '';
-            if (!isOwn && m.text) {
+            if (m.text) {
                 const cached = scamVerdictCache[m.id];
                 if (cached && cached.is_scam) {
                     scamBadgeHtml = `<div class="msg-scam-badge">⚠️ Похоже на скам (${cached.confidence ?? '?'}%): ${escapeHtml(cached.reason || '')}</div>`;
