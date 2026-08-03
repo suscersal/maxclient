@@ -2563,25 +2563,20 @@ def upload_file():
     })
 
 
-@app.route("/api/upload-audio", methods=["POST"])
-def upload_audio():
-    """Загружает голосовое сообщение (opcode 82, VIDEO_UPLOAD с type=2 —
+def _upload_media_binary(upload_type: int, default_filename: str, log_tag: str):
+    """Общая реализация для аплоада через videoUpload (opcode 82) с разными
 
-    аудио и видео в протоколе MAX используют один и тот же аплоадер,
-    отличаясь только полем "type": 2 = аудио, см. requestAudioUploadUrl()
-    в Komet (lib/backend/modules/messages.dart)).
-
-    Ожидает multipart/form-data с полем "file" (готовый OGG/Opus-файл —
-    кодирование делается на клиенте, см. static/index.html). Возвращает
-    audioId/token — их нужно вставить в attaches сообщения как
-    {"_type": "AUDIO", "token": token, "duration": <мс>, "wave": [...]}
-    и отправить через /relay (opcode 64), как обычное текстовое сообщение.
+    значениями поля "type": 0 = обычное видео, 1 = видео-кружок (video
+    note), 2 = голосовое (audio) — см. requestVideoUploadUrl /
+    requestVideoNoteUploadUrl / requestAudioUploadUrl в Komet
+    (lib/backend/modules/messages.dart). Бинарь заливается тем же способом,
+    что и /api/upload-file. Возвращает (json_response, http_status).
     """
     f = request.files.get("file")
     if f is None:
         return jsonify({"error": "Файл не передан"}), 400
 
-    filename = f.filename or "voice.ogg"
+    filename = f.filename or default_filename
     data = f.read()
     total = len(data)
     if total == 0:
@@ -2589,10 +2584,10 @@ def upload_audio():
 
     try:
         packet = fetch_once(
-            82, {"uploaderType": 1, "type": 2, "count": 1},
+            82, {"uploaderType": 1, "type": upload_type, "count": 1},
             wait_opcode=82, timeout=20)
     except Exception as e:
-        logger.warning(f"[upload-audio] videoUpload request failed: {e}")
+        logger.warning(f"[{log_tag}] videoUpload request failed: {e}")
         return jsonify({"error": str(e)}), 500
 
     if not packet or packet["cmd"] != 256:
@@ -2606,7 +2601,7 @@ def upload_audio():
 
     info = info_list[0]
     upload_url = info.get("url")
-    audio_id = info.get("videoId")
+    media_id = info.get("videoId")
     token = info.get("token")
     if not upload_url:
         return jsonify({"error": "Сервер не вернул URL загрузки"}), 502
@@ -2627,24 +2622,51 @@ def upload_audio():
         with urllib.request.urlopen(req, timeout=120) as resp:
             status = resp.status
     except urllib.error.HTTPError as e:
-        logger.warning(f"[upload-audio] upload HTTP error: {e}")
+        logger.warning(f"[{log_tag}] upload HTTP error: {e}")
         return jsonify({"error": f"Ошибка загрузки: HTTP {e.code}"}), 502
     except Exception as e:
-        logger.warning(f"[upload-audio] upload failed: {e}")
+        logger.warning(f"[{log_tag}] upload failed: {e}")
         return jsonify({"error": str(e)}), 502
 
     if status != 200:
         return jsonify({"error": f"Ошибка загрузки: HTTP {status}"}), 502
 
     logger.info(
-        f"[upload-audio] Uploaded {filename} ({total} bytes), audioId={audio_id}")
+        f"[{log_tag}] Uploaded {filename} ({total} bytes), mediaId={media_id}")
     return jsonify({
         "success": True,
-        "audioId": audio_id,
+        "audioId": media_id,
+        "videoId": media_id,
         "token": token,
         "name": filename,
         "size": total,
-    })
+    }), 200
+
+
+@app.route("/api/upload-audio", methods=["POST"])
+def upload_audio():
+    """Загружает голосовое сообщение (type=2, см. _upload_media_binary).
+
+    Ожидает multipart/form-data с полем "file" (готовый Ogg/Opus- или
+    webm/Opus-файл — кодирование делается на клиенте, см.
+    static/index.html). Возвращает audioId/token — их нужно вставить в
+    attaches сообщения как {"_type": "AUDIO", "token": token,
+    "duration": <мс>, "wave": [...]} и отправить через /relay (opcode 64).
+    """
+    return _upload_media_binary(2, "voice.ogg", "upload-audio")
+
+
+@app.route("/api/upload-video-note", methods=["POST"])
+def upload_video_note():
+    """Загружает видео-кружок / video note (type=1, см. _upload_media_binary).
+
+    Ожидает multipart/form-data с полем "file" (видео+звук, обычно
+    webm/VP8+Opus из браузерного MediaRecorder). Возвращает videoId/token —
+    вставить в attaches как {"_type": "VIDEO", "videoType": 1,
+    "token": token, "duration": <мс>, "wave": [...]} и отправить через
+    /relay (opcode 64).
+    """
+    return _upload_media_binary(1, "video_note.webm", "upload-video-note")
 
 
 @app.route("/api/upload-photo", methods=["POST"])
