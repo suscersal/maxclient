@@ -87,7 +87,7 @@ SCAM_CHECK_ONDEVICE_TIMEOUT = int(os.getenv("SCAM_CHECK_ONDEVICE_TIMEOUT", "45")
 #Промпт
 SCAM_CHECK_SYSTEM_PROMPT = (
     'Ты — детектор скама. На вход одно сообщение. Верни только JSON: {"is_scam": true|false, "confidence": 0-100, "reason": "до 5 слов по-русски"
-'}. confidence — целое 0..100 без % и без минуса. reason — короткая причина. Никакого текста кроме JSON'
+"}. confidence — целое 0..100 без % и без минуса. reason — короткая причина. Никакого текста кроме JSON'
 )
 
 
