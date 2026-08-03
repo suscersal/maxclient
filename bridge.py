@@ -238,12 +238,18 @@ def delete_gemma_model():
     return removed
 
 
+_llm_init_error = None
+
+
 def get_on_device_llm():
     """Ленивая инициализация on-device движка. Возвращает None (без
     исключений), если приложение не на Android, зависимость tasks-genai не
-    подключена в Gradle, или модель ещё не скачана — вызывающий код тогда
-    сам решает, использовать ли fallback на внешний сервер."""
-    global _llm_engine
+    подключена в Gradle, модель ещё не скачана, или инициализация упала —
+    вызывающий код тогда сам решает, использовать ли fallback на внешний
+    сервер. Причина последнего провала сохраняется в _llm_init_error, чтобы
+    её можно было вернуть в API-ответе (см. _run_scam_check), а не только
+    смотреть в adb logcat."""
+    global _llm_engine, _llm_init_error
     if _llm_engine is not None:
         return _llm_engine
     if _android_context is None:
@@ -254,6 +260,7 @@ def get_on_device_llm():
         try:
             from com.google.mediapipe.tasks.genai.llminference import LlmInference
         except Exception as e:
+            _llm_init_error = f"MediaPipe import failed: {e}"
             logger.info(
                 f"[scam-check] MediaPipe недоступен (не Android-сборка?): {e}")
             return None
@@ -266,8 +273,10 @@ def get_on_device_llm():
                 .build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
+            _llm_init_error = None
             logger.info("[scam-check] on-device LLM initialized")
         except Exception as e:
+            _llm_init_error = str(e)
             logger.warning(f"[scam-check] failed to init on-device model: {e}")
             _llm_engine = None
         return _llm_engine
@@ -1696,6 +1705,7 @@ def scam_check_model_status():
     return jsonify({
         "onDeviceSupported": _android_context is not None,
         "modelReady": os.path.exists(GEMMA_MODEL_FILE),
+        "llmInitError": _llm_init_error,
         **_model_download_state,
     })
 
@@ -1737,7 +1747,7 @@ def _run_scam_check(text: str) -> dict:
         ("no_android_context" if _android_context is None else
          ("model_not_downloaded" if not os.path.exists(GEMMA_MODEL_FILE) else "init_failed"))
     )
-    on_device_error = None
+    on_device_error = _llm_init_error if on_device_status == "init_failed" else None
     if llm is not None:
         try:
             prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
@@ -1825,7 +1835,10 @@ _scan_state = {
 _scan_lock = threading.Lock()
 
 
-def scan_all_cached_chats(self_id=None):
+def scan_all_cached_chats(self_id=None, chat_id_filter=None):
+    """Сканирует закэшированные сообщения. Если chat_id_filter задан —
+    только этот чат (кнопка «Проверить чат на скам» в профиле чата),
+    иначе — все закэшированные чаты сразу."""
     global _scan_state
     with _scan_lock:
         if _scan_state["running"]:
@@ -1843,6 +1856,8 @@ def scan_all_cached_chats(self_id=None):
         # с текстом — свои (self_id) пропускаем, как и на фронте.
         jobs = []
         for chat_id, entry in messages_cache.items():
+            if chat_id_filter is not None and str(chat_id) != str(chat_id_filter):
+                continue
             for m in (entry.get("messages") or []):
                 text = (m.get("text") or "").strip()
                 if not text:
@@ -1852,8 +1867,8 @@ def scan_all_cached_chats(self_id=None):
                 jobs.append((chat_id, m))
 
         _scan_state["total"] = len(jobs)
-        logger.info(f"[scam-check][scan-all] starting, {len(jobs)} messages across "
-                    f"{len(messages_cache)} cached chats")
+        logger.info(f"[scam-check][scan-all] starting, {len(jobs)} messages "
+                    f"(chat_id_filter={chat_id_filter}) across {len(messages_cache)} cached chats")
 
         for chat_id, m in jobs:
             try:
@@ -1898,8 +1913,10 @@ def scam_check_scan_all():
         return jsonify({"error": "already running"}), 409
     data = request.get_json(force=True, silent=True) or {}
     self_id = data.get("selfId")
+    # если задан — сканируем только этот чат
+    chat_id_filter = data.get("chatId")
     threading.Thread(target=scan_all_cached_chats,
-                     args=(self_id,), daemon=True).start()
+                     args=(self_id, chat_id_filter), daemon=True).start()
     return jsonify({"ok": True, "started": True})
 
 

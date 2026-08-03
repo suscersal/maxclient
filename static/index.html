@@ -3166,86 +3166,6 @@
         let scamCheckQueue = [];
         let scamCheckBusy = false;
 
-        async function startScamScanAll() {
-            const btn = document.getElementById('scamScanBtn');
-            const prog = document.getElementById('scamScanProgress');
-            const results = document.getElementById('scamScanResults');
-            if (results) results.innerHTML = '';
-            if (btn) btn.disabled = true;
-            console.log('[scam-check][scan-all] starting');
-            try {
-                const res = await fetch('/api/scam-check/scan-all', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ selfId }),
-                });
-                const json = await res.json();
-                if (!json.ok) {
-                    if (prog) prog.textContent = '❌ ' + (json.error || 'не удалось запустить');
-                    console.warn('[scam-check][scan-all] start failed', json);
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                pollScamScanStatus();
-            } catch (e) {
-                if (prog) prog.textContent = '❌ ' + (e.message || e);
-                console.warn('[scam-check][scan-all] start exception', e);
-                if (btn) btn.disabled = false;
-            }
-        }
-
-        async function pollScamScanStatus() {
-            const btn = document.getElementById('scamScanBtn');
-            const prog = document.getElementById('scamScanProgress');
-            const results = document.getElementById('scamScanResults');
-            try {
-                const res = await fetch('/api/scam-check/scan-all/status');
-                const st = await res.json();
-                if (prog) {
-                    prog.textContent = st.running
-                        ? `⏳ Проверено ${st.checked} из ${st.total}…`
-                        : (st.error ? `❌ Ошибка: ${st.error}` : `✅ Готово. Проверено ${st.checked}, найдено подозрительных: ${st.flagged.length}`);
-                }
-                renderScamScanResults(st.flagged || []);
-                if (st.running) {
-                    setTimeout(pollScamScanStatus, 1000);
-                } else {
-                    if (btn) btn.disabled = false;
-                    console.log('[scam-check][scan-all] finished', st);
-                }
-            } catch (e) {
-                console.warn('[scam-check][scan-all] poll failed', e);
-                if (btn) btn.disabled = false;
-            }
-        }
-
-        function renderScamScanResults(flagged) {
-            const results = document.getElementById('scamScanResults');
-            if (!results) return;
-            if (!flagged.length) {
-                results.innerHTML = '';
-                return;
-            }
-            results.innerHTML = flagged.map(f => `
-                <div style="border:1px solid rgba(229,57,53,0.3);background:rgba(229,57,53,0.06);border-radius:8px;padding:8px 10px;margin-top:8px;">
-                    <div style="font-weight:600;font-size:13px;display:flex;justify-content:space-between;gap:8px;">
-                        <span>${escapeHtml(f.chatName || ('Чат #' + f.chatId))}</span>
-                        <span style="color:#e53935;">${f.confidence ?? '?'}%</span>
-                    </div>
-                    <div style="font-size:12px;color:#666;margin-top:2px;">${escapeHtml(f.reason || '')}</div>
-                    <div style="font-size:12px;margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
-                    <div style="display:flex;justify-content:flex-end;margin-top:6px;">
-                        <button class="settings-menu-item" style="width:auto;padding:4px 10px;font-size:12px;" onclick="closeSettingsAndOpenChat('${f.chatId}')">Открыть чат →</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function closeSettingsAndOpenChat(chatId) {
-            document.getElementById('settingsModal')?.classList.remove('active');
-            openChat(chatId);
-        }
-
         async function loadScamCheckSettings() {
             try {
                 const res = await fetch('/api/scam-check/settings');
@@ -3347,32 +3267,10 @@
                     <button class="btn-save" onclick="saveScamCheckSettings()">💾 Сохранить</button>
                 </div>
                 <div id="scamCheckStatus" style="font-size:12px;color:#888;margin-top:8px;"></div>
-
-                <hr class="settings-menu-divider">
-                <div style="margin:14px 0 6px;font-weight:600;">🧪 Проверить текст вручную</div>
-                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-bottom:8px;">
-                    Отправляет текст на /api/scam-check напрямую, минуя очередь и чат —
-                    удобно для отладки, показывает сырой ответ сервера целиком (включая ошибки).
+                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-top:14px;">
+                    Чтобы проверить конкретный чат — откройте его → профиль (иконка/имя
+                    собеседника вверху) → «🛡️ Проверить чат на скам».
                 </div>
-                <div class="settings-row">
-                    <textarea id="scamCheckTestInput" placeholder="Например: Переведите деньги срочно на карту, иначе заблокируем счёт"
-                              style="width:100%;min-height:70px;resize:vertical;font-family:inherit;font-size:14px;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.15);"></textarea>
-                </div>
-                <div class="settings-content-footer">
-                    <button class="btn-save" onclick="runScamCheckTest()">▶️ Проверить</button>
-                </div>
-                <hr class="settings-menu-divider">
-                <div style="margin:14px 0 6px;font-weight:600;">🔍 Проверить все сохранённые чаты</div>
-                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin-bottom:8px;">
-                    Прогоняет через ИИ все сообщения, что уже есть в офлайн-кэше (последние
-                    сохранённые сообщения на каждый чат), и показывает, где и что нашлось —
-                    с чатом, текстом и вероятностью в процентах.
-                </div>
-                <div class="settings-content-footer">
-                    <button id="scamScanBtn" class="btn-save" onclick="startScamScanAll()">▶️ Проверить все чаты</button>
-                </div>
-                <div id="scamScanProgress" style="font-size:12px;color:#888;margin:8px 0;"></div>
-                <div id="scamScanResults"></div>
             `;
         }
 
@@ -3414,36 +3312,6 @@
                 await fetch('/api/scam-check/model/redownload', { method: 'POST' });
             } catch (e) { /* ignore */ }
             refreshScamCheckModelStatus();
-        }
-
-        async function runScamCheckTest() {
-            const input = document.getElementById('scamCheckTestInput');
-            const out = document.getElementById('scamCheckTestResult');
-            const text = input?.value.trim();
-            if (!out) return;
-            if (!text) {
-                out.style.display = '';
-                out.textContent = 'Введите текст для проверки.';
-                return;
-            }
-            out.style.display = '';
-            out.textContent = '⏳ Отправляю запрос...';
-            console.log('[scam-check][manual test] request', text);
-            try {
-                const res = await fetch('/api/scam-check', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text }),
-                });
-                const bodyText = await res.text();
-                console.log('[scam-check][manual test] response', res.status, bodyText);
-                let pretty = bodyText;
-                try { pretty = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (e) { /* не JSON — покажем как есть */ }
-                out.textContent = `HTTP ${res.status}\n\n${pretty}`;
-            } catch (e) {
-                console.warn('[scam-check][manual test] fetch failed', e);
-                out.textContent = '❌ Запрос не выполнен (fetch exception): ' + (e.message || e);
-            }
         }
 
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
@@ -4242,6 +4110,86 @@
 
         let chatProfileChatId = null;
 
+        // Проверка одного открытого чата (кнопка в профиле чата). Сначала
+        // досылаем на бэкенд то, что реально сейчас загружено в память для
+        // этого чата (messagesByChatId) — чтобы сканер видел свежие
+        // сообщения, а не только то, что попало в кэш раньше. Затем просим
+        // бридж просканировать именно этот chatId (см. scan_all_cached_chats
+        // с chat_id_filter) и опрашиваем статус.
+        async function checkCurrentChatForScam() {
+            const chatId = chatProfileChatId;
+            const label = document.getElementById('scamCheckChatBtnLabel');
+            const out = document.getElementById('scamCheckChatResult');
+            if (!chatId) return;
+            if (!scamCheckSettingsCache || !scamCheckSettingsCache.enabled) {
+                if (out) out.textContent = '⚠️ Сначала включите скам-проверку в настройках (🛡️ Скам-проверка (ИИ)).';
+                console.log('[scam-check][chat-check] skipped: не включено', scamCheckSettingsCache);
+                return;
+            }
+            if (label) label.textContent = 'Проверяю...';
+            if (out) out.textContent = '';
+            console.log('[scam-check][chat-check] syncing current messages to cache for chat', chatId,
+                messagesByChatId[chatId]);
+            if (messagesByChatId[chatId] && messagesByChatId[chatId].length) {
+                cacheMessagesToDisk(chatId, messagesByChatId[chatId]);
+            }
+            try {
+                const res = await fetch('/api/scam-check/scan-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selfId, chatId }),
+                });
+                const json = await res.json();
+                if (!json.ok) {
+                    if (out) out.textContent = '❌ ' + (json.error || 'не удалось запустить');
+                    if (label) label.textContent = 'Проверить чат на скам';
+                    console.warn('[scam-check][chat-check] start failed', json);
+                    return;
+                }
+                pollScamCheckChatStatus();
+            } catch (e) {
+                if (out) out.textContent = '❌ ' + (e.message || e);
+                if (label) label.textContent = 'Проверить чат на скам';
+                console.warn('[scam-check][chat-check] start exception', e);
+            }
+        }
+
+        async function pollScamCheckChatStatus() {
+            const label = document.getElementById('scamCheckChatBtnLabel');
+            const out = document.getElementById('scamCheckChatResult');
+            try {
+                const res = await fetch('/api/scam-check/scan-all/status');
+                const st = await res.json();
+                console.log('[scam-check][chat-check] status', st);
+                if (st.running) {
+                    if (label) label.textContent = `Проверяю... (${st.checked}/${st.total})`;
+                    setTimeout(pollScamCheckChatStatus, 1000);
+                    return;
+                }
+                if (label) label.textContent = 'Проверить чат на скам';
+                if (!out) return;
+                if (st.error) {
+                    out.innerHTML = '❌ ' + escapeHtml(st.error);
+                } else if (!st.checked) {
+                    out.innerHTML = 'ℹ️ Не найдено сообщений этого чата в кэше (откройте чат, полистайте сообщения и попробуйте снова).';
+                } else if (!st.flagged.length) {
+                    out.innerHTML = `✅ Проверено ${st.checked} сообщений — подозрительных не найдено.`;
+                } else {
+                    out.innerHTML = `⚠️ Проверено ${st.checked}, найдено подозрительных: ${st.flagged.length}` +
+                        st.flagged.map(f => `
+                            <div style="border:1px solid rgba(229,57,53,0.3);background:rgba(229,57,53,0.06);border-radius:8px;padding:8px 10px;margin-top:8px;">
+                                <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${f.confidence ?? '?'}%</span></div>
+                                <div style="color:#666;margin-top:2px;">${escapeHtml(f.reason || '')}</div>
+                                <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
+                            </div>
+                        `).join('');
+                }
+            } catch (e) {
+                console.warn('[scam-check][chat-check] poll failed', e);
+                if (label) label.textContent = 'Проверить чат на скам';
+            }
+        }
+
         function openChatProfile() {
             const chat = chatsById[currentChatId];
             if (!chat) return;
@@ -4321,6 +4269,15 @@
             </button>
         `;
             }
+
+            // Скам-проверка этого чата
+            optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="checkCurrentChatForScam()">
+                <span class="opt-icon">🛡️</span>
+                <span class="opt-label" id="scamCheckChatBtnLabel">Проверить чат на скам</span>
+            </button>
+            <div id="scamCheckChatResult" style="padding:0 12px 8px;font-size:12px;color:#888;"></div>
+        `;
 
             // Закрепить чат (заглушка)
             optionsContainer.innerHTML += `
