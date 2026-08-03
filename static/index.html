@@ -1216,7 +1216,10 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 30000;
+            /* См. комментарий у .chat-profile-overlay — выше debug-консоли
+               (z-index:999999), иначе открытая консоль перекрывает кнопки
+               настроек и клики по ним не доходят. */
+            z-index: 1000009;
             align-items: flex-end;
             justify-content: center;
             animation: fadeIn 0.25s ease;
@@ -1489,7 +1492,13 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 30050;
+            /* Выше debug-консоли (z-index:999999, см. блок "ВРЕМЕННАЯ
+               DEBUG-КОНСОЛЬ") — иначе, пока консоль открыта (а её обычно
+               открывают именно чтобы смотреть логи скам-проверки), она
+               перекрывает нижнюю часть экрана и клики по кнопкам в этой
+               модалке (например "Проверить чат на скам") просто не
+               доходят до них. */
+            z-index: 1000010;
             align-items: center;
             justify-content: center;
             animation: fadeIn 0.2s ease;
@@ -3940,6 +3949,53 @@
         }
 
 
+        function renderAboutPage() {
+            setTimeout(loadAppVersion, 0);
+            return `
+        <div style="padding:4px 0;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0 18px;">
+                <div style="font-size:40px;">💬</div>
+                <div style="font-size:17px;font-weight:600;">MAX Client</div>
+                <div id="aboutVersionLabel" style="font-size:13px;color:#888;">Версия: загрузка…</div>
+            </div>
+
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+                <a href="https://github.com/suscersal/maxclient" target="_blank" rel="noopener"
+                   class="settings-menu-item" style="text-decoration:none;color:inherit;">
+                    🔗 Репозиторий на GitHub
+                </a>
+                <a href="https://github.com/suscersal/maxclient/releases/latest" target="_blank" rel="noopener"
+                   class="settings-menu-item" style="text-decoration:none;color:inherit;">
+                    ⬇️ Проверить обновления (Releases)
+                </a>
+            </div>
+
+            <div style="font-size:12px;color:#888;margin-top:14px;line-height:1.5;">
+                Неофициальный клиент для MAX, написан на Flask (bridge.py) + один HTML/JS-файл
+                фронтенда. Работает на Android (через Chaquopy) и на десктопе (pywebview).
+                Полный список использованных библиотек — в CREDITS.md репозитория.
+            </div>
+        </div>
+    `;
+        }
+
+        async function loadAppVersion() {
+            const el = document.getElementById('aboutVersionLabel');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/app-version');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const v = await res.json();
+                const platformLabel = v.platform === 'android' ? 'Android' : 'десктоп';
+                el.textContent = v.versionCode != null
+                    ? `Версия: ${v.versionName} (build ${v.versionCode}) — ${platformLabel}`
+                    : `Версия: ${v.versionName} — ${platformLabel}`;
+            } catch (e) {
+                console.warn('[about] failed to load app version', e);
+                el.textContent = 'Версия: не удалось определить';
+            }
+        }
+
         function renderDevicePage() {
             return `
         <div style="padding:4px 0;">
@@ -4103,6 +4159,7 @@
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
+            .addItem({ id: 'about', icon: 'ℹ️', label: 'О приложении', page: renderAboutPage })
             .render();
 
         // Подгружаем данные профиля устройства сразу после того, как страница

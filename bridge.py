@@ -1612,6 +1612,46 @@ def check_auth():
     return jsonify({"authenticated": False})
 
 
+# --- Версия самого MAX Client (не путать с FALLBACK_APP_VERSION выше —
+# это версия ОРИГИНАЛЬНОГО приложения MAX, которую мы подделываем в
+# userAgent для протокола). Здесь — версия НАШЕГО клиента, для пункта
+# "О приложении" в настройках. ---
+# На десктопной сборке пакета/APK нет, поэтому дефолт задаётся через
+# переменную окружения (см. desktop_launcher.py / сборочные скрипты) —
+# если не задана, честно показываем "dev".
+APP_OWN_VERSION_FALLBACK = os.getenv("MAXCLIENT_VERSION", "dev")
+
+
+def _get_own_app_version():
+    """На Android читаем versionName/versionCode из PackageInfo через
+    Chaquopy (см. android/app/build.gradle — versionCode/versionName
+    подставляются при сборке из ANDROID_VERSION_CODE/ANDROID_VERSION_NAME).
+    На десктопе такого пакета нет — отдаём фолбэк из переменной окружения."""
+    if _android_context is not None:
+        try:
+            pm = _android_context.getPackageManager()
+            pkg_name = _android_context.getPackageName()
+            info = pm.getPackageInfo(pkg_name, 0)
+            return {
+                "platform": "android",
+                "versionName": str(info.versionName),
+                "versionCode": int(info.versionCode),
+            }
+        except Exception as e:
+            logger.warning(f"[app-version] failed to read PackageInfo: {e}")
+    return {
+        "platform": "desktop",
+        "versionName": APP_OWN_VERSION_FALLBACK,
+        "versionCode": None,
+    }
+
+
+@app.route("/api/app-version", methods=["GET"])
+def get_app_version():
+    """Отдаёт версию клиента для страницы 'О приложении' в настройках."""
+    return jsonify(_get_own_app_version())
+
+
 @app.route("/api/device-settings", methods=["GET"])
 def get_device_settings():
     sess = load_session()
