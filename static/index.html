@@ -2207,7 +2207,8 @@
             <path fill="currentColor" d="M7 7h10v10H7z" />
         </symbol>
         <symbol id="icon_video_note" viewBox="0 0 24 24">
-            <path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z" />
+            <path fill="currentColor"
+                d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z" />
         </symbol>
     </svg>
     <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
@@ -2633,8 +2634,10 @@
         <div class="input-group" id="composerRow">
             <div id="videoNotePreviewWrap" class="hidden"
                 style="position:fixed;bottom:70px;right:20px;width:160px;height:160px;border-radius:50%;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.35);z-index:50;background:#000;">
-                <video id="videoNotePreview" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>
-                <span id="videoNoteRecordTimer" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:12px;text-shadow:0 0 4px rgba(0,0,0,0.8);">0:00</span>
+                <video id="videoNotePreview" autoplay muted playsinline
+                    style="width:100%;height:100%;object-fit:cover;"></video>
+                <span id="videoNoteRecordTimer"
+                    style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:12px;text-shadow:0 0 4px rgba(0,0,0,0.8);">0:00</span>
             </div>
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
             <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
@@ -2644,19 +2647,10 @@
                 </svg>
             </label>
             <input type="text" id="messageText" placeholder="Сообщение">
-            <button type="button" id="voiceRecordBtn" title="Голосовое сообщение"
-                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px; cursor:pointer; background:transparent; border:none;">
-                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
-                    <use href="#icon_mic"></use>
-                </svg>
-            </button>
-            <span id="voiceRecordTimer" class="hidden" style="flex:0 0 auto; font-variant-numeric: tabular-nums; padding:0 6px; color:#e53935;">0:00</span>
-            <button type="button" id="videoNoteRecordBtn" title="Видео-кружок"
-                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px; cursor:pointer; background:transparent; border:none;">
-                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
-                    <use href="#icon_video_note"></use>
-                </svg>
-            </button>
+
+            <span id="voiceRecordTimer" class="hidden"
+                style="flex:0 0 auto; font-variant-numeric: tabular-nums; padding:0 6px; color:#e53935;">0:00</span>
+
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
     </div>
@@ -3161,7 +3155,7 @@
                         if (otherBtn) otherBtn.textContent = '▶';
                     }
                 });
-                audio.play().catch(() => {});
+                audio.play().catch(() => { });
                 btn.textContent = '⏸';
             } else {
                 audio.pause();
@@ -3234,7 +3228,7 @@
             if (video.paused) {
                 video.muted = false;
                 video.controls = false;
-                video.play().catch(() => {});
+                video.play().catch(() => { });
                 if (overlay) overlay.style.display = 'none';
                 video.onended = () => { if (overlay) overlay.style.display = 'flex'; };
             } else {
