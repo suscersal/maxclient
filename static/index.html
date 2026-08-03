@@ -3174,6 +3174,10 @@
         const scamVerdictCache = {}; // msgId -> { is_scam, confidence, reason }
         let scamCheckQueue = [];
         let scamCheckBusy = false;
+        // Сколько записей из st.results уже выведено в консоль при опросе
+        // /api/scam-check/scan-all/status — чтобы при поллинге логировать
+        // только НОВЫЕ проверенные сообщения, а не весь список каждый раз.
+        let scamScanLoggedCount = 0;
 
         async function loadScamCheckSettings() {
             try {
@@ -4142,6 +4146,7 @@
             }
             if (label) label.textContent = 'Проверяю...';
             if (out) out.textContent = '';
+            scamScanLoggedCount = 0;
             console.log('[scam-check][chat-check] syncing current messages to cache for chat', chatId,
                 messagesByChatId[chatId]);
             if (messagesByChatId[chatId] && messagesByChatId[chatId].length) {
@@ -4175,6 +4180,20 @@
                 const res = await fetch('/api/scam-check/scan-all/status');
                 const st = await res.json();
                 console.log('[scam-check][chat-check] status', st);
+                // Выводим в консоль пары "сообщение - процент на скам" по
+                // мере проверки — только те записи из st.results, которых
+                // ещё не было в предыдущем опросе (results уже отсортирован
+                // по убыванию процента бэкендом, поэтому логируем не по
+                // порядку — берём именно новые по количеству).
+                const results = st.results || [];
+                if (results.length > scamScanLoggedCount) {
+                    console.log(`[scam-check][chat-check] новые результаты (${results.length - scamScanLoggedCount}):`);
+                    results.slice(scamScanLoggedCount).forEach(f => {
+                        const pct = f.confidence ?? '?';
+                        console.log(`[scam-check][chat-check] "${(f.text || '').slice(0, 120)}" — ${pct}%${f.is_scam ? ' ⚠️ СКАМ' : ''}`);
+                    });
+                    scamScanLoggedCount = results.length;
+                }
                 if (st.running) {
                     if (label) label.textContent = `Проверяю... (${st.checked}/${st.total})`;
                     setTimeout(pollScamCheckChatStatus, 1000);
