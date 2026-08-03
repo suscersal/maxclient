@@ -370,9 +370,15 @@ def _parse_scam_verdict_text(content: str):
     cleaned = re.sub(r"^```(?:json)?|```$", "", content.strip(),
                      flags=re.MULTILINE).strip()
     verdict = json.loads(cleaned)
+    confidence = verdict.get("confidence")
+    if isinstance(confidence, str):
+        # Модели иногда пишут confidence строкой ("90" или "90%") вместо
+        # числа — приводим к int, чтобы фронт не получал мусор.
+        m = re.search(r"-?\d+", confidence)
+        confidence = int(m.group()) if m else None
     return {
         "is_scam": bool(verdict.get("is_scam", False)),
-        "confidence": verdict.get("confidence"),
+        "confidence": confidence,
         "reason": verdict.get("reason", ""),
     }
 
@@ -1899,6 +1905,7 @@ def _run_scam_check(text: str) -> dict:
                 if "error" in _box:
                     raise _box["error"]
                 content = _box.get("content")
+                logger.info(f"[scam-check] on-device raw response: {content!r}")
                 verdict = _parse_scam_verdict_text(content)
                 return {**verdict, "engine": "on-device",
                         "onDeviceStatus": "ready", "onDeviceError": None}
