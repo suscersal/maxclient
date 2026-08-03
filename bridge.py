@@ -1867,22 +1867,17 @@ def scam_check_redownload_model():
     return jsonify({"ok": True, "started": True})
 
 
-def _run_scam_check(text: str, context: str = "") -> dict:
+def _run_scam_check(text: str) -> dict:
     """Общая логика: on-device -> fallback на внешний сервер. Используется и
     одиночным роутом /api/scam-check, и массовым сканером всех чатов
     (scan_all_cached_chats). Кидает исключение при полном отказе (обе ветки
-    недоступны/сломаны) — вызывающий код сам решает, что делать с ошибкой.
-
-    context — несколько предыдущих сообщений того же чата (опционально),
-    чтобы модель судила не голую фразу без разговора вокруг, а с учётом
-    того, что обсуждали до этого."""
+    недоступны/сломаны) — вызывающий код сам решает, что делать с ошибкой."""
     cfg = _get_scam_check_settings()
     if not cfg["enabled"]:
         raise RuntimeError("disabled")
     text = (text or "").strip()[:2000]
     if not text:
         raise RuntimeError("empty text")
-    context = (context or "").strip()[:1500]
 
     llm = get_on_device_llm()
     on_device_status = (
@@ -1891,14 +1886,6 @@ def _run_scam_check(text: str, context: str = "") -> dict:
          ("model_not_downloaded" if not os.path.exists(GEMMA_MODEL_FILE) else "init_failed"))
     )
     on_device_error = _llm_init_error if on_device_status == "init_failed" else None
-    if context:
-        user_content = (
-            "Предыдущие сообщения в этом чате (для контекста, самое старое "
-            "первым):\n" + context +
-            "\n\nПроверяемое сообщение (оцени именно его, с учётом контекста выше):\n" + text
-        )
-    else:
-        user_content = text
     if llm is not None:
         got_lock = _llm_call_lock.acquire(timeout=SCAM_CHECK_ONDEVICE_TIMEOUT)
         if not got_lock:
@@ -1908,7 +1895,7 @@ def _run_scam_check(text: str, context: str = "") -> dict:
                 "[scam-check] on-device engine busy (concurrent call), falling back")
         else:
             try:
-                prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\n" + user_content
+                prompt = SCAM_CHECK_SYSTEM_PROMPT + "\n\nСообщение:\n" + text
                 # Отдельный одноразовый daemon-поток на каждый вызов (а не общий
                 # пул) — если нативный вызов реально зависнет навечно, теряется
                 # только этот один поток, а не воркер, который заблокировал бы
@@ -1947,7 +1934,7 @@ def _run_scam_check(text: str, context: str = "") -> dict:
         "model": cfg["model"],
         "messages": [
             {"role": "system", "content": SCAM_CHECK_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": text},
         ],
         "temperature": 0,
         "stream": False,
@@ -1976,12 +1963,11 @@ def scam_check():
     _run_scam_check). Приоритет: on-device -> fallback на внешний сервер."""
     data = request.get_json(force=True) or {}
     text = (data.get("text") or "").strip()
-    context = (data.get("context") or "").strip()
-    logger.info(f"[scam-check] request received, text_len={len(text)}, context_len={len(context)}")
+    logger.info(f"[scam-check] request received, text_len={len(text)}")
     if not text:
         return jsonify({"error": "empty text"}), 400
     try:
-        result = _run_scam_check(text, context=context)
+        result = _run_scam_check(text)
         confidence = result.get("confidence")
         logger.info(
             f"[scam-check] verdict: is_scam={result.get('is_scam')} "
@@ -2039,15 +2025,7 @@ _scan_lock = threading.Lock()
 def scan_all_cached_chats(self_id=None, chat_id_filter=None):
     """Сканирует закэшированные сообщения. Если chat_id_filter задан —
     только этот чат (кнопка «Проверить чат на скам» в профиле чата),
-    иначе — все закэшированные чаты сразу.
-
-    Порядок: от НОВЫХ к СТАРЫМ (по полю time, по убыванию) — свежие скам-
-    попытки обычно интереснее старой переписки.
-
-    Контекст: модели передаётся не только само сообщение, а ещё несколько
-    предыдущих сообщений того же чата (в хронологическом порядке) — иначе
-    она "тупо" судит одну фразу без разговора вокруг неё, а обычный скам
-    часто понятен только в контексте (кто до этого писал, что обсуждали)."""
+    иначе — все закэшированные чаты сразу."""
     global _scan_state
     with _scan_lock:
         if _scan_state["running"]:
@@ -2056,51 +2034,36 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                        "flagged": [], "results": [], "error": None,
                        "finishedAt": None}
 
-    # Сколько предыдущих сообщений того же чата даём модели как контекст.
-    SCAN_CONTEXT_SIZE = int(os.getenv("SCAM_CHECK_CONTEXT_SIZE", "5"))
-
     try:
         chats_cache = load_chats_cache() or {}
         chats_by_id = {str(c.get("id")): c for c in (
             chats_cache.get("chats") or [])}
         messages_cache = load_messages_cache() or {}
 
-        # Для каждого чата — сообщения в ХРОНОЛОГИЧЕСКОМ порядке (по time),
-        # чтобы потом строить контекст ("что было до"), а сам список задач
-        # на проверку — от новых к старым по времени, уже по всем чатам
-        # вместе.
+        # Собираем плоский список (chatId, message) для ВСЕХ сообщений с
+        # текстом — включая свои (self_id больше не фильтрует, оставлен в
+        # сигнатуре ради обратной совместимости вызова с фронта).
         jobs = []
         for chat_id, entry in messages_cache.items():
             if chat_id_filter is not None and str(chat_id) != str(chat_id_filter):
                 continue
-            chat_messages = sorted(
-                (entry.get("messages") or []), key=lambda m: m.get("time", 0))
-            for idx, m in enumerate(chat_messages):
+            for m in (entry.get("messages") or []):
                 text = (m.get("text") or "").strip()
                 if not text:
                     continue
-                context_msgs = chat_messages[max(0, idx - SCAN_CONTEXT_SIZE):idx]
-                jobs.append((chat_id, m, context_msgs))
-
-        # Новые сначала — по времени самого сообщения, по убыванию.
-        jobs.sort(key=lambda job: job[1].get("time", 0), reverse=True)
+                jobs.append((chat_id, m))
 
         _scan_state["total"] = len(jobs)
         logger.info(f"[scam-check][scan-all] starting, {len(jobs)} messages "
-                    f"(chat_id_filter={chat_id_filter}) across {len(messages_cache)} cached chats, "
-                    f"newest-first, context_size={SCAN_CONTEXT_SIZE}")
+                    f"(chat_id_filter={chat_id_filter}) across {len(messages_cache)} cached chats")
 
-        for chat_id, m, context_msgs in jobs:
+        for chat_id, m in jobs:
             text = m.get("text", "")
             chat = chats_by_id.get(str(chat_id))
             chat_name = (chat.get("title")
                          if chat else None) or f"Чат #{chat_id}"
-            context_text = "\n".join(
-                (cm.get("text") or "").strip() for cm in context_msgs
-                if (cm.get("text") or "").strip()
-            )
             try:
-                result = _run_scam_check(text, context=context_text)
+                result = _run_scam_check(text)
                 confidence = result.get("confidence")
                 is_scam = bool(result.get("is_scam"))
                 pct_str = f"{confidence}%" if confidence is not None else "?%"
