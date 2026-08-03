@@ -44,7 +44,7 @@ CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
 # а не пустой список). Хранит не более MESSAGES_CACHE_LIMIT сообщений на чат.
 MESSAGES_CACHE_FILE = os.getenv("MESSAGES_CACHE_FILE", os.path.join(
     os.path.dirname(__file__), "messages_cache.json"))
-MESSAGES_CACHE_LIMIT = 20
+MESSAGES_CACHE_LIMIT = 50
 # lottie-web (анимации стикеров/лоадера) — не бандлим в сборку, а качаем один
 # раз при первом (заведомо онлайн) запуске и кэшируем рядом с session.json.
 # Дальше раздаём с диска (см. ensure_lottie_cached() и роут /lottie.min.js
@@ -77,7 +77,7 @@ FALLBACK_APP_VERSION = "26.15.0"
 # больше сообщения не отправляет.
 SCAM_CHECK_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
 SCAM_CHECK_DEFAULT_MODEL = "llama3.1"
-SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "20"))
+SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "10"))
 # Таймаут на нативный on-device инференс (MediaPipe generateResponse). Это
 # отдельный, обычно бОльший бюджет, т.к. локальная LLM на телефоне — особенно
 # при первом прогреве/на слабом железе — может думать намного дольше, чем
@@ -85,38 +85,13 @@ SCAM_CHECK_TIMEOUT = int(os.getenv("SCAM_CHECK_TIMEOUT", "20"))
 # вешал весь скан навечно (checked не растёт, running остаётся true).
 SCAM_CHECK_ONDEVICE_TIMEOUT = int(os.getenv("SCAM_CHECK_ONDEVICE_TIMEOUT", "45"))
 #Промпт
-# ВАЖНО про краткость: модель иногда вместо короткой причины пишет
-# 1-2 полных предложения — это лишние токены и медленнее/дороже. Промпт
-# явно запрещает предложения и жёстко ограничивает reason 2-3 словами
-# (словосочетание, не фраза), а внешний вызов дополнительно режется по
-# max_tokens (см. body в _run_scam_check).
-SCAM_CHECK_SYSTEM_PROMPT = """
-Ты — детектор скама. На вход одно сообщение. Верни ТОЛЬКО одну строку JSON,
-без пояснений до или после, без markdown-обёртки:
-{"is_scam": true|false, "confidence": 0-100, "reason": "2-3 слова"}.
-confidence — целое 0..100 без % и без минуса, честная оценка вероятности скама.
-reason — 2-3 слова по-русски, словосочетание (например: "просьба перевести деньги",
-"поддельная ссылка"), НЕ предложение, без точки в конце, без "потому что".
-Ничего, кроме этой одной строки JSON.
-"""
-
-# Пороги трёх категорий риска (единый источник правды для бэкенда — фронт
-# дублирует те же числа в static/index.html для отрисовки бейджа).
-SCAM_THRESHOLD_LIKELY = 50   # [50, 90) — "вероятно скам"
-SCAM_THRESHOLD_SCAM = 90     # >=90 — "скам" (красным)
-
-
-def _scam_category(confidence, is_scam_fallback):
-    """Три категории риска по confidence: 'safe' (<50), 'likely' ([50,90)),
-    'scam' (>=90). Если модель не вернула confidence (None), откатываемся
-    на её булев is_scam, чтобы бейдж не терялся."""
-    if isinstance(confidence, (int, float)):
-        if confidence >= SCAM_THRESHOLD_SCAM:
-            return "scam"
-        if confidence >= SCAM_THRESHOLD_LIKELY:
-            return "likely"
-        return "safe"
-    return "scam" if is_scam_fallback else "safe"
+SCAM_CHECK_SYSTEM_PROMPT = (
+    'Ты — детектор мошенничества. На вход одно сообщение. '
+    'Верни только JSON: {"is_scam": true|false, "confidence": 0-100, "reason": "до 5 слов по-русски"}. '
+    'confidence — целое число 0..100 без % и без минуса. '
+    'reason — короткая причина. '
+    'Никакого текста кроме JSON.'
+)
 
 
 def _get_scam_check_settings():
@@ -369,7 +344,7 @@ def get_on_device_llm():
         try:
             options = LlmInference.LlmInferenceOptions.builder() \
                 .setModelPath(GEMMA_MODEL_FILE) \
-                .setMaxTokens(512) \
+                .setMaxTokens(128) \
                 .build()
             _llm_engine = LlmInference.createFromOptions(
                 _android_context, options)
@@ -396,13 +371,10 @@ def _parse_scam_verdict_text(content: str):
         # числа — приводим к int, чтобы фронт не получал мусор.
         m = re.search(r"-?\d+", confidence)
         confidence = int(m.group()) if m else None
-    is_scam = bool(verdict.get("is_scam", False))
     return {
-        "is_scam": is_scam,
+        "is_scam": bool(verdict.get("is_scam", False)),
         "confidence": confidence,
         "reason": verdict.get("reason", ""),
-        # 'safe' | 'likely' | 'scam' — три категории риска, см. _scam_category.
-        "category": _scam_category(confidence, is_scam),
     }
 
 
@@ -1964,10 +1936,6 @@ def _run_scam_check(text: str, context: str = "") -> dict:
         ],
         "temperature": 0,
         "stream": False,
-        # Ответ — одна строка JSON с полями is_scam/confidence/reason(2-3 слова),
-        # больше 80 токенов на это никогда не нужно — режем здесь, а не
-        # надеемся, что модель сама остановится вовремя.
-        "max_tokens": 80,
     }).encode("utf-8")
     req = urllib.request.Request(
         cfg["url"], data=body,
@@ -2139,8 +2107,6 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                     "reason": result.get("reason", ""),
                     "engine": result.get("engine"),
                     "is_scam": is_scam,
-                    "category": result.get("category")
-                        or _scam_category(confidence, is_scam),
                 }
                 # Полный список — процент скама есть у КАЖДОГО проверенного
                 # сообщения, независимо от вердикта.
