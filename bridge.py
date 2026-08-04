@@ -357,11 +357,49 @@ def ensure_gemma_model_cached(model_id=None):
         # получается битым. .task-файл — это zip-бандл, так что валидный
         # результат ОБЯЗАН открываться как zip; иначе не принимаем скачивание.
         if not zipfile.is_zipfile(tmp_path):
+            # ЖУК/DEBUG: is_zipfile() глотает реальную причину и просто
+            # возвращает False, поэтому здесь отдельно логируем всё, что
+            # может объяснить, что на самом деле прилетело вместо модели:
+            # фактический размер на диске, первые байты файла (по "магии"
+            # сразу видно PK\x03\x04 у настоящего zip, <html vs что-то ещё),
+            # и точный текст исключения от ZipFile.open (а не просто bool).
+            try:
+                actual_size = os.path.getsize(tmp_path)
+            except OSError as size_err:
+                actual_size = f"<не удалось узнать: {size_err}>"
+            try:
+                with open(tmp_path, "rb") as _f:
+                    head = _f.read(64)
+            except OSError as read_err:
+                head = b""
+                logger.warning(
+                    f"[scam-check][debug] не смог прочитать начало файла: {read_err}")
+            try:
+                zipfile.ZipFile(tmp_path)
+            except Exception as zip_err:
+                real_zip_error = f"{type(zip_err).__name__}: {zip_err}"
+            else:
+                real_zip_error = "<ZipFile открылся без ошибки, но is_zipfile сказал False — странно>"
+            logger.warning(
+                "[scam-check][debug] диагностика битой модели:\n"
+                f"  ожидаемый размер (Content-Length): {total}\n"
+                f"  реальный размер на диске: {actual_size}\n"
+                f"  первые 64 байта (hex): {head[:64].hex()}\n"
+                f"  первые 64 байта (repr): {head[:64]!r}\n"
+                f"  реальная ошибка ZipFile: {real_zip_error}"
+            )
+            print(
+                f"[scam-check][debug] size={actual_size} total={total} "
+                f"head_hex={head[:16].hex()} head_repr={head[:64]!r} "
+                f"zip_err={real_zip_error}",
+                file=sys.stderr,
+            )
             os.remove(tmp_path)
             msg = ("скачанный файл не является валидной моделью (не zip) — "
                    "вероятно, HuggingFace вернул HTML-страницу вместо файла "
                    "из-за отсутствующего/неверного токена доступа к gated-репозиторию; "
-                   "проверьте hfToken в настройках")
+                   "проверьте hfToken в настройках. Подробности в логах (logcat/консоль), "
+                   "ищите строку '[scam-check][debug]'")
             logger.warning(f"[scam-check] model download failed: {msg}")
             _model_download_state["error"] = msg
             return False
