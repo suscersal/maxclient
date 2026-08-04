@@ -343,7 +343,8 @@ def ensure_gemma_model_cached(model_id=None):
         total = 0
         attempt = 0
         while True:
-            downloaded_so_far = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+            downloaded_so_far = os.path.getsize(
+                tmp_path) if os.path.exists(tmp_path) else 0
             req_headers = dict(headers)
             resume = downloaded_so_far > 0
             if resume:
@@ -390,23 +391,27 @@ def ensure_gemma_model_cached(model_id=None):
             except (socket.timeout, TimeoutError, ConnectionError,
                     urllib.error.URLError) as transient_err:
                 attempt += 1
-                partial = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+                partial = os.path.getsize(
+                    tmp_path) if os.path.exists(tmp_path) else 0
                 if attempt > MAX_RETRIES:
                     msg = (f"скачивание прервалось ({transient_err}) и не "
                            f"восстановилось после {MAX_RETRIES} попыток "
                            f"докачки (скачано {partial} из {total or '?'} байт) "
                            f"— проверьте соединение и попробуйте позже")
-                    logger.warning(f"[scam-check] model download failed: {msg}")
+                    logger.warning(
+                        f"[scam-check] model download failed: {msg}")
                     _model_download_state["error"] = msg
                     return False
                 logger.warning(
                     f"[scam-check] transient network error on attempt "
                     f"{attempt}/{MAX_RETRIES} ({transient_err}), "
                     f"resuming from byte {partial}…")
-                time.sleep(min(2 ** attempt, 30))  # экспоненциальная пауза перед докачкой
+                # экспоненциальная пауза перед докачкой
+                time.sleep(min(2 ** attempt, 30))
                 continue
 
-        downloaded = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+        downloaded = os.path.getsize(
+            tmp_path) if os.path.exists(tmp_path) else 0
         # Если сервер прислал Content-Length и мы скачали меньше — соединение
         # оборвалось на середине. Раньше это тихо принималось как "успех",
         # что и оставляло битый .task-файл (та самая "Unable to open zip
@@ -421,9 +426,32 @@ def ensure_gemma_model_cached(model_id=None):
         # HuggingFace на gated-репозиториях без валидного токена иногда
         # отдаёт 200 OK с HTML-страницей ("примите лицензию" / логин) вместо
         # самого файла — HTTPError тогда не срабатывает, а файл на диске
-        # получается битым. .task-файл — это zip-бандл, так что валидный
-        # результат ОБЯЗАН открываться как zip; иначе не принимаем скачивание.
-        if not zipfile.is_zipfile(tmp_path):
+        # получается битым. Раньше здесь требовалось, чтобы .task ОБЯЗАТЕЛЬНО
+        # открывался как zip — но это верно только для мультимодальных
+        # моделей (например Gemma 3n), где .task — это zip-бандл из
+        # нескольких файлов (TF_LITE_PREFILL_DECODE, TOKENIZER_MODEL и т.п.).
+        # У однокомпонентных текстовых моделей (как эта Gemma 3 1B) .task —
+        # это просто СЫРОЙ .tflite flatbuffer-файл под другим расширением,
+        # и он НИКОГДА не является zip-архивом — сигнатура "TFL3" на
+        # смещении 4 байта это и подтверждает. Поэтому теперь принимаем
+        # ЛЮБОЙ из двух валидных форматов: настоящий zip-бандл ИЛИ сырой
+        # TFLite flatbuffer (magic b"TFL3" сразу после 4-байтового
+        # заголовка длины буфера). Битым файл считаем только если это ни
+        # то, ни другое — тогда с большой вероятностью это правда
+        # HTML/заглушка.
+
+        def _is_valid_task_file(path):
+            if zipfile.is_zipfile(path):
+                return True
+            try:
+                with open(path, "rb") as _f:
+                    head8 = _f.read(8)
+            except OSError:
+                return False
+            # Flatbuffer file_identifier "TFL3" лежит по смещению 4..8.
+            return head8[4:8] == b"TFL3"
+
+        if not _is_valid_task_file(tmp_path):
             # ЖУК/DEBUG: is_zipfile() глотает реальную причину и просто
             # возвращает False. Раньше диагностику писали только в
             # logger/print — но, как оказалось, отдельная "debug-консоль"
@@ -462,12 +490,13 @@ def ensure_gemma_model_cached(model_id=None):
             )
             logger.warning(f"[scam-check][debug] {debug_info}")
             print(f"[scam-check][debug] {debug_info}", file=sys.stderr)
-            print(f"[scam-check][debug] {debug_info}")  # и в stdout — на случай если консоль слушает именно его
+            # и в stdout — на случай если консоль слушает именно его
+            print(f"[scam-check][debug] {debug_info}")
             os.remove(tmp_path)
-            msg = ("скачанный файл не является валидной моделью (не zip) — "
-                   "вероятно, сервер вернул HTML/страницу-заглушку вместо файла "
-                   "(gated-репозиторий без токена, исчерпанная квота, неверное имя "
-                   "файла и т.п.). " + debug_info)
+            msg = ("скачанный файл не является валидной моделью (ни zip-бандл, "
+                   "ни сырой TFLite flatbuffer) — вероятно, сервер вернул "
+                   "HTML/страницу-заглушку вместо файла (gated-репозиторий без "
+                   "токена, исчерпанная квота, неверное имя файла и т.п.). " + debug_info)
             logger.warning(f"[scam-check] model download failed: {msg}")
             _model_download_state["error"] = msg
             return False
