@@ -16,6 +16,7 @@ import uuid
 import gzip
 import html
 import zipfile
+import shutil
 import msgpack
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
 from flask_sock import Sock
@@ -222,10 +223,18 @@ ONDEVICE_MODELS = {
     "gemma3-1b-q4_0-web": {
         "label": "Gemma 3 1B · Q4_0 QAT (~776 МБ, рекомендуется)",
         "file": "gemma3-1b-it-q4_0-web.task",
+        # Точный размер подтверждён на практике (см. Content-Length при
+        # реальном скачивании) — используется для сопоставления уже лежащих
+        # на устройстве файлов (например в Downloads) с этой моделью, без
+        # необходимости качать заново.
+        "size": 776470528,
     },
     "gemma3-1b-int4": {
         "label": "Gemma 3 1B · int4 (~530 МБ, самая лёгкая)",
         "file": "gemma3-1b-it-int4.task",
+        # Точный размер пока не подтверждён — сопоставление для этой модели
+        # идёт только по имени файла.
+        "size": None,
     },
 }
 DEFAULT_ONDEVICE_MODEL_ID = "gemma3-1b-q4_0-web"
@@ -255,6 +264,146 @@ def _model_download_url(model_id=None):
     if override:
         return override
     return f"{ONDEVICE_REPO_RAW_BASE}/{info['file']}?download=true"
+
+
+# --- Поиск уже скачанной модели на устройстве (напр. в Downloads) ---
+# Многие пользователи качают .task вручную из браузера (по прямой ссылке на
+# HuggingFace) ДО того, как включат проверку в приложении — файл в 500-800 МБ
+# у них уже лежит в Downloads, и заново тянуть его через приложение — лишний
+# трафик и время. Здесь НЕ полноценный SAF document-picker (ACTION_OPEN_
+# DOCUMENT с системным диалогом выбора файла) — тот открывается Activity на
+# Kotlin/Java-стороне и возвращает content://-Uri, а bridge.py у нас видит
+# только обычный Context, без Activity/ActivityResultLauncher. Поэтому здесь
+# реализован практичный эквивалент: обычное сканирование файловой системы по
+# директориям, куда Android разрешает читать без дополнительного диалога
+# (собственная песочница приложения + публичная папка Download, доступная на
+# большинстве прошивок для чтения по имени файла даже под scoped storage).
+# Если понадобится честный SAF-пикер с системным диалогом — это уже требует
+# правки на Kotlin-стороне (регистрация ActivityResultContracts.OpenDocument
+# и передача выбранного Uri сюда через новый мост); дай знать, если нужно —
+# добавлю недостающий кусочек на Kotlin и точку входа под него здесь.
+def _candidate_scan_dirs():
+    dirs = []
+    seen = set()
+
+    def _add(path):
+        if path and path not in seen:
+            seen.add(path)
+            dirs.append(path)
+
+    if _android_context is not None:
+        try:
+            ext_files = _android_context.getExternalFilesDir(None)
+            if ext_files is not None:
+                _add(str(ext_files.getAbsolutePath()))
+        except Exception as e:
+            logger.warning(
+                f"[scam-check][scan-local] getExternalFilesDir failed: {e}")
+        try:
+            from android.os import Environment
+            downloads = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS)
+            if downloads is not None:
+                _add(str(downloads.getAbsolutePath()))
+        except Exception as e:
+            logger.warning(
+                f"[scam-check][scan-local] Environment.DIRECTORY_DOWNLOADS failed: {e}")
+    # Запасные варианты на случай, если Java-путь выше недоступен (например,
+    # на некоторых прошивках/десктопе) — стандартные пути известны заранее.
+    for p in ("/storage/emulated/0/Download", "/sdcard/Download"):
+        _add(p)
+    # Модель могли скачать браузером в подпапку загрузок, а мессенджером —
+    # в свою папку с вложениями; заглядываем на 1 уровень вглубь тоже.
+    extra = []
+    for base in list(dirs):
+        for sub in ("Telegram", "Telegram Downloads", "Browser"):
+            extra.append(os.path.join(base, sub))
+    for p in extra:
+        _add(p)
+    return dirs
+
+
+def _guess_model_id_for_file(filename: str, size: int):
+    """Пытается понять, какой модели из ONDEVICE_MODELS соответствует
+    найденный на диске файл — сперва по точному размеру (надёжнее всего),
+    потом по имени файла."""
+    for model_id, info in ONDEVICE_MODELS.items():
+        if info.get("size") and size == info["size"]:
+            return model_id
+    fname_lower = filename.lower()
+    for model_id, info in ONDEVICE_MODELS.items():
+        if fname_lower == info["file"].lower():
+            return model_id
+    for model_id, info in ONDEVICE_MODELS.items():
+        stem = os.path.splitext(info["file"])[0].lower()
+        if stem in fname_lower:
+            return model_id
+    return None
+
+
+def scan_for_local_task_files():
+    """Ищет ЛЮБЫЕ *.task файлы в известных доступных директориях (не только
+    совпадающие с каталогом ONDEVICE_MODELS — пользователь мог скачать
+    какую-то другую .task модель вручную) и для каждого сразу проверяет,
+    настоящий ли это zip-бандл, и на какую модель из каталога он похож."""
+    results = []
+    seen_paths = set()
+    for d in _candidate_scan_dirs():
+        try:
+            if not os.path.isdir(d):
+                continue
+            for name in os.listdir(d):
+                if not name.lower().endswith(".task"):
+                    continue
+                full = os.path.join(d, name)
+                if full in seen_paths or not os.path.isfile(full):
+                    continue
+                seen_paths.add(full)
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    continue
+                valid = zipfile.is_zipfile(full)
+                results.append({
+                    "path": full,
+                    "name": name,
+                    "size": size,
+                    "validZip": valid,
+                    "matchedModelId": _guess_model_id_for_file(name, size) if valid else None,
+                })
+        except OSError as e:
+            logger.warning(
+                f"[scam-check][scan-local] listdir({d}) failed: {e}")
+    return results
+
+
+def _try_use_local_task_file(model_id=None) -> bool:
+    """Если валидный .task, соответствующий текущей выбранной модели, уже
+    лежит где-то в Downloads/песочнице — копирует его на место скачанной
+    модели вместо похода в сеть. Возвращает True, если подставили локальный
+    файл (скачивание можно пропустить)."""
+    model_id = model_id or _current_ondevice_model_id()
+    dest = _model_file_path(model_id)
+    if os.path.exists(dest):
+        return True
+    for candidate in scan_for_local_task_files():
+        if candidate["validZip"] and candidate["matchedModelId"] == model_id:
+            try:
+                logger.info(
+                    f"[scam-check] found matching local file {candidate['path']} "
+                    f"for model {model_id}, copying instead of downloading")
+                tmp_dest = dest + ".part"
+                shutil.copy2(candidate["path"], tmp_dest)
+                os.replace(tmp_dest, dest)
+                _model_download_state.update({
+                    "downloading": False, "ready": True, "error": None,
+                    "downloadedBytes": candidate["size"], "totalBytes": candidate["size"],
+                })
+                return True
+            except OSError as e:
+                logger.warning(
+                    f"[scam-check] failed to copy local candidate: {e}")
+    return False
 
 
 _android_context = None
@@ -313,6 +462,13 @@ def ensure_gemma_model_cached(model_id=None):
             return True
         if _model_download_state["downloading"]:
             return False
+        # Прежде чем тянуть 500-800 МБ по сети — проверяем, нет ли уже
+        # подходящего .task где-то в Downloads/песочнице (например,
+        # пользователь скачал его вручную браузером раньше). Если нашли и
+        # он проходит проверку на zip — просто копируем его на место,
+        # экономя весь трафик и время скачивания.
+        if _try_use_local_task_file(model_id):
+            return True
         _model_download_state.update({
             "downloading": True, "error": None,
             "downloadedBytes": 0, "totalBytes": 0,
@@ -426,32 +582,20 @@ def ensure_gemma_model_cached(model_id=None):
         # HuggingFace на gated-репозиториях без валидного токена иногда
         # отдаёт 200 OK с HTML-страницей ("примите лицензию" / логин) вместо
         # самого файла — HTTPError тогда не срабатывает, а файл на диске
-        # получается битым. Раньше здесь требовалось, чтобы .task ОБЯЗАТЕЛЬНО
-        # открывался как zip — но это верно только для мультимодальных
-        # моделей (например Gemma 3n), где .task — это zip-бандл из
-        # нескольких файлов (TF_LITE_PREFILL_DECODE, TOKENIZER_MODEL и т.п.).
-        # У однокомпонентных текстовых моделей (как эта Gemma 3 1B) .task —
-        # это просто СЫРОЙ .tflite flatbuffer-файл под другим расширением,
-        # и он НИКОГДА не является zip-архивом — сигнатура "TFL3" на
-        # смещении 4 байта это и подтверждает. Поэтому теперь принимаем
-        # ЛЮБОЙ из двух валидных форматов: настоящий zip-бандл ИЛИ сырой
-        # TFLite flatbuffer (magic b"TFL3" сразу после 4-байтового
-        # заголовка длины буфера). Битым файл считаем только если это ни
-        # то, ни другое — тогда с большой вероятностью это правда
-        # HTML/заглушка.
-
-        def _is_valid_task_file(path):
-            if zipfile.is_zipfile(path):
-                return True
-            try:
-                with open(path, "rb") as _f:
-                    head8 = _f.read(8)
-            except OSError:
-                return False
-            # Flatbuffer file_identifier "TFL3" лежит по смещению 4..8.
-            return head8[4:8] == b"TFL3"
-
-        if not _is_valid_task_file(tmp_path):
+        # получается битым. .task-файл ОБЯЗАН быть zip-бандлом: это
+        # подтверждено на практике реальной ошибкой нативного движка
+        # MediaPipe при попытке скачать сырой .tflite вместо .task —
+        #   LlmTaskRunner.nativeCreateEngine -> model_asset_bundle_resources.cc
+        #   -> zip_utils.cc: "Unable to open zip archive"
+        # То есть ModelAssetBundleResources в этой сборке ВСЕГДА грузит
+        # .task через zip-loader, даже для однокомпонентных текстовых
+        # моделей — общие доки про "some .task files are raw TFLite
+        # flatbuffers" здесь не применимы. Раньше была ошибочная попытка
+        # разрешить и сырой TFLite (сигнатура "TFL3") — откатываем: движок
+        # такой файл всё равно не примет, так что лучше отбраковать его
+        # сразу на скачивании с понятным сообщением, чем ловить
+        # "Unable to open zip archive" уже при инициализации модели.
+        if not zipfile.is_zipfile(tmp_path):
             # ЖУК/DEBUG: is_zipfile() глотает реальную причину и просто
             # возвращает False. Раньше диагностику писали только в
             # logger/print — но, как оказалось, отдельная "debug-консоль"
@@ -493,10 +637,23 @@ def ensure_gemma_model_cached(model_id=None):
             # и в stdout — на случай если консоль слушает именно его
             print(f"[scam-check][debug] {debug_info}")
             os.remove(tmp_path)
-            msg = ("скачанный файл не является валидной моделью (ни zip-бандл, "
-                   "ни сырой TFLite flatbuffer) — вероятно, сервер вернул "
-                   "HTML/страницу-заглушку вместо файла (gated-репозиторий без "
-                   "токена, исчерпанная квота, неверное имя файла и т.п.). " + debug_info)
+            if head[4:8] == b"TFL3":
+                # Это не заглушка/ошибка сети: размер и сигнатура валидны,
+                # но это СЫРОЙ .tflite flatbuffer, а не собранный zip-бандл
+                # .task, который требует нативный движок MediaPipe
+                # (LlmTaskRunner -> model_asset_bundle_resources.cc ждёт
+                # именно zip, см. "Unable to open zip archive"). Источник
+                # (репозиторий-зеркало) раздаёт не тот файл под этим именем.
+                msg = ("скачанный файл — сырой TFLite flatbuffer (сигнатура TFL3), "
+                       "а не собранный .task zip-бандл, который требует движок "
+                       "MediaPipe. Похоже, в источнике (репозитории-зеркале) под "
+                       "этим именем лежит не тот файл — нужно перезалить "
+                       "настоящий .task-бандл. " + debug_info)
+            else:
+                msg = ("скачанный файл не является валидной моделью (не zip) — "
+                       "вероятно, сервер вернул HTML/страницу-заглушку вместо файла "
+                       "(gated-репозиторий без токена, исчерпанная квота, неверное имя "
+                       "файла и т.п.). " + debug_info)
             logger.warning(f"[scam-check] model download failed: {msg}")
             _model_download_state["error"] = msg
             return False
@@ -2170,6 +2327,60 @@ def scam_check_redownload_model():
         return jsonify({"ok": True, "alreadyReady": True})
     threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     return jsonify({"ok": True, "started": True})
+
+
+@app.route("/api/scam-check/model/scan-local", methods=["GET"])
+def scam_check_scan_local():
+    """Ищет .task-файлы, уже лежащие на устройстве (Downloads, папки
+    мессенджеров/браузера) — для UI 'нашли модель на диске, использовать
+    её вместо скачивания?'. Не требует Android-контекста для запуска (на
+    десктопе просто вернёт пустой список, т.к. типичных Android-путей нет)."""
+    found = scan_for_local_task_files()
+    current = _current_ondevice_model_id()
+    return jsonify({
+        "files": found,
+        "currentModelId": current,
+        # Готовый кандидат для текущей выбранной модели — если есть, фронт
+        # может сразу предложить кнопку "использовать этот файл" одним тапом.
+        "matchForCurrent": next(
+            (f for f in found if f["validZip"]
+             and f["matchedModelId"] == current),
+            None,
+        ),
+    })
+
+
+@app.route("/api/scam-check/model/use-local", methods=["POST"])
+def scam_check_use_local():
+    """Подставляет выбранный пользователем локальный .task файл вместо
+    скачивания. path — обязателен (взять из /scan-local); modelId —
+    опционально, для какой модели из каталога сохранить (по умолчанию —
+    текущая выбранная в настройках)."""
+    data = request.get_json(force=True) or {}
+    path = (data.get("path") or "").strip()
+    model_id = data.get("modelId") or _current_ondevice_model_id()
+    if not path:
+        return jsonify({"error": "path required"}), 400
+    if not os.path.isfile(path):
+        return jsonify({"error": "file not found"}), 404
+    if not zipfile.is_zipfile(path):
+        return jsonify({"error": "not a valid .task (zip) file"}), 400
+    if model_id not in ONDEVICE_MODELS:
+        return jsonify({"error": "unknown modelId"}), 400
+    dest = _model_file_path(model_id)
+    try:
+        tmp_dest = dest + ".part"
+        shutil.copy2(path, tmp_dest)
+        os.replace(tmp_dest, dest)
+    except OSError as e:
+        return jsonify({"error": f"copy failed: {e}"}), 500
+    size = os.path.getsize(dest)
+    _model_download_state.update({
+        "downloading": False, "ready": True, "error": None,
+        "downloadedBytes": size, "totalBytes": size,
+    })
+    logger.info(f"[scam-check] adopted local file {path} as model {model_id}")
+    return jsonify({"ok": True, "modelId": model_id, "size": size})
 
 
 def _run_scam_check(text: str, context: str = "") -> dict:
