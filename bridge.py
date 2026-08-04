@@ -425,11 +425,13 @@ def ensure_gemma_model_cached(model_id=None):
         # результат ОБЯЗАН открываться как zip; иначе не принимаем скачивание.
         if not zipfile.is_zipfile(tmp_path):
             # ЖУК/DEBUG: is_zipfile() глотает реальную причину и просто
-            # возвращает False, поэтому здесь отдельно логируем всё, что
-            # может объяснить, что на самом деле прилетело вместо модели:
-            # фактический размер на диске, первые байты файла (по "магии"
-            # сразу видно PK\x03\x04 у настоящего zip, <html vs что-то ещё),
-            # и точный текст исключения от ZipFile.open (а не просто bool).
+            # возвращает False. Раньше диагностику писали только в
+            # logger/print — но, как оказалось, отдельная "debug-консоль"
+            # приложения их не показывает (свой канал логов, не связанный с
+            # logging/stderr). Поэтому теперь весь разбор полётов кладём
+            # ПРЯМО в текст ошибки, которую приложение и так показывает
+            # пользователю — так его видно гарантированно, независимо от
+            # того, куда там долетают логи.
             try:
                 actual_size = os.path.getsize(tmp_path)
             except OSError as size_err:
@@ -439,33 +441,33 @@ def ensure_gemma_model_cached(model_id=None):
                     head = _f.read(64)
             except OSError as read_err:
                 head = b""
-                logger.warning(f"[scam-check][debug] не смог прочитать начало файла: {read_err}")
             try:
                 zipfile.ZipFile(tmp_path)
             except Exception as zip_err:
                 real_zip_error = f"{type(zip_err).__name__}: {zip_err}"
             else:
-                real_zip_error = "<ZipFile открылся без ошибки, но is_zipfile сказал False — странно>"
-            logger.warning(
-                "[scam-check][debug] диагностика битой модели:\n"
-                f"  ожидаемый размер (Content-Length): {total}\n"
-                f"  реальный размер на диске: {actual_size}\n"
-                f"  первые 64 байта (hex): {head[:64].hex()}\n"
-                f"  первые 64 байта (repr): {head[:64]!r}\n"
-                f"  реальная ошибка ZipFile: {real_zip_error}"
+                real_zip_error = "ZipFile открылся без ошибки, но is_zipfile сказал False"
+            head_hex = head[:32].hex()
+            # Если первые байты похожи на текст (html/json/git-lfs pointer) —
+            # покажем их как читаемую строку, а не только hex.
+            try:
+                head_text = head[:120].decode("utf-8", errors="replace")
+            except Exception:
+                head_text = ""
+            debug_info = (
+                f"[дебаг] размер={actual_size} байт, ожидалось(Content-Length)={total}; "
+                f"первые байты(hex)={head_hex}; "
+                f"как текст=\"{head_text}\"; "
+                f"ошибка zip={real_zip_error}"
             )
-            print(
-                f"[scam-check][debug] size={actual_size} total={total} "
-                f"head_hex={head[:16].hex()} head_repr={head[:64]!r} "
-                f"zip_err={real_zip_error}",
-                file=sys.stderr,
-            )
+            logger.warning(f"[scam-check][debug] {debug_info}")
+            print(f"[scam-check][debug] {debug_info}", file=sys.stderr)
+            print(f"[scam-check][debug] {debug_info}")  # и в stdout — на случай если консоль слушает именно его
             os.remove(tmp_path)
             msg = ("скачанный файл не является валидной моделью (не zip) — "
-                   "вероятно, HuggingFace вернул HTML-страницу вместо файла "
-                   "из-за отсутствующего/неверного токена доступа к gated-репозиторию; "
-                   "проверьте hfToken в настройках. Подробности в логах (logcat/консоль), "
-                   "ищите строку '[scam-check][debug]'")
+                   "вероятно, сервер вернул HTML/страницу-заглушку вместо файла "
+                   "(gated-репозиторий без токена, исчерпанная квота, неверное имя "
+                   "файла и т.п.). " + debug_info)
             logger.warning(f"[scam-check] model download failed: {msg}")
             _model_download_state["error"] = msg
             return False
