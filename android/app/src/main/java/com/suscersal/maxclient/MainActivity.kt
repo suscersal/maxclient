@@ -1,6 +1,7 @@
 package com.suscersal.maxclient
 
 import android.Manifest
+import android.provider.DocumentsContract
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -100,6 +101,25 @@ class MainActivity : AppCompatActivity() {
             data.data?.let { uris.add(it) }
         }
         callback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
+    }
+    private var pendingModelImportId: String? = null
+
+    // Импорт одного .task-файла модели через SAF (ACTION_OPEN_DOCUMENT).
+    private val modelImportFileLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val modelId = pendingModelImportId
+        pendingModelImportId = null
+        val uri = if (result.resultCode == RESULT_OK) result.data?.data else null
+        handleModelImportResult(uri, modelId)
+    }
+
+    // Выбор папки (например "Загрузки") для поиска уже скачанных .task-файлов.
+    private val modelScanTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val treeUri = if (result.resultCode == RESULT_OK) result.data?.data else null
+        handleModelScanResult(treeUri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -220,6 +240,7 @@ class MainActivity : AppCompatActivity() {
         // window.Notification там просто не работает. Даём JS доступ к
         // настоящим системным уведомлениям Android через этот мост.
         webView.addJavascriptInterface(AndroidNotificationBridge(this), "AndroidNotification")
+        webView.addJavascriptInterface(AndroidModelImportBridge(this), "AndroidModelImport")
 
         // Мост JS -> локальные контакты телефона (для поиска по чатам и
         // контактам в web-интерфейсе). Разрешение READ_CONTACTS запрашивается
@@ -416,6 +437,105 @@ class MainActivity : AppCompatActivity() {
                     findViewById<TextView>(R.id.loadingStatus).text =
                         "Не удалось запустить локальный сервер.\nПерезапустите приложение."
                 }
+            }
+        }.start()
+    }
+    // Имена .task-файлов, которые ждёт bridge.py (см. ONDEVICE_MODELS там же) —
+    // держи синхронизированным вручную при добавлении новых моделей в каталог.
+    private val ondeviceModelFiles = mapOf(
+        "gemma3-1b-q4_0-web" to "gemma3-1b-it-q4_0-web.task",
+        "gemma3-1b-int4" to "gemma3-1b-it-int4.task"
+    )
+
+    private fun jsStr(s: String): String = org.json.JSONObject.quote(s)
+
+    /** Копирует SAF-Uri в filesDir/targetName — та же папка, где bridge.py
+     * ищет .task-модель. Пишет во временный .part и атомарно переименовывает,
+     * чтобы прерванная копия не оставляла битый файл (как и при скачивании). */
+    private fun copyUriToModelFile(uri: Uri, targetName: String): String? {
+        return try {
+            val target = File(filesDir, targetName)
+            val tmp = File(filesDir, "$targetName.part")
+            contentResolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+            } ?: return "не удалось открыть выбранный файл"
+            if (!tmp.renameTo(target)) return "не удалось сохранить файл модели"
+            null
+        } catch (e: SecurityException) {
+            "нет доступа к выбранному файлу"
+        } catch (e: Exception) {
+            "error: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun handleModelImportResult(uri: Uri?, modelId: String?) {
+        val js = if (uri == null || modelId == null) {
+            "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:'Файл не выбран'});"
+        } else {
+            val targetName = ondeviceModelFiles[modelId]
+            if (targetName == null) {
+                "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:'Неизвестная модель'});"
+            } else {
+                val err = copyUriToModelFile(uri, targetName)
+                if (err == null)
+                    "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:true,modelId:${jsStr(modelId)}});"
+                else
+                    "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:${jsStr(err)}});"
+            }
+        }
+        runOnUiThread { webView.evaluateJavascript(js, null) }
+    }
+
+    /** Перечисляет *.task в выбранной папке через SAF (без чтения содержимого). */
+    private fun handleModelScanResult(treeUri: Uri?) {
+        if (treeUri == null) {
+            runOnUiThread {
+                webView.evaluateJavascript(
+                    "window.onAndroidModelScanResult && window.onAndroidModelScanResult({ok:false,error:'Папка не выбрана'});",
+                    null
+                )
+            }
+            return
+        }
+        Thread {
+            val found = mutableListOf<Pair<String, String>>()
+            try {
+                val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId)
+                contentResolver.query(
+                    childrenUri,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    ),
+                    null, null, null
+                )?.use { cursor ->
+                    val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(nameIdx) ?: continue
+                        if (!name.endsWith(".task", ignoreCase = true)) continue
+                        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idIdx))
+                        found.add(name to docUri.toString())
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    webView.evaluateJavascript(
+                        "window.onAndroidModelScanResult && window.onAndroidModelScanResult({ok:false,error:${jsStr(e.message ?: "scan failed")}});",
+                        null
+                    )
+                }
+                return@Thread
+            }
+            val itemsJson = found.joinToString(",") { (name, uriStr) ->
+                "{\"name\":${jsStr(name)},\"uri\":${jsStr(uriStr)}}"
+            }
+            runOnUiThread {
+                webView.evaluateJavascript(
+                    "window.onAndroidModelScanResult && window.onAndroidModelScanResult({ok:true,items:[$itemsJson]});",
+                    null
+                )
             }
         }.start()
     }
@@ -632,6 +752,61 @@ class MainActivity : AppCompatActivity() {
                 ctx, arrayOf(targetFile.absolutePath), arrayOf(mimeType), null
             )
             return Uri.fromFile(targetFile)
+        }
+    }
+    /** Мост JS -> импорт уже скачанной .task-модели с устройства (например
+     * из "Загрузки", если скачал вручную браузером). Копирует файл в ту же
+     * папку, где bridge.py ищет модель — дальше подхватывается как обычно. */
+    inner class AndroidModelImportBridge(private val ctx: Context) {
+
+        @JavascriptInterface
+        fun isAvailable(): Boolean = true
+
+        @JavascriptInterface
+        fun pickAndImport(modelId: String) {
+            pendingModelImportId = modelId
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            }
+            runOnUiThread {
+                try {
+                    modelImportFileLauncher.launch(intent)
+                } catch (e: Exception) {
+                    pendingModelImportId = null
+                    webView.evaluateJavascript(
+                        "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:${jsStr(e.message ?: "не удалось открыть проводник")}});",
+                        null
+                    )
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun scanFolder() {
+            runOnUiThread {
+                try {
+                    modelScanTreeLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
+                } catch (e: Exception) {
+                    webView.evaluateJavascript(
+                        "window.onAndroidModelScanResult && window.onAndroidModelScanResult({ok:false,error:${jsStr(e.message ?: "не удалось открыть проводник")}});",
+                        null
+                    )
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun importFromUri(uriString: String, modelId: String) {
+            Thread {
+                val err = ondeviceModelFiles[modelId]?.let { copyUriToModelFile(Uri.parse(uriString), it) }
+                    ?: "Неизвестная модель"
+                val js = if (err == null)
+                    "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:true,modelId:${jsStr(modelId)}});"
+                else
+                    "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:${jsStr(err)}});"
+                runOnUiThread { webView.evaluateJavascript(js, null) }
+            }.start()
         }
     }
 }

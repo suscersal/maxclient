@@ -3540,6 +3540,10 @@
             <button id="scamCheckDeleteBtn" class="settings-menu-item danger" style="display:none;width:auto;padding:6px 10px;" onclick="deleteScamCheckModel()">🗑️ Удалить модель с устройства</button>
             <button id="scamCheckRetryBtn" class="settings-menu-item" style="display:none;width:auto;padding:6px 10px;" onclick="retryScamCheckDownload()">🔁 Повторить скачивание</button>
         </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="importScamCheckModelFile()">📥 Импортировать скачанный .task</button>
+            <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="scanScamCheckModelFolder()">📂 Найти в папке</button>
+        </div>
         <hr class="settings-menu-divider">
         <div style="margin:14px 0 6px;font-weight:600;">Внешний сервер (fallback, для десктопа)</div>
         <div class="settings-row">
@@ -3602,6 +3606,62 @@
             } catch (e) { /* ignore */ }
             refreshScamCheckModelStatus();
         }
+        async function importScamCheckModelFile() {
+            if (!window.AndroidModelImport || !AndroidModelImport.isAvailable()) {
+                alert('Импорт файла модели доступен только в Android-приложении.');
+                return;
+            }
+            const modelId = document.getElementById('scamCheckOnDeviceModel')?.value
+                || (scamCheckModelsCache && scamCheckModelsCache.current) || '';
+            if (!modelId) { alert('Сначала выберите модель в списке выше.'); return; }
+            const statusEl = document.getElementById('scamCheckModelStatus');
+            if (statusEl) statusEl.textContent = '⏳ Выберите файл модели (.task)…';
+            AndroidModelImport.pickAndImport(modelId);
+        }
+
+        window.onAndroidModelImportResult = function (res) {
+            if (res && res.ok) {
+                refreshScamCheckModelStatus();
+                refreshScamCheckModelSelect();
+            } else {
+                const statusEl = document.getElementById('scamCheckModelStatus');
+                if (statusEl) statusEl.textContent = '❌ Импорт не удался: ' + ((res && res.error) || 'неизвестная ошибка');
+            }
+        };
+
+        async function scanScamCheckModelFolder() {
+            if (!window.AndroidModelImport || !AndroidModelImport.isAvailable()) {
+                alert('Поиск .task-файлов доступен только в Android-приложении.');
+                return;
+            }
+            const statusEl = document.getElementById('scamCheckModelStatus');
+            if (statusEl) statusEl.textContent = '⏳ Выберите папку (например «Загрузки»)…';
+            AndroidModelImport.scanFolder();
+        }
+
+        window.onAndroidModelScanResult = function (res) {
+            const box = document.getElementById('scamCheckModelStatus');
+            if (!res || !res.ok) {
+                if (box) box.textContent = '❌ ' + ((res && res.error) || 'Не удалось прочитать папку');
+                return;
+            }
+            if (!res.items || !res.items.length) {
+                if (box) box.textContent = 'В выбранной папке .task-файлы не найдены.';
+                return;
+            }
+            const modelId = document.getElementById('scamCheckOnDeviceModel')?.value
+                || (scamCheckModelsCache && scamCheckModelsCache.current) || '';
+            const list = res.items.map(it =>
+                `<div class="settings-row" style="align-items:center;">
+            <span style="flex:1;font-size:12px;word-break:break-all;">${escapeHtml(it.name)}</span>
+            <button class="settings-menu-item" style="width:auto;padding:4px 8px;"
+                    onclick='AndroidModelImport.importFromUri(${JSON.stringify(it.uri)}, ${JSON.stringify(modelId)})'>
+                Импортировать
+            </button>
+        </div>`
+            ).join('');
+            if (box) box.innerHTML = 'Найдены файлы модели в папке:' + list;
+        };
 
         // Проверяем не чаще, чем по одному сообщению за раз — локальная модель
         // на обычном железе не тянет параллельные запросы без деградации.
