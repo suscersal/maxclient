@@ -8,8 +8,10 @@ import secrets
 import socket
 import ssl
 import struct
+import sys
 import threading
 import time
+import traceback
 import uuid
 import gzip
 import html
@@ -28,6 +30,78 @@ import io
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+# --- Глобальная защита от падения приложения на необработанных ошибках ---
+#
+# Раньше любое неотловленное исключение (в основном потоке, в фоновом
+# threading.Thread или в обработчике /relay-вебсокета) могло улететь наверх
+# через Chaquopy и уронить весь Android-процесс (см. PyException в логах).
+# Ниже — три независимых предохранителя, которые просто печатают ошибку в
+# консоль/logcat и продолжают работу вместо падения:
+#
+#   1. sys.excepthook       — необработанные исключения в главном потоке.
+#   2. threading.excepthook — необработанные исключения в любом потоке,
+#                             запущенном через threading.Thread (по умолчанию
+#                             Python 3.8+ и так не роняет процесс из-за них,
+#                             но молча проглатывает — здесь логируем явно).
+#   3. safe_thread()        — обёртка для контролируемого запуска фоновых
+#                             задач; используется вместо голого
+#                             threading.Thread(target=...).start() там, где
+#                             логично отделить один сбойный фон-таск от
+#                             остальных при пересборке.
+def _log_uncaught_exception(exc_type, exc_value, exc_tb, thread_name="MainThread"):
+    try:
+        formatted = "".join(traceback.format_exception(
+            exc_type, exc_value, exc_tb))
+    except Exception:
+        formatted = f"{exc_type}: {exc_value}"
+    # И через logger (попадёт в стандартный логгинг/logcat), и через print
+    # (на случай, если logger почему-то не сконфигурирован на этом потоке) —
+    # чтобы ошибка гарантированно осталась видна в консоли, а не потерялась.
+    logger.error(f"[UNCAUGHT] Необработанное исключение в потоке "
+                 f"'{thread_name}':\n{formatted}")
+    print(f"[UNCAUGHT] Необработанное исключение в потоке "
+          f"'{thread_name}':\n{formatted}", file=sys.stderr)
+
+
+def _sys_excepthook(exc_type, exc_value, exc_tb):
+    _log_uncaught_exception(exc_type, exc_value, exc_tb, "MainThread")
+
+
+def _threading_excepthook(args):
+    _log_uncaught_exception(
+        args.exc_type, args.exc_value, args.exc_traceback,
+        getattr(args.thread, "name", "?"))
+
+
+sys.excepthook = _sys_excepthook
+if hasattr(threading, "excepthook"):
+    threading.excepthook = _threading_excepthook
+
+
+def safe_thread(target, args=(), kwargs=None, name=None, daemon=True):
+    """Запускает target в отдельном потоке так, чтобы исключение внутри
+
+    него не улетело дальше как необработанное — оно ловится, логируется в
+    консоль и поток просто завершается, вместо возможного падения всего
+    процесса. Возвращает сам объект Thread (уже запущенный).
+    """
+    kwargs = kwargs or {}
+
+    def _wrapped():
+        try:
+            target(*args, **kwargs)
+        except Exception:
+            logger.error(
+                f"[safe_thread] Ошибка в фоновом потоке "
+                f"'{name or getattr(target, '__name__', target)}':\n"
+                f"{traceback.format_exc()}")
+
+    t = threading.Thread(target=_wrapped, name=name, daemon=daemon)
+    t.start()
+    return t
+
 
 # --- Конфигурация ---
 HOST = os.getenv("MAX_HOST", "api.oneme.ru")
@@ -1285,6 +1359,28 @@ logger.info(f"[static] Serving frontend files from: {STATIC_DIR}")
 
 app = Flask(__name__, static_folder=STATIC_DIR)
 sock = Sock(app)
+
+
+@app.errorhandler(Exception)
+def handle_uncaught_exception(e):
+    """Ловит абсолютно любое исключение, вылетевшее из HTTP-роута, которое
+
+    само не обработало себя через try/except (обычные ветки с логированием
+    и понятным jsonify({"error": ...}) уже разбросаны по коду выше и ниже —
+    это последний рубеж на случай, если где-то забыли). Раньше необработанное
+    исключение в роуте могло уйти дальше как есть; теперь оно всегда
+    логируется в консоль и превращается в аккуратный JSON-ответ 500,
+    вместо падения сервера/приложения.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # Штатные HTTP-ошибки (404, 405 и т.п.) — не баг, просто отдаём как есть.
+        return e
+    tb = traceback.format_exc()
+    logger.error(f"[unhandled] {request.method} {request.path} -> {e}\n{tb}")
+    print(f"[unhandled] {request.method} {request.path} -> {e}\n{tb}",
+          file=sys.stderr)
+    return jsonify({"error": f"Внутренняя ошибка сервера: {e}"}), 500
 
 
 @app.route("/")
@@ -2563,112 +2659,6 @@ def upload_file():
     })
 
 
-def _upload_media_binary(upload_type: int, default_filename: str, log_tag: str):
-    """Общая реализация для аплоада через videoUpload (opcode 82) с разными
-
-    значениями поля "type": 0 = обычное видео, 1 = видео-кружок (video
-    note), 2 = голосовое (audio) — см. requestVideoUploadUrl /
-    requestVideoNoteUploadUrl / requestAudioUploadUrl в Komet
-    (lib/backend/modules/messages.dart). Бинарь заливается тем же способом,
-    что и /api/upload-file. Возвращает (json_response, http_status).
-    """
-    f = request.files.get("file")
-    if f is None:
-        return jsonify({"error": "Файл не передан"}), 400
-
-    filename = f.filename or default_filename
-    data = f.read()
-    total = len(data)
-    if total == 0:
-        return jsonify({"error": "Пустой файл"}), 400
-
-    try:
-        packet = fetch_once(
-            82, {"uploaderType": 1, "type": upload_type, "count": 1},
-            wait_opcode=82, timeout=20)
-    except Exception as e:
-        logger.warning(f"[{log_tag}] videoUpload request failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-    if not packet or packet["cmd"] != 256:
-        error_msg = packet.get("payload", {}).get(
-            "localizedMessage", "Не удалось получить ссылку для загрузки") if packet else "Нет ответа от сервера"
-        return jsonify({"error": error_msg}), 502
-
-    info_list = (packet.get("payload") or {}).get("info") or []
-    if not info_list:
-        return jsonify({"error": "Сервер не вернул данные для загрузки"}), 502
-
-    info = info_list[0]
-    upload_url = info.get("url")
-    media_id = info.get("videoId")
-    token = info.get("token")
-    if not upload_url:
-        return jsonify({"error": "Сервер не вернул URL загрузки"}), 502
-
-    try:
-        req = urllib.request.Request(
-            upload_url,
-            data=data,
-            method="POST",
-            headers={
-                "Content-Type": "application/x-binary; charset=x-user-defined",
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Range": f"bytes 0-{total - 1}/{total}",
-                "Content-Length": str(total),
-                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            status = resp.status
-    except urllib.error.HTTPError as e:
-        logger.warning(f"[{log_tag}] upload HTTP error: {e}")
-        return jsonify({"error": f"Ошибка загрузки: HTTP {e.code}"}), 502
-    except Exception as e:
-        logger.warning(f"[{log_tag}] upload failed: {e}")
-        return jsonify({"error": str(e)}), 502
-
-    if status != 200:
-        return jsonify({"error": f"Ошибка загрузки: HTTP {status}"}), 502
-
-    logger.info(
-        f"[{log_tag}] Uploaded {filename} ({total} bytes), mediaId={media_id}")
-    return jsonify({
-        "success": True,
-        "audioId": media_id,
-        "videoId": media_id,
-        "token": token,
-        "name": filename,
-        "size": total,
-    }), 200
-
-
-@app.route("/api/upload-audio", methods=["POST"])
-def upload_audio():
-    """Загружает голосовое сообщение (type=2, см. _upload_media_binary).
-
-    Ожидает multipart/form-data с полем "file" (готовый Ogg/Opus- или
-    webm/Opus-файл — кодирование делается на клиенте, см.
-    static/index.html). Возвращает audioId/token — их нужно вставить в
-    attaches сообщения как {"_type": "AUDIO", "token": token,
-    "duration": <мс>, "wave": [...]} и отправить через /relay (opcode 64).
-    """
-    return _upload_media_binary(2, "voice.ogg", "upload-audio")
-
-
-@app.route("/api/upload-video-note", methods=["POST"])
-def upload_video_note():
-    """Загружает видео-кружок / video note (type=1, см. _upload_media_binary).
-
-    Ожидает multipart/form-data с полем "file" (видео+звук, обычно
-    webm/VP8+Opus из браузерного MediaRecorder). Возвращает videoId/token —
-    вставить в attaches как {"_type": "VIDEO", "videoType": 1,
-    "token": token, "duration": <мс>, "wave": [...]} и отправить через
-    /relay (opcode 64).
-    """
-    return _upload_media_binary(1, "video_note.webm", "upload-video-note")
-
-
 @app.route("/api/upload-photo", methods=["POST"])
 def upload_photo():
     """Загружает фото (opcode 80, PHOTO_UPLOAD).
@@ -2898,64 +2888,80 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
             logger.warning(f"recv_loop stopped: {e}")
             break
 
-        cmd_status = "OK" if packet["cmd"] == 256 else "ERROR" if packet["cmd"] == 768 else str(
-            packet["cmd"])
-        logger.info(
-            f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
-        if packet["cmd"] == 768:
-            logger.info(f"  error payload: {packet.get('payload')!r}")
-        if packet["cmd"] == 256 and packet["opcode"] in (46, 60, 89):
+        # Всё, что ниже — обработка уже полученного пакета (логирование,
+        # разбор токенов авторизации и т.п.). Раньше это не было защищено:
+        # одно неожиданное поле в ответе сервера (KeyError/TypeError и т.п.)
+        # убивало recv_loop насмерть без единого сообщения об ошибке — WS
+        # переставал получать что-либо, а приложение выглядело "зависшим".
+        # Теперь любая ошибка здесь просто логируется, пакет пропускается,
+        # а цикл приёма продолжает работать дальше.
+        try:
+            cmd_status = "OK" if packet["cmd"] == 256 else "ERROR" if packet["cmd"] == 768 else str(
+                packet["cmd"])
             logger.info(
-                f"  payload: {json.dumps(packet.get('payload'), ensure_ascii=False, indent=2)}")
+                f"RECEIVED: opcode={packet['opcode']}, cmd={packet['cmd']} ({cmd_status})")
+            if packet["cmd"] == 768:
+                logger.info(f"  error payload: {packet.get('payload')!r}")
+            if packet["cmd"] == 256 and packet["opcode"] in (46, 60, 89):
+                logger.info(
+                    f"  payload: {json.dumps(packet.get('payload'), ensure_ascii=False, indent=2)}")
 
-        # Обработка ошибки авторизации
-        if packet["opcode"] == 19 and packet["cmd"] == 768:
-            error_msg = packet.get("payload", {}).get("localizedMessage", "")
-            if any(word in error_msg.lower() for word in ["авториз", "authoriz", "login", "вход"]):
-                logger.warning("[session] Auth token expired or invalid")
-                clear_auth_token()
-                packet["_auth_error"] = True
+            # Обработка ошибки авторизации
+            if packet["opcode"] == 19 and packet["cmd"] == 768:
+                error_msg = packet.get(
+                    "payload", {}).get("localizedMessage", "")
+                if any(word in error_msg.lower() for word in ["авториз", "authoriz", "login", "вход"]):
+                    logger.warning("[session] Auth token expired or invalid")
+                    clear_auth_token()
+                    packet["_auth_error"] = True
 
-        # Сохраняем токен при успешной аутентификации (opcode 18)
-        if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
-            payload = packet["payload"]
+            # Сохраняем токен при успешной аутентификации (opcode 18)
+            if packet["opcode"] == 18 and packet["cmd"] == 256 and packet.get("payload"):
+                payload = packet["payload"]
 
-            # Проверяем, есть ли passwordChallenge (значит пароль еще нужен)
-            if payload.get("passwordChallenge"):
-                logger.info("[session] Server requests password")
-                # Не сохраняем токен, передаем challenge клиенту
-            else:
-                # Сохраняем токен
+                # Проверяем, есть ли passwordChallenge (значит пароль еще нужен)
+                if payload.get("passwordChallenge"):
+                    logger.info("[session] Server requests password")
+                    # Не сохраняем токен, передаем challenge клиенту
+                else:
+                    # Сохраняем токен
+                    token_attrs = payload.get("tokenAttrs")
+                    if token_attrs and "LOGIN" in token_attrs:
+                        new_token = token_attrs["LOGIN"]["token"]
+                        save_auth_token(new_token)
+                        logger.info(
+                            f"[session] Auth token saved: {new_token[:20]}...")
+                    else:
+                        auth_token = payload.get(
+                            "authToken") or payload.get("token")
+                        if auth_token:
+                            save_auth_token(auth_token)
+                            logger.info(
+                                f"[session] Auth token saved from alt field: {auth_token[:20]}...")
+                # Проверяем tokenAttrs
                 token_attrs = payload.get("tokenAttrs")
                 if token_attrs and "LOGIN" in token_attrs:
-                    new_token = token_attrs["LOGIN"]["token"]
-                    save_auth_token(new_token)
-                    logger.info(
-                        f"[session] Auth token saved: {new_token[:20]}...")
-                else:
-                    auth_token = payload.get(
-                        "authToken") or payload.get("token")
-                    if auth_token:
-                        save_auth_token(auth_token)
+                    new_token = token_attrs["LOGIN"].get("token")
+                    if new_token:
+                        save_auth_token(new_token)
                         logger.info(
-                            f"[session] Auth token saved from alt field: {auth_token[:20]}...")
-            # Проверяем tokenAttrs
-            token_attrs = payload.get("tokenAttrs")
-            if token_attrs and "LOGIN" in token_attrs:
-                new_token = token_attrs["LOGIN"].get("token")
-                if new_token:
-                    save_auth_token(new_token)
+                            f"[session] Auth token saved: {new_token[:20]}...")
+
+                # Проверяем другие поля
+                auth_token = payload.get("authToken") or payload.get("token")
+                if auth_token and not token_attrs:
+                    save_auth_token(auth_token)
                     logger.info(
-                        f"[session] Auth token saved: {new_token[:20]}...")
+                        f"[session] Auth token saved from alt field: {auth_token[:20]}...")
 
-            # Проверяем другие поля
-            auth_token = payload.get("authToken") or payload.get("token")
-            if auth_token and not token_attrs:
-                save_auth_token(auth_token)
-                logger.info(
-                    f"[session] Auth token saved from alt field: {auth_token[:20]}...")
-
-        out_queue.put(packet)
+            out_queue.put(packet)
+        except Exception as e:
+            logger.error(
+                f"[recv_loop] Ошибка обработки пакета "
+                f"(opcode={packet.get('opcode') if isinstance(packet, dict) else '?'}): {e}\n"
+                f"{traceback.format_exc()}")
+            print(f"[recv_loop] Ошибка обработки пакета: {e}", file=sys.stderr)
+            continue
 
 
 if __name__ == "__main__":
@@ -2963,4 +2969,12 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
     logger.info(f"Starting server on {host}:{port}, debug={debug_mode}")
-    app.run(host=host, port=port, debug=debug_mode)
+    try:
+        app.run(host=host, port=port, debug=debug_mode)
+    except Exception as e:
+        # Последний рубеж: если Flask/сервер не смог стартовать (занят порт,
+        # ошибка биндинга и т.п.) — печатаем причину в консоль вместо того,
+        # чтобы уронить процесс необработанным исключением.
+        logger.error(f"[fatal] Не удалось запустить сервер: {e}\n"
+                     f"{traceback.format_exc()}")
+        print(f"[fatal] Не удалось запустить сервер: {e}", file=sys.stderr)
