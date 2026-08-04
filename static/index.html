@@ -3589,7 +3589,13 @@
             // поставлено в очередь другим путём) — проверяем ещё раз.
             if (scamVerdictCache[msgId]) return;
             console.log('[scam-check] queued', { msgId, text, contextLen: (context || '').length });
-            scamCheckQueue.push({ msgId, text, context: context || '' });
+            // unshift, а не push: сообщения ставятся в очередь в том порядке,
+            // в котором рендерятся (обычно от старых к новым), а по запросу
+            // "сначала новейшие" реальные скам-попытки интереснее только что
+            // пришедших сообщений — поэтому каждое следующее (более новое)
+            // сообщение встаёт в НАЧАЛО очереди и обгоняет уже ждущие там
+            // более старые.
+            scamCheckQueue.unshift({ msgId, text, context: context || '' });
             processScamCheckQueue();
         }
 

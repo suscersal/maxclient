@@ -2168,6 +2168,26 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                     0, idx - SCAN_CONTEXT_SIZE):idx]
                 jobs.append((chat_id, m, context_msgs))
 
+        # Детектор рассылки одного и того же скам-скрипта разным людям с
+        # разными суммами/номерами ("отправь любой код", "переведи 3000 /
+        # 5000 / 12000 на карту..." и т.п.): нормализуем текст (заменяем все
+        # цифры на "#", чтобы конкретная сумма/код не мешали сравнению) и
+        # считаем, сколько РАЗНЫХ сообщений (в любых чатах) имеют одинаковый
+        # нормализованный текст. Если одно и то же сообщение (с точностью до
+        # цифр) встречается 2+ раза — это сильный сигнал копипаст-скама, а
+        # не разовая фраза в переписке, и модель должна это знать.
+        def _normalize_for_dup_check(t: str) -> str:
+            t = re.sub(r"\d+", "#", t.lower())
+            t = re.sub(r"\s+", " ", t).strip()
+            return t
+
+        dup_counts = {}
+        for _, m, _ in jobs:
+            norm = _normalize_for_dup_check(m.get("text") or "")
+            if len(norm) < 8:  # слишком короткие фразы ("да", "ок") не считаем
+                continue
+            dup_counts[norm] = dup_counts.get(norm, 0) + 1
+
         # Новые сначала — по времени самого сообщения, по убыванию.
         jobs.sort(key=lambda job: job[1].get("time", 0), reverse=True)
 
@@ -2185,6 +2205,18 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                 (cm.get("text") or "").strip() for cm in context_msgs
                 if (cm.get("text") or "").strip()
             )
+            dup_count = dup_counts.get(_normalize_for_dup_check(text), 0)
+            if dup_count >= 2:
+                dup_note = (
+                    f"[Системная пометка: практически такой же текст "
+                    f"(отличия только в цифрах/суммах/номерах) встречается "
+                    f"в кэше {dup_count} раз(а) в разных сообщениях — похоже "
+                    f"на массовую рассылку одного скам-скрипта с подстановкой "
+                    f"разных сумм/номеров разным людям, а не на обычную "
+                    f"переписку.]"
+                )
+                context_text = (context_text + "\n" +
+                                dup_note).strip() if context_text else dup_note
             try:
                 result = _run_scam_check(text, context=context_text)
                 confidence = result.get("confidence")
@@ -2208,6 +2240,7 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                     "reason": result.get("reason", ""),
                     "engine": result.get("engine"),
                     "is_scam": is_scam,
+                    "dupCount": dup_count,
                 }
                 # Полный список — процент скама есть у КАЖДОГО проверенного
                 # сообщения, независимо от вердикта.
