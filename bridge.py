@@ -319,6 +319,19 @@ def ensure_gemma_model_cached(model_id=None):
         })
 
     tmp_path = model_file + ".part"
+    # Таймаут на КАЖДУЮ операцию сокета (не только на установку соединения,
+    # но и на каждый resp.read() внутри цикла ниже). При скачивании файла
+    # в 700+ МБ по мобильной сети 20с было слишком мало — любая короткая
+    # заминка (переключение сети, троттлинг на стороне GitHub LFS, приложение
+    # на секунду ушло в фон) роняла ВЕСЬ запрос с "The read operation timed
+    # out", даже если 99% файла уже успело скачаться. Значение подняли и
+    # вынесли в переменную окружения, чтобы можно было потюнить без правки кода.
+    SOCKET_TIMEOUT = int(os.getenv("MODEL_DOWNLOAD_TIMEOUT", "60"))
+    # Сколько раз пробуем ДОКАЧАТЬ (Range-запросом с того места, где
+    # оборвалось) при транзиентных сетевых ошибках, прежде чем сдаться и
+    # показать ошибку пользователю. Каждый ретрай не начинает файл заново —
+    # только досасывает недостающий хвост.
+    MAX_RETRIES = int(os.getenv("MODEL_DOWNLOAD_RETRIES", "5"))
     try:
         logger.info(
             f"[scam-check] downloading on-device model {model_id or _current_ondevice_model_id()} (one-time, ~500MB+)…")
@@ -326,20 +339,74 @@ def ensure_gemma_model_cached(model_id=None):
         hf_token = (_get_scam_check_settings().get("hfToken") or "").strip()
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
-        req = urllib.request.Request(download_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            total_header = resp.getheader("Content-Length")
-            total = int(total_header) if total_header else 0
-            _model_download_state["totalBytes"] = total
-            with open(tmp_path, "wb") as f:
-                downloaded = 0
-                while True:
-                    chunk = resp.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
+
+        total = 0
+        attempt = 0
+        while True:
+            downloaded_so_far = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+            req_headers = dict(headers)
+            resume = downloaded_so_far > 0
+            if resume:
+                # Докачка: просим сервер прислать только хвост файла.
+                req_headers["Range"] = f"bytes={downloaded_so_far}-"
+            req = urllib.request.Request(download_url, headers=req_headers)
+            try:
+                with urllib.request.urlopen(req, timeout=SOCKET_TIMEOUT) as resp:
+                    if resume and resp.status != 206:
+                        # Сервер не поддержал Range (отдал 200 и весь файл
+                        # заново) — не смешиваем старый хвост с новым
+                        # ответом с нуля, начинаем .part-файл заново.
+                        logger.warning(
+                            "[scam-check] server ignored Range request "
+                            f"(status={resp.status}), restarting from scratch")
+                        downloaded_so_far = 0
+                        mode = "wb"
+                    else:
+                        mode = "ab" if resume else "wb"
+
+                    content_length = resp.getheader("Content-Length")
+                    if resume and resp.status == 206:
+                        content_range = resp.getheader("Content-Range")
+                        # Content-Range: bytes start-end/total
+                        if content_range and "/" in content_range:
+                            total = int(content_range.rsplit("/", 1)[-1])
+                        elif content_length:
+                            total = downloaded_so_far + int(content_length)
+                    elif content_length:
+                        total = int(content_length)
+                    _model_download_state["totalBytes"] = total
+
+                    downloaded = downloaded_so_far
                     _model_download_state["downloadedBytes"] = downloaded
+                    with open(tmp_path, mode) as f:
+                        while True:
+                            chunk = resp.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            _model_download_state["downloadedBytes"] = downloaded
+                break  # успешно дочитали до конца тела ответа
+            except (socket.timeout, TimeoutError, ConnectionError,
+                    urllib.error.URLError) as transient_err:
+                attempt += 1
+                partial = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+                if attempt > MAX_RETRIES:
+                    msg = (f"скачивание прервалось ({transient_err}) и не "
+                           f"восстановилось после {MAX_RETRIES} попыток "
+                           f"докачки (скачано {partial} из {total or '?'} байт) "
+                           f"— проверьте соединение и попробуйте позже")
+                    logger.warning(f"[scam-check] model download failed: {msg}")
+                    _model_download_state["error"] = msg
+                    return False
+                logger.warning(
+                    f"[scam-check] transient network error on attempt "
+                    f"{attempt}/{MAX_RETRIES} ({transient_err}), "
+                    f"resuming from byte {partial}…")
+                time.sleep(min(2 ** attempt, 30))  # экспоненциальная пауза перед докачкой
+                continue
+
+        downloaded = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
         # Если сервер прислал Content-Length и мы скачали меньше — соединение
         # оборвалось на середине. Раньше это тихо принималось как "успех",
         # что и оставляло битый .task-файл (та самая "Unable to open zip
@@ -372,8 +439,7 @@ def ensure_gemma_model_cached(model_id=None):
                     head = _f.read(64)
             except OSError as read_err:
                 head = b""
-                logger.warning(
-                    f"[scam-check][debug] не смог прочитать начало файла: {read_err}")
+                logger.warning(f"[scam-check][debug] не смог прочитать начало файла: {read_err}")
             try:
                 zipfile.ZipFile(tmp_path)
             except Exception as zip_err:
