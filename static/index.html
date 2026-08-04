@@ -3378,6 +3378,7 @@
         // сервер (Ollama/llama.cpp/LM Studio), см. поля URL/модель ниже.
 
         let scamCheckSettingsCache = null;
+        let scamCheckModelsCache = null;
         // Промис первичной загрузки настроек — нужен, чтобы queueScamCheck()
         // не "молча" пропускал сообщения, которые отрендерились ДО того, как
         // настройки успели прийти с сервера (см. комментарий в queueScamCheck).
@@ -3431,6 +3432,49 @@
             return (n / (1024 * 1024)).toFixed(0) + ' МБ';
         }
 
+        async function loadScamCheckModels() {
+            try {
+                const res = await fetch('/api/scam-check/models');
+                scamCheckModelsCache = await res.json();
+            } catch (e) {
+                scamCheckModelsCache = { models: [], current: '' };
+            }
+            return scamCheckModelsCache;
+        }
+
+        function renderScamCheckModelSelect() {
+            const wrap = document.getElementById('scamCheckModelSelectWrap');
+            if (!wrap) return;
+            const data = scamCheckModelsCache;
+            if (!data || !data.models || !data.models.length) {
+                wrap.innerHTML = '';
+                return;
+            }
+            const options = data.models.map(m => `
+                <option value="${escapeHtml(m.id)}" ${m.selected ? 'selected' : ''}>
+                    ${escapeHtml(m.label)}${m.downloaded ? ' ✓' : ''}
+                </option>
+            `).join('');
+            wrap.innerHTML = `
+                <div style="margin:14px 0 6px;font-weight:600;">Модель на устройстве</div>
+                <div class="settings-row">
+                    <select id="scamCheckOnDeviceModel" class="setting-value" style="flex:1;"
+                            onchange="saveScamCheckSettings()">
+                        ${options}
+                    </select>
+                </div>
+                <div class="settings-empty" style="text-align:left;font-size:11px;line-height:1.4;margin:2px 0 0;">
+                    ✓ — уже скачана на этом устройстве. При смене модели старая
+                    удаляется, новая скачивается автоматически.
+                </div>
+            `;
+        }
+
+        async function refreshScamCheckModelSelect() {
+            await loadScamCheckModels();
+            renderScamCheckModelSelect();
+        }
+
         async function refreshScamCheckModelStatus() {
             const box = document.getElementById('scamCheckModelStatus');
             const barWrap = document.getElementById('scamCheckProgressWrap');
@@ -3474,6 +3518,7 @@
         function renderScamCheckPage() {
             const cfg = scamCheckSettingsCache || { enabled: false, url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1', hfToken: '' };
             setTimeout(refreshScamCheckModelStatus, 0);
+            setTimeout(refreshScamCheckModelSelect, 0);
             return `
         <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
             Проверка новых сообщений на скам/мошенничество ИИ-моделью. На Android
@@ -3486,6 +3531,7 @@
                 Включить проверку
             </label>
         </div>
+        <div id="scamCheckModelSelectWrap"></div>
         <div id="scamCheckModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
         <div id="scamCheckProgressWrap" style="display:none;height:6px;border-radius:3px;background:rgba(0,0,0,0.08);overflow:hidden;margin-bottom:10px;">
             <div id="scamCheckProgressBar" style="height:100%;width:0%;background:#4caf50;transition:width .3s;"></div>
@@ -3519,18 +3565,20 @@
             const enabled = document.getElementById('scamCheckEnabled')?.checked || false;
             const url = document.getElementById('scamCheckUrl')?.value.trim() || '';
             const model = document.getElementById('scamCheckModel')?.value.trim() || '';
+            const onDeviceModelId = document.getElementById('scamCheckOnDeviceModel')?.value || undefined;
             const statusEl = document.getElementById('scamCheckStatus');
             try {
                 const res = await fetch('/api/scam-check/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled, url, model }),
+                    body: JSON.stringify({ enabled, url, model, onDeviceModelId }),
                 });
                 const json = await res.json();
                 if (!json.ok) throw new Error(json.error || 'unknown error');
                 scamCheckSettingsCache = json;
                 if (statusEl) statusEl.textContent = '✅ Сохранено';
                 refreshScamCheckModelStatus();
+                refreshScamCheckModelSelect();
             } catch (e) {
                 if (statusEl) statusEl.textContent = '❌ Ошибка: ' + (e.message || e);
             }
@@ -3541,6 +3589,7 @@
                 await fetch('/api/scam-check/model', { method: 'DELETE' });
             } catch (e) { /* ignore */ }
             refreshScamCheckModelStatus();
+            refreshScamCheckModelSelect();
         }
 
         async function retryScamCheckDownload() {

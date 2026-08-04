@@ -172,6 +172,9 @@ reason — короткая причина.
 def _get_scam_check_settings():
     sess = load_session()
     cfg = sess.get("scamCheck", {})
+    model_id = cfg.get("onDeviceModelId") or DEFAULT_ONDEVICE_MODEL_ID
+    if model_id not in ONDEVICE_MODELS:
+        model_id = DEFAULT_ONDEVICE_MODEL_ID
     return {
         "enabled": bool(cfg.get("enabled", False)),
         "url": cfg.get("url") or SCAM_CHECK_DEFAULT_URL,
@@ -182,6 +185,9 @@ def _get_scam_check_settings():
         # См. https://huggingface.co/litert-community/Gemma3-1B-IT — кнопка
         # "Acknowledge license", затем токен в Settings -> Access Tokens.
         "hfToken": cfg.get("hfToken", ""),
+        # Какая on-device модель выбрана (см. ONDEVICE_MODELS ниже) — файл и
+        # ссылка на скачивание берутся из каталога по этому id.
+        "onDeviceModelId": model_id,
     }
 
 
@@ -202,16 +208,55 @@ def _save_scam_check_settings(patch: dict):
 # На обычном ПК (когда bridge.py запускают как python bridge.py, а не внутри
 # APK) этот импорт просто упадёт — тогда используется fallback на внешний
 # OpenAI-совместимый сервер (см. _get_scam_check_settings/url выше).
-GEMMA_MODEL_FILE = os.getenv("GEMMA_MODEL_FILE", os.path.join(
-    os.path.dirname(SESSION_FILE), "gemma3-1b-it-int4.task"))
-# Официальная LiteRT-сборка Gemma 3 1B (4-бит) с HuggingFace — тот же файл,
-# что используется в официальных примерах Google для LLM Inference API.
-# ВАЖНО: репозиторий gated (требует принять лицензию Gemma + HF-токен),
-# иначе сервер отвечает 401 — см. hfToken в _get_scam_check_settings.
-GEMMA_MODEL_DOWNLOAD_URL = os.getenv(
-    "GEMMA_MODEL_DOWNLOAD_URL",
-    "https://media.githubusercontent.com/media/suscersal/task_for_ai_maxclient/refs/heads/main/gemma3-1b-it-int4.task?download=true",
+# Каталог доступных on-device моделей — все файлы лежат в твоём собственном
+# зеркале https://github.com/suscersal/task_for_ai_maxclient (Git LFS), чтобы
+# конечным пользователям не нужен был HF-токен. Пополняется вручную: качаешь
+# нужный .task с HuggingFace (litert-community/*), заливаешь в репозиторий
+# под тем же именем, что указано здесь в "file" — и модель сразу становится
+# доступна для выбора в настройках.
+ONDEVICE_REPO_RAW_BASE = (
+    "https://media.githubusercontent.com/media/suscersal/"
+    "task_for_ai_maxclient/refs/heads/main"
 )
+ONDEVICE_MODELS = {
+    "gemma3-1b-q4_0-web": {
+        "label": "Gemma 3 1B · Q4_0 QAT (~776 МБ, рекомендуется)",
+        "file": "gemma3-1b-it-q4_0-web.task",
+    },
+    "gemma3-1b-int4": {
+        "label": "Gemma 3 1B · int4 (~530 МБ, самая лёгкая)",
+        "file": "gemma3-1b-it-int4.task",
+    },
+}
+DEFAULT_ONDEVICE_MODEL_ID = "gemma3-1b-q4_0-web"
+
+
+def _current_ondevice_model_id():
+    return _get_scam_check_settings()["onDeviceModelId"]
+
+
+def _model_file_path(model_id=None):
+    model_id = model_id or _current_ondevice_model_id()
+    info = ONDEVICE_MODELS.get(
+        model_id, ONDEVICE_MODELS[DEFAULT_ONDEVICE_MODEL_ID])
+    override = os.getenv("GEMMA_MODEL_FILE")
+    if override:
+        # Явный override через переменную окружения (например, для отладки
+        # локальной сборкой) имеет приоритет над каталогом.
+        return override
+    return os.path.join(os.path.dirname(SESSION_FILE), info["file"])
+
+
+def _model_download_url(model_id=None):
+    model_id = model_id or _current_ondevice_model_id()
+    info = ONDEVICE_MODELS.get(
+        model_id, ONDEVICE_MODELS[DEFAULT_ONDEVICE_MODEL_ID])
+    override = os.getenv("GEMMA_MODEL_DOWNLOAD_URL")
+    if override:
+        return override
+    return f"{ONDEVICE_REPO_RAW_BASE}/{info['file']}?download=true"
+
+
 _android_context = None
 _llm_engine = None
 _llm_engine_lock = threading.Lock()
@@ -244,13 +289,17 @@ def set_android_context(ctx):
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
 
 
-def ensure_gemma_model_cached():
+def ensure_gemma_model_cached(model_id=None):
     """Качает .task-модель (несколько сотен МБ даже в 4-бит квантовании)
     один раз и кладёт её рядом с session.json, с прогрессом в
     _model_download_state (см. /api/scam-check/model-status). Если файл уже
     есть — не трогает сеть вообще. Не блокирует запуск бриджа — вызывается в
-    фоновом потоке (см. set_android_context и /api/scam-check/settings)."""
-    if os.path.exists(GEMMA_MODEL_FILE):
+    фоновом потоке (см. set_android_context и /api/scam-check/settings).
+    model_id — какую модель из ONDEVICE_MODELS качать; по умолчанию берётся
+    текущий выбор пользователя из настроек."""
+    model_file = _model_file_path(model_id)
+    download_url = _model_download_url(model_id)
+    if os.path.exists(model_file):
         _model_download_state["ready"] = True
         return True
     # Атомарно проверяем-и-выставляем "downloading" под локом — иначе
@@ -259,7 +308,7 @@ def ensure_gemma_model_cached():
     # "downloading" до того, как её выставит другой поток, и одновременно
     # писать в один и тот же .part-файл (двойной трафик, гонка на диске).
     with _model_download_lock:
-        if os.path.exists(GEMMA_MODEL_FILE):
+        if os.path.exists(model_file):
             _model_download_state["ready"] = True
             return True
         if _model_download_state["downloading"]:
@@ -269,15 +318,15 @@ def ensure_gemma_model_cached():
             "downloadedBytes": 0, "totalBytes": 0,
         })
 
-    tmp_path = GEMMA_MODEL_FILE + ".part"
+    tmp_path = model_file + ".part"
     try:
         logger.info(
-            "[scam-check] downloading on-device model (one-time, ~500MB+)…")
+            f"[scam-check] downloading on-device model {model_id or _current_ondevice_model_id()} (one-time, ~500MB+)…")
         headers = {"User-Agent": "Mozilla/5.0"}
         hf_token = (_get_scam_check_settings().get("hfToken") or "").strip()
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
-        req = urllib.request.Request(GEMMA_MODEL_DOWNLOAD_URL, headers=headers)
+        req = urllib.request.Request(download_url, headers=headers)
         with urllib.request.urlopen(req, timeout=20) as resp:
             total_header = resp.getheader("Content-Length")
             total = int(total_header) if total_header else 0
@@ -316,7 +365,7 @@ def ensure_gemma_model_cached():
             logger.warning(f"[scam-check] model download failed: {msg}")
             _model_download_state["error"] = msg
             return False
-        os.replace(tmp_path, GEMMA_MODEL_FILE)
+        os.replace(tmp_path, model_file)
         logger.info("[scam-check] model downloaded successfully")
         _model_download_state["ready"] = True
         return True
@@ -337,7 +386,7 @@ def ensure_gemma_model_cached():
         # Не оставляем недокачанный/битый .part валяться на диске в ЛЮБОМ
         # случае провала — именно эти висящие остатки раздувают занятое
         # приложением место на телефоне.
-        if os.path.exists(tmp_path) and not os.path.exists(GEMMA_MODEL_FILE):
+        if os.path.exists(tmp_path) and not os.path.exists(model_file):
             try:
                 os.remove(tmp_path)
             except Exception:
@@ -345,9 +394,9 @@ def ensure_gemma_model_cached():
         _model_download_state["downloading"] = False
 
 
-def delete_gemma_model():
+def delete_gemma_model(model_id=None):
     """Удаляет скачанную модель с диска (кнопка 'Удалить модель' в
-    настройках) — освобождает место, если проверка больше не нужна.
+    настройках, а также при смене выбранной модели) — освобождает место.
     Заодно сбрасывает уже проинициализированный движок в памяти, чтобы
     следующий запрос на скам-проверку не пытался юзать закрытый файл."""
     global _llm_engine, _llm_init_error, _llm_init_failed_for_mtime
@@ -356,7 +405,8 @@ def delete_gemma_model():
         _llm_init_error = None
         _llm_init_failed_for_mtime = None
     removed = False
-    for path in (GEMMA_MODEL_FILE, GEMMA_MODEL_FILE + ".part"):
+    model_file = _model_file_path(model_id)
+    for path in (model_file, model_file + ".part"):
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -406,10 +456,10 @@ def get_on_device_llm():
             logger.info(
                 f"[scam-check] MediaPipe недоступен (не Android-сборка?): {e}")
             return None
-        if not os.path.exists(GEMMA_MODEL_FILE):
+        if not os.path.exists(_model_file_path()):
             return None
         try:
-            model_mtime = os.path.getmtime(GEMMA_MODEL_FILE)
+            model_mtime = os.path.getmtime(_model_file_path())
         except OSError:
             model_mtime = None
         if _llm_init_failed_for_mtime is not None and _llm_init_failed_for_mtime == model_mtime:
@@ -418,7 +468,7 @@ def get_on_device_llm():
             return None
         try:
             options = LlmInference.LlmInferenceOptions.builder() \
-                .setModelPath(GEMMA_MODEL_FILE) \
+                .setModelPath(_model_file_path()) \
                 .setMaxTokens(512) \
                 .build()
             _llm_engine = LlmInference.createFromOptions(
@@ -1908,15 +1958,53 @@ def get_scam_check_settings():
 @app.route("/api/scam-check/settings", methods=["POST"])
 def set_scam_check_settings():
     data = request.get_json(force=True) or {}
+    prev_model_id = _get_scam_check_settings()["onDeviceModelId"]
+    requested_model_id = data.get("onDeviceModelId")
+    if requested_model_id is not None and requested_model_id not in ONDEVICE_MODELS:
+        return jsonify({"error": f"unknown onDeviceModelId: {requested_model_id}"}), 400
     cfg = _save_scam_check_settings({
         "enabled": data.get("enabled"),
         "url": (data.get("url") or "").strip() or None,
         "model": (data.get("model") or "").strip() or None,
         "hfToken": data.get("hfToken") if "hfToken" in data else None,
+        "onDeviceModelId": requested_model_id,
     })
-    if cfg.get("enabled") and _android_context is not None and not os.path.exists(GEMMA_MODEL_FILE):
-        threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
+    new_model_id = cfg.get("onDeviceModelId") or DEFAULT_ONDEVICE_MODEL_ID
+    if requested_model_id and requested_model_id != prev_model_id:
+        # Модель сменили — сбрасываем движок и, если старый файл больше не
+        # нужен (не совпадает с новым выбором), удаляем его, чтобы не копить
+        # несколько .task-файлов на телефоне одновременно.
+        if prev_model_id in ONDEVICE_MODELS:
+            delete_gemma_model(prev_model_id)
+        global _llm_engine, _llm_init_error, _llm_init_failed_for_mtime
+        with _llm_engine_lock:
+            _llm_engine = None
+            _llm_init_error = None
+            _llm_init_failed_for_mtime = None
+        _model_download_state.update({
+            "ready": False, "downloading": False, "error": None,
+            "downloadedBytes": 0, "totalBytes": 0,
+        })
+    if cfg.get("enabled") and _android_context is not None and not os.path.exists(_model_file_path(new_model_id)):
+        threading.Thread(target=ensure_gemma_model_cached, args=(
+            new_model_id,), daemon=True).start()
     return jsonify({"ok": True, **cfg, "onDevice": _android_context is not None})
+
+
+@app.route("/api/scam-check/models", methods=["GET"])
+def scam_check_list_models():
+    """Каталог доступных on-device моделей для селектора в настройках —
+    какая сейчас выбрана и скачана ли она уже."""
+    current = _get_scam_check_settings()["onDeviceModelId"]
+    items = []
+    for model_id, info in ONDEVICE_MODELS.items():
+        items.append({
+            "id": model_id,
+            "label": info["label"],
+            "selected": model_id == current,
+            "downloaded": os.path.exists(_model_file_path(model_id)),
+        })
+    return jsonify({"models": items, "current": current})
 
 
 @app.route("/api/scam-check/model-status", methods=["GET"])
@@ -1924,7 +2012,7 @@ def scam_check_model_status():
     """Фронт опрашивает это, пока показывает прогресс-бар скачивания."""
     return jsonify({
         "onDeviceSupported": _android_context is not None,
-        "modelReady": os.path.exists(GEMMA_MODEL_FILE),
+        "modelReady": os.path.exists(_model_file_path()),
         "llmInitError": _llm_init_error,
         **_model_download_state,
     })
@@ -1943,7 +2031,7 @@ def scam_check_redownload_model():
     вписал HF-токен и хочет исправить прошлую ошибку 401."""
     if _android_context is None:
         return jsonify({"error": "not on Android"}), 400
-    if os.path.exists(GEMMA_MODEL_FILE):
+    if os.path.exists(_model_file_path()):
         return jsonify({"ok": True, "alreadyReady": True})
     threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     return jsonify({"ok": True, "started": True})
@@ -1970,7 +2058,7 @@ def _run_scam_check(text: str, context: str = "") -> dict:
     on_device_status = (
         "ready" if llm is not None else
         ("no_android_context" if _android_context is None else
-         ("model_not_downloaded" if not os.path.exists(GEMMA_MODEL_FILE) else "init_failed"))
+         ("model_not_downloaded" if not os.path.exists(_model_file_path()) else "init_failed"))
     )
     on_device_error = _llm_init_error if on_device_status == "init_failed" else None
     if context:
