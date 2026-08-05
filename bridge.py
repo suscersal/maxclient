@@ -220,24 +220,15 @@ ONDEVICE_REPO_RAW_BASE = (
     "task_for_ai_maxclient/refs/heads/main"
 )
 ONDEVICE_MODELS = {
-    "gemma3-1b-q4_0-web": {
-        "label": "Gemma 3 1B · Q4_0 QAT (~776 МБ, рекомендуется)",
-        "file": "gemma3-1b-it-q4_0-web.task",
-        # Точный размер подтверждён на практике (см. Content-Length при
-        # реальном скачивании) — используется для сопоставления уже лежащих
-        # на устройстве файлов (например в Downloads) с этой моделью, без
-        # необходимости качать заново.
-        "size": 776470528,
-    },
     "gemma3-1b-int4": {
         "label": "Gemma 3 1B · int4 (~530 МБ, самая лёгкая)",
         "file": "gemma3-1b-it-int4.task",
         # Точный размер пока не подтверждён — сопоставление для этой модели
         # идёт только по имени файла.
-        "size": None,
+        "size": 554696704,
     },
 }
-DEFAULT_ONDEVICE_MODEL_ID = "gemma3-1b-q4_0-web"
+DEFAULT_ONDEVICE_MODEL_ID = "gemma3-1b-int4"
 
 
 def _current_ondevice_model_id():
