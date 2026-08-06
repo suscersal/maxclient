@@ -1922,8 +1922,8 @@
             color: var(--tg-text);
             background: transparent;
             border-bottom: none;
-            margin: 4px 0 10px;
-            padding: 10px 16px 4px;
+            margin: 4px 0 6px;
+            padding: 10px 16px 0;
             position: sticky;
             top: 0;
             z-index: 50;
@@ -2804,9 +2804,6 @@
         <div class="app-topbar-actions">
             <span id="connectionBadge" class="badge offline" title="Offline"></span>
             <button class="gear-btn" onclick="togglePeopleSearchPanel()" title="Найти людей">🔎</button>
-            <button class="gear-btn" onclick="setTheme(getTheme() === 'dark' ? 'light' : 'dark')"
-                title="Сменить тему">🌓</button>
-            <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
         </div>
     </h1>
 
@@ -2875,6 +2872,7 @@
             <button type="button" id="revokeContactsAccessBtn" class="hidden" onclick="openContactsAppSettings()">
                 📵 Отозвать доступ к контактам телефона</button>
         </div>
+        <div id="contactsList" class="hidden"></div>
         <div id="chatsList"></div>
     </div>
 
@@ -5174,17 +5172,43 @@
             document.getElementById(id)?.classList.add('active');
         }
 
+        function renderContactsPanel() {
+            const list = document.getElementById('contactsList');
+            if (!list) return;
+            list.innerHTML = '';
+            const contacts = Object.values(contactsById)
+                .filter(c => c && c.id != null && c.id !== selfId)
+                .sort((a, b) => contactNameFromPayload(a).localeCompare(contactNameFromPayload(b), 'ru'));
+            if (contacts.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'search-empty';
+                empty.textContent = 'Контакты не найдены';
+                list.appendChild(empty);
+                return;
+            }
+            contacts.forEach(contact => {
+                list.appendChild(buildContactItemEl(contact));
+            });
+        }
+
         function bottomNavGoChats() {
             document.getElementById('chatDetailSection')?.classList.add('hidden');
             document.getElementById('chatsSection')?.classList.remove('hidden');
             document.getElementById('peopleSearchPanel')?.classList.add('hidden');
+            document.getElementById('contactsList')?.classList.add('hidden');
+            document.getElementById('chatsList')?.classList.remove('hidden');
+            document.getElementById('localChatSearchWrap')?.classList.remove('hidden');
             setActiveNavTab('navChatsBtn');
         }
 
         function bottomNavContacts() {
             document.getElementById('chatDetailSection')?.classList.add('hidden');
             document.getElementById('chatsSection')?.classList.remove('hidden');
-            document.getElementById('peopleSearchPanel')?.classList.remove('hidden');
+            document.getElementById('peopleSearchPanel')?.classList.add('hidden');
+            document.getElementById('chatsList')?.classList.add('hidden');
+            document.getElementById('localChatSearchWrap')?.classList.add('hidden');
+            document.getElementById('contactsList')?.classList.remove('hidden');
+            renderContactsPanel();
             setActiveNavTab('navContactsBtn');
         }
 
@@ -5198,7 +5222,7 @@
             document.getElementById('chatsSection').classList.remove('hidden');
             document.getElementById('passwordSection').classList.add('hidden');
             showBottomNav();
-            setActiveNavTab('navChatsBtn');
+            bottomNavGoChats();
             settingsMenu.refreshPage('account');
         }
 
@@ -8022,9 +8046,8 @@
             currentChatId = null;
             updateBotWebAppButton(null);
             document.getElementById('chatDetailSection').classList.add('hidden');
-            document.getElementById('chatsSection').classList.remove('hidden');
             showBottomNav();
-            setActiveNavTab('navChatsBtn');
+            bottomNavGoChats();
         };
 
         document.getElementById('sendMessageBtn').onclick = async () => {
