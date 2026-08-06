@@ -274,28 +274,31 @@
             padding: 0 6px !important;
         }
 
-        #peopleSearchPanel {
-            margin-bottom: 12px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-
-        #peopleSearchPanel .input-group {
-            margin-bottom: 10px;
-        }
-
-        #peopleSearchPanel .input-group:last-of-type {
-            margin-bottom: 0;
-        }
-
         .search-hint {
             font-size: 12px;
             color: #888;
             margin: -4px 0 10px 2px;
         }
 
-        #searchResultsList .chat-item {
+        #globalSearchResultsList {
+            margin-top: 4px;
+        }
+
+        #globalSearchResultsList.hidden {
+            display: none;
+        }
+
+        .global-search-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            margin: 10px 2px 4px;
+            padding: 0 4px;
+        }
+
+        #globalSearchResultsList .chat-item {
             border-bottom: 1px solid #eee;
         }
 
@@ -2321,24 +2324,13 @@
             color: #4DA3FF !important;
         }
 
-        html[data-theme="dark"] .search-toggle-btn {
-            color: #8E8E93 !important;
-        }
-
-        html[data-theme="dark"] .search-toggle-btn:hover {
-            background: #2C2C2E !important;
-        }
-
-        html[data-theme="dark"] #peopleSearchPanel {
-            background: #2C2C2E !important;
-        }
-
         html[data-theme="dark"] .search-hint,
-        html[data-theme="dark"] .search-empty {
+        html[data-theme="dark"] .search-empty,
+        html[data-theme="dark"] .global-search-label {
             color: #8E8E93 !important;
         }
 
-        html[data-theme="dark"] #searchResultsList .chat-item {
+        html[data-theme="dark"] #globalSearchResultsList .chat-item {
             border-bottom-color: #2C2C2E !important;
         }
 
@@ -2803,7 +2795,6 @@
         Чаты
         <div class="app-topbar-actions">
             <span id="connectionBadge" class="badge offline" title="Offline"></span>
-            <button class="gear-btn" onclick="togglePeopleSearchPanel()" title="Найти людей">🔎</button>
         </div>
     </h1>
 
@@ -2849,31 +2840,17 @@
     <div id="chatsSection" class="section hidden">
         <div class="section-header-row">
             <h3>💬 Чаты</h3>
-            <button type="button" class="search-toggle-btn" id="peopleSearchToggleBtn" title="Найти людей"
-                onclick="togglePeopleSearchPanel()">🔎</button>
-        </div>
-        <div id="peopleSearchPanel" class="hidden">
-            <div class="input-group">
-                <input type="tel" id="peopleSearchPhone" placeholder="Номер телефона, напр. +79991234567"
-                    inputmode="tel">
-                <button id="peopleSearchPhoneBtn" onclick="searchPersonByPhone()">Найти по номеру</button>
-            </div>
-            <div class="input-group">
-                <input type="text" id="peopleSearchQuery" placeholder="Имя, юзернейм или @ссылка">
-                <button id="peopleSearchQueryBtn" onclick="searchPeopleByQuery()">Найти</button>
-            </div>
-            <div class="search-hint">Поиск по номеру находит человека напрямую. Поиск по имени/юзернейму ищет
-                публичные чаты, каналы, ботов и профили по ссылке (например @username или max.ru/username).</div>
-            <div id="searchResultsList"></div>
         </div>
         <div id="localChatSearchWrap">
-            <input type="text" id="localChatSearchInput" placeholder="🔍 Поиск по чатам и контактам"
-                oninput="applyChatFilter(this.value)" onfocus="ensureLocalPhoneContacts()">
+            <input type="text" id="localChatSearchInput"
+                placeholder="🔍 Поиск по чатам, контактам, номеру или @юзернейму" oninput="applyChatFilter(this.value)"
+                onfocus="ensureLocalPhoneContacts()">
             <button type="button" id="revokeContactsAccessBtn" class="hidden" onclick="openContactsAppSettings()">
                 📵 Отозвать доступ к контактам телефона</button>
         </div>
         <div id="contactsList" class="hidden"></div>
         <div id="chatsList"></div>
+        <div id="globalSearchResultsList" class="hidden"></div>
     </div>
 
     <div id="chatDetailSection" class="section hidden">
@@ -5194,7 +5171,6 @@
         function bottomNavGoChats() {
             document.getElementById('chatDetailSection')?.classList.add('hidden');
             document.getElementById('chatsSection')?.classList.remove('hidden');
-            document.getElementById('peopleSearchPanel')?.classList.add('hidden');
             document.getElementById('contactsList')?.classList.add('hidden');
             document.getElementById('chatsList')?.classList.remove('hidden');
             document.getElementById('localChatSearchWrap')?.classList.remove('hidden');
@@ -5204,7 +5180,7 @@
         function bottomNavContacts() {
             document.getElementById('chatDetailSection')?.classList.add('hidden');
             document.getElementById('chatsSection')?.classList.remove('hidden');
-            document.getElementById('peopleSearchPanel')?.classList.add('hidden');
+            document.getElementById('globalSearchResultsList')?.classList.add('hidden');
             document.getElementById('chatsList')?.classList.add('hidden');
             document.getElementById('localChatSearchWrap')?.classList.add('hidden');
             document.getElementById('contactsList')?.classList.remove('hidden');
@@ -5984,10 +5960,10 @@
         function findLocalContactOnMax(localContact) {
             const phone = normalizePhoneForSearch(localContact.phone);
             if (!phone) return;
-            document.getElementById('peopleSearchPanel').classList.remove('hidden');
-            document.getElementById('peopleSearchPhone').value = phone;
+            const input = document.getElementById('localChatSearchInput');
+            input.value = phone;
             log(`🔎 Ищу ${localContact.name || phone} на MAX...`, 'info');
-            send(46, { phone });
+            applyChatFilter(phone);
         }
 
         // Перерисовывает #chatsList с учётом текущего chatFilterQuery:
@@ -6064,6 +6040,95 @@
             chatFilterQuery = raw || '';
             ensureLocalPhoneContacts();
             renderChatsList();
+            scheduleGlobalSearch(chatFilterQuery);
+        }
+
+        // ========================================
+        // ЕДИНЫЙ ПОИСК (как в Telegram): то же поле localChatSearchInput,
+        // что фильтрует локальные чаты/контакты, с задержкой (debounce)
+        // дополнительно обращается к серверу MAX — по номеру телефона
+        // (opcode 46) или по имени/юзернейму (opcode 60) — и результаты
+        // дорисовываются отдельным блоком "Результаты из MAX" под
+        // локальным списком, без отдельной панели/кнопки.
+        // ========================================
+        let globalSearchTimer = null;
+        let globalSearchQuery = ''; // запрос, на который реально ушёл запрос к серверу
+        let globalSearchResults = [];
+        let globalSearchLoading = false;
+
+        function scheduleGlobalSearch(raw) {
+            const trimmed = (raw || '').trim();
+            clearTimeout(globalSearchTimer);
+            if (trimmed.length < 2) {
+                globalSearchQuery = '';
+                globalSearchResults = [];
+                globalSearchLoading = false;
+                renderGlobalSearchResults();
+                return;
+            }
+            globalSearchTimer = setTimeout(() => performGlobalSearch(trimmed), 400);
+        }
+
+        function performGlobalSearch(trimmed) {
+            // Поле могло измениться, пока ждали debounce — не ищем устаревшее.
+            if ((chatFilterQuery || '').trim() !== trimmed) return;
+            globalSearchQuery = trimmed;
+            globalSearchLoading = true;
+            renderGlobalSearchResults();
+
+            const digitCount = (trimmed.match(/\d/g) || []).length;
+            const looksLikePhone = digitCount >= 5 && digitCount >= trimmed.replace(/[\s()+-]/g, '').length * 0.8;
+
+            if (looksLikePhone) {
+                const phone = normalizePhoneForSearch(trimmed);
+                if (phone) {
+                    log(`🔎 Поиск по номеру ${phone}...`, 'info');
+                    send(46, { phone });
+                    return;
+                }
+            }
+
+            const cleanQuery = trimmed.replace(/^@/, '');
+            log(`🔎 Поиск "${cleanQuery}"...`, 'info');
+            send(60, { type: 'ALL', count: 20, query: cleanQuery });
+        }
+
+        function renderGlobalSearchResults() {
+            const wrap = document.getElementById('globalSearchResultsList');
+            if (!globalSearchQuery) {
+                wrap.classList.add('hidden');
+                wrap.innerHTML = '';
+                return;
+            }
+            wrap.classList.remove('hidden');
+            wrap.innerHTML = '<div class="global-search-label">Результаты из MAX</div>';
+            if (globalSearchLoading) {
+                wrap.innerHTML += '<div class="search-empty">Ищем на сервере…</div>';
+                return;
+            }
+            if (!globalSearchResults.length) {
+                wrap.innerHTML += '<div class="search-empty">Ничего не найдено на сервере</div>';
+                return;
+            }
+            globalSearchResults.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'chat-item';
+                const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
+                const initial = getInitials(item.name);
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                    : initial;
+                const avatarBg = avatarUrl ? '' : `background:${avatarGradient(item.id)};`;
+                el.innerHTML = `
+                    <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${item.id}" style="${avatarBg}">${avatarHtml}</div>
+                    <div class="chat-info">
+                        <div class="chat-name">${escapeHtml(item.name || '')}</div>
+                        <div class="chat-preview">${escapeHtml(item.subtitle || '')}</div>
+                    </div>
+                `;
+                el.onclick = item.onOpen;
+                wrap.appendChild(el);
+            });
         }
 
         // ========================================
@@ -6907,47 +6972,10 @@
         // ПОИСК ЛЮДЕЙ И ССЫЛКИ @username / max.ru/...
         // ========================================
 
-        function togglePeopleSearchPanel() {
-            const panel = document.getElementById('peopleSearchPanel');
-            panel.classList.toggle('hidden');
-            if (!panel.classList.contains('hidden')) {
-                document.getElementById('peopleSearchPhone').focus();
-            }
-        }
-
         function normalizePhoneForSearch(raw) {
             const digits = (raw || '').replace(/[^\d]/g, '');
             if (digits.length < 5) return null;
             return '+' + digits;
-        }
-
-        function renderSearchResults(items) {
-            const list = document.getElementById('searchResultsList');
-            list.innerHTML = '';
-            if (!items.length) {
-                list.innerHTML = '<div class="search-empty">Ничего не найдено</div>';
-                return;
-            }
-            items.forEach(item => {
-                const el = document.createElement('div');
-                el.className = 'chat-item';
-                const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
-
-                const initial = getInitials(item.name);
-                const avatarHtml = avatarUrl
-                    ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
-                    : initial;
-                const avatarBg = avatarUrl ? '' : `background:${avatarGradient(item.id)};`;
-                el.innerHTML = `
-                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${item.id}" style="${avatarBg}">${avatarHtml}</div>
-                <div class="chat-info">
-                    <div class="chat-name">${escapeHtml(item.name || '')}</div>
-                    <div class="chat-preview">${escapeHtml(item.subtitle || '')}</div>
-                </div>
-            `;
-                el.onclick = item.onOpen;
-                list.appendChild(el);
-            });
         }
 
         // Открывает существующий или создаёт "виртуальный" личный чат с найденным
@@ -6975,7 +7003,6 @@
                     };
                 }
             }
-            document.getElementById('peopleSearchPanel').classList.add('hidden');
             openChat(chatId);
         }
 
@@ -7007,63 +7034,35 @@
 
 
 
-        function searchPersonByPhone() {
-            const raw = document.getElementById('peopleSearchPhone').value;
-            const phone = normalizePhoneForSearch(raw);
-            if (!phone) {
-                renderSearchResults([]);
-                log('❌ Введите корректный номер телефона', 'error');
-                return;
-            }
-            log(`🔎 Поиск по номеру ${phone}...`, 'info');
-            send(46, { phone });
-        }
-
-        function searchPeopleByQuery() {
-            const raw = document.getElementById('peopleSearchQuery').value.trim();
-            if (!raw) return;
-
-            // Если это @username или ссылка max.ru/... — резолвим напрямую,
-            // это может привести как к чату, так и к профилю пользователя.
-            const usernameMatch = raw.match(/^@([A-Za-z0-9_]{3,32})$/);
-            if (usernameMatch) {
-                resolveMaxLink('https://max.ru/' + usernameMatch[1]);
-                return;
-            }
-            if (/^https?:\/\/(www\.)?max\.ru\//i.test(raw)) {
-                resolveMaxLink(raw);
-                return;
-            }
-
-            log(`🔎 Поиск "${raw}"...`, 'info');
-            send(60, { type: 'ALL', count: 20, query: raw });
-        }
-
         function resolveMaxLink(url) {
             log(`🔗 Открываю ссылку ${url}...`, 'info');
             send(89, { link: url });
         }
 
         function handlePhoneSearchResult(payload) {
+            globalSearchLoading = false;
             const contact = payload?.contact;
             if (!contact || typeof contact.id !== 'number') {
-                renderSearchResults([]);
+                globalSearchResults = [];
+                renderGlobalSearchResults();
                 log('❌ Пользователь с таким номером не найден', 'error');
                 return;
             }
             const name = contactNameFromPayload(contact);
-            renderSearchResults([{
+            globalSearchResults = [{
                 id: contact.id,
                 name,
                 subtitle: 'Написать сообщение',
                 avatarUrl: contact.baseUrl || null,
                 onOpen: () => openOrCreateDialogWithContact(contact),
-            }]);
+            }];
+            renderGlobalSearchResults();
         }
 
         function handlePublicSearchResult(payload) {
+            globalSearchLoading = false;
             const results = Array.isArray(payload?.result) ? payload.result : [];
-            const items = results
+            globalSearchResults = results
                 .map(item => item?.chat)
                 .filter(chat => chat && typeof chat.id === 'number')
                 .map(chat => ({
@@ -7073,11 +7072,10 @@
                     avatarUrl: chat.baseIconUrl || null,
                     onOpen: () => {
                         chatsById[chat.id] = chatsById[chat.id] || chat;
-                        document.getElementById('peopleSearchPanel').classList.add('hidden');
                         openChat(chat.id);
                     },
                 }));
-            renderSearchResults(items);
+            renderGlobalSearchResults();
         }
 
         function handleLinkResolved(payload) {
@@ -7085,19 +7083,11 @@
             if (payload.chat && typeof payload.chat.id === 'number') {
                 const chat = payload.chat;
                 chatsById[chat.id] = chatsById[chat.id] || chat;
-                document.getElementById('peopleSearchPanel').classList.add('hidden');
                 openChat(chat.id);
                 return;
             }
             const contact = payload.user?.contact;
             if (contact && typeof contact.id === 'number') {
-                renderSearchResults([{
-                    id: contact.id,
-                    name: contactNameFromPayload(contact),
-                    subtitle: 'Написать сообщение',
-                    avatarUrl: contact.baseUrl || null,
-                    onOpen: () => openOrCreateDialogWithContact(contact),
-                }]);
                 openOrCreateDialogWithContact(contact);
                 return;
             }
@@ -7106,8 +7096,10 @@
 
         function handleSearchOrLinkError(opcode, payload) {
             const msg = payload?.localizedMessage || payload?.error || 'Ничего не найдено';
-            if (opcode === 46) {
-                renderSearchResults([]);
+            if (opcode === 46 || opcode === 60) {
+                globalSearchLoading = false;
+                globalSearchResults = [];
+                renderGlobalSearchResults();
             }
             log(`❌ ${msg}`, 'error');
         }
