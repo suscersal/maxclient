@@ -5321,7 +5321,8 @@
             let title = menuText;
             if (!title) {
                 const botName = stripHtml(chatDisplayName(chat));
-                title = botName ? `Открыть «${botName}»` : 'Открыть приложение';
+                title = botName ? `Открыть «${botName.slice(0, -3)}»` : 'Открыть приложение';
+
             }
             return {
                 botId,
