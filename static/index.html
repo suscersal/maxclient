@@ -5,6 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MAX Client</title>
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('maxclient_theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -250,27 +260,18 @@
         }
 
         .search-toggle-btn {
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 8px;
-            color: #555;
-        }
-
-        .search-toggle-btn:hover {
-            background: #f0f0f0;
+            display: none;
         }
 
         .section-header-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            display: none;
         }
 
-        .section-header-row h3 {
-            margin: 0;
+        #chatsSection {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 6px !important;
         }
 
         #peopleSearchPanel {
@@ -305,23 +306,27 @@
         }
 
         #localChatSearchWrap {
-            margin-bottom: 10px;
+            margin: 0 6px 14px;
         }
 
         #localChatSearchInput {
             width: 100%;
             box-sizing: border-box;
-            padding: 10px 12px;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            font-size: 14px;
-            background: #f8f9fa;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 20px;
+            font-size: 15px;
+            background: var(--tg-panel, #f0f2f5);
+            color: var(--tg-text, #17212B);
+        }
+
+        #localChatSearchInput::placeholder {
+            color: var(--tg-text-secondary, #8A9199);
         }
 
         #localChatSearchInput:focus {
             outline: none;
-            border-color: #aaa;
-            background: #fff;
+            background: var(--tg-panel, #fff);
         }
 
         #revokeContactsAccessBtn {
@@ -1911,31 +1916,47 @@
         h1 {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 19px;
-            font-weight: 600;
-            color: #fff;
-            background: linear-gradient(135deg, var(--tg-blue) 0%, var(--tg-blue-deep) 100%);
+            gap: 10px;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--tg-text);
+            background: transparent;
             border-bottom: none;
-            margin: 0 0 12px;
-            padding: 14px 16px;
+            margin: 4px 0 10px;
+            padding: 10px 16px 4px;
             position: sticky;
             top: 0;
             z-index: 50;
-            box-shadow: 0 2px 10px rgba(23, 33, 43, 0.15);
+            box-shadow: none;
         }
 
         h1::before {
-            content: '✈️';
-            font-size: 18px;
+            content: '';
         }
 
         h1 .badge {
-            font-size: 11px;
+            width: 10px;
+            height: 10px;
+            padding: 0;
+            border-radius: 50%;
+            font-size: 0;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        h1 .badge.auth-error {
+            background: #FFA000;
         }
 
         h1 .gear-btn {
-            color: #fff;
+            color: var(--tg-text-secondary);
+        }
+
+        .app-topbar-actions {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 2px;
         }
 
         .gear-btn {
@@ -1949,6 +1970,46 @@
 
         .gear-btn:hover {
             background: rgba(255, 255, 255, 0.18) !important;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            background: var(--tg-panel);
+            border-top: 1px solid var(--tg-border);
+            padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+            z-index: 60;
+        }
+
+        .bottom-nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            background: none;
+            border: none;
+            padding: 4px 0;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--tg-text-secondary);
+            cursor: pointer;
+        }
+
+        .bottom-nav-item .bn-icon {
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .bottom-nav-item.active {
+            color: var(--tg-blue);
+        }
+
+        body.has-bottom-nav {
+            padding-bottom: 74px;
         }
 
         #status {
@@ -2189,6 +2250,203 @@
 
         .reaction-badge.mine {
             background: var(--tg-blue);
+        }
+
+        /* ================================================================
+           DARK THEME (MAX-style) — переопределяет светлую тему выше,
+           тот же приём каскада: селекторы те же, только оформление.
+           ================================================================ */
+        html[data-theme="dark"] {
+            --tg-blue: #4DA3FF;
+            --tg-blue-dark: #2E86F5;
+            --tg-blue-deep: #1F6FD6;
+            --tg-bg: #000000;
+            --tg-panel: #1C1C1E;
+            --tg-text: #FFFFFF;
+            --tg-text-secondary: #8E8E93;
+            --tg-border: #2C2C2E;
+            --tg-own-bubble: linear-gradient(135deg, #4DA3FF, #2E86F5);
+            --tg-incoming-bubble: #1C1C1E;
+        }
+
+        html[data-theme="dark"] html,
+        html[data-theme="dark"] body {
+            background: #000 !important;
+        }
+
+        html[data-theme="dark"] #loadingOverlay {
+            background: #000 !important;
+        }
+
+        html[data-theme="dark"] #loadingOverlay .loading-label {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2) !important;
+        }
+
+        html[data-theme="dark"] .section {
+            background: var(--tg-panel) !important;
+            border: 1px solid var(--tg-border);
+            box-shadow: none !important;
+        }
+
+        html[data-theme="dark"] .section h3 {
+            color: var(--tg-text) !important;
+        }
+
+        html[data-theme="dark"] .input-group input {
+            background: #2C2C2E !important;
+            border-color: #3A3A3C !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .input-group input:focus {
+            background: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .status.success {
+            background: rgba(49, 181, 69, 0.15) !important;
+            color: #4CD964 !important;
+        }
+
+        html[data-theme="dark"] .status.error {
+            background: rgba(229, 57, 53, 0.15) !important;
+            color: #FF6B6B !important;
+        }
+
+        html[data-theme="dark"] .status.info {
+            background: rgba(77, 163, 255, 0.15) !important;
+            color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .search-toggle-btn {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .search-toggle-btn:hover {
+            background: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] #peopleSearchPanel {
+            background: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .search-hint,
+        html[data-theme="dark"] .search-empty {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] #searchResultsList .chat-item {
+            border-bottom-color: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] #localChatSearchInput {
+            background: #2C2C2E !important;
+            border-color: #3A3A3C !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] #localChatSearchInput:focus {
+            background: #2C2C2E !important;
+            border-color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] #revokeContactsAccessBtn {
+            background: rgba(229, 57, 53, 0.15) !important;
+            color: #FF6B6B !important;
+        }
+
+        html[data-theme="dark"] #revokeContactsAccessBtn:hover {
+            background: rgba(229, 57, 53, 0.25) !important;
+        }
+
+        html[data-theme="dark"] .chat-item:hover {
+            background: #1C1C1E !important;
+        }
+
+        html[data-theme="dark"] .chat-name {
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .chat-meta {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .offline-cache-banner {
+            background: rgba(255, 160, 0, 0.12) !important;
+            border-color: rgba(255, 160, 0, 0.3) !important;
+            color: #FFB84D !important;
+        }
+
+        html[data-theme="dark"] .offline-cache-banner-time {
+            color: #FFB84D !important;
+        }
+
+        html[data-theme="dark"] .back-btn:hover {
+            background: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] #messagesList {
+            background: #000 !important;
+        }
+
+        html[data-theme="dark"] .date-separator {
+            background: rgba(255, 255, 255, 0.08) !important;
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .msg-bubble {
+            background: var(--tg-incoming-bubble) !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .msg-file a {
+            color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .miniapp-header .miniapp-close-btn {
+            color: #8E8E93 !important;
+        }
+
+        /* Ловим оставшиеся светлые инлайн-стили из JS (модалки, настройки,
+           device-id, антискам и т.п.), не переписывая каждую строку JS. */
+        html[data-theme="dark"] [style*="background:#fff"],
+        html[data-theme="dark"] [style*="background: #fff"],
+        html[data-theme="dark"] [style*="background:#ffffff"],
+        html[data-theme="dark"] [style*="background: #ffffff"],
+        html[data-theme="dark"] [style*="background:white"],
+        html[data-theme="dark"] [style*="background: white"] {
+            background: #1C1C1E !important;
+        }
+
+        html[data-theme="dark"] [style*="background:#f5f5f5"],
+        html[data-theme="dark"] [style*="background: #f5f5f5"],
+        html[data-theme="dark"] [style*="background:#f8f9fa"],
+        html[data-theme="dark"] [style*="background: #f8f9fa"],
+        html[data-theme="dark"] [style*="background:#f0f0f0"],
+        html[data-theme="dark"] [style*="background: #f0f0f0"],
+        html[data-theme="dark"] [style*="background:#f7f7f8"],
+        html[data-theme="dark"] [style*="background: #f7f7f8"],
+        html[data-theme="dark"] [style*="background:#eee"],
+        html[data-theme="dark"] [style*="background: #eee"] {
+            background: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] [style*="color:#555"],
+        html[data-theme="dark"] [style*="color: #555"],
+        html[data-theme="dark"] [style*="color:#333"],
+        html[data-theme="dark"] [style*="color: #333"],
+        html[data-theme="dark"] [style*="color:#222"],
+        html[data-theme="dark"] [style*="color: #222"],
+        html[data-theme="dark"] [style*="color:#000"],
+        html[data-theme="dark"] [style*="color: #000"] {
+            color: #C7C7CC !important;
+        }
+
+        html[data-theme="dark"] [style*="border:1px solid #555"] {
+            border-color: #3A3A3C !important;
         }
     </style>
 </head>
@@ -2481,6 +2739,17 @@
     </div>
 
     <!-- ===== SETTINGS MODAL ===== -->
+    <nav class="bottom-nav hidden" id="bottomNav">
+        <button class="bottom-nav-item" id="navContactsBtn" onclick="bottomNavContacts()"><span
+                class="bn-icon">👥</span><span>Контакты</span></button>
+        <button class="bottom-nav-item" id="navCallsBtn" onclick="bottomNavCalls()"><span
+                class="bn-icon">📞</span><span>Звонки</span></button>
+        <button class="bottom-nav-item active" id="navChatsBtn" onclick="bottomNavGoChats()"><span
+                class="bn-icon">💬</span><span>Чаты</span></button>
+        <button class="bottom-nav-item" id="navSettingsBtn" onclick="openSettingsModal()"><span
+                class="bn-icon">⚙️</span><span>Настройки</span></button>
+    </nav>
+
     <div class="settings-modal-overlay" id="settingsModal">
         <div class="settings-modal">
             <div class="settings-modal-header">
@@ -2531,9 +2800,14 @@
     </div>
 
     <h1>
-        MAX Client
-        <span id="connectionBadge" class="badge offline" style="float:right;">Offline</span>
-        <button class="gear-btn" onclick="openSettingsModal()" style="float:right;margin-right:6px;">⚙️</button>
+        Чаты
+        <div class="app-topbar-actions">
+            <span id="connectionBadge" class="badge offline" title="Offline"></span>
+            <button class="gear-btn" onclick="togglePeopleSearchPanel()" title="Найти людей">🔎</button>
+            <button class="gear-btn" onclick="setTheme(getTheme() === 'dark' ? 'light' : 'dark')"
+                title="Сменить тему">🌓</button>
+            <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
+        </div>
     </h1>
 
     <div id="status" class="status info">Подключение...</div>
@@ -4305,6 +4579,37 @@
         }
 
 
+        function getTheme() {
+            try { return localStorage.getItem('maxclient_theme') || 'dark'; } catch (e) { return 'dark'; }
+        }
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            try { localStorage.setItem('maxclient_theme', theme); } catch (e) { }
+            settingsMenu.refreshPage('theme');
+        }
+
+        function renderThemePage() {
+            const current = getTheme();
+            const opt = (id, icon, label) => `
+            <button class="settings-menu-item" style="width:100%;text-align:left;border:1px solid var(--tg-border,#ddd);border-radius:12px;margin-bottom:8px;${current === id ? 'outline:2px solid var(--tg-blue,#4DA3FF);' : ''}"
+                onclick="setTheme('${id}')">
+                <span class="icon">${icon}</span>
+                <span class="label">${label}</span>
+                ${current === id ? '<span class="arrow">✓</span>' : ''}
+            </button>
+        `;
+            return `
+        <div style="padding:4px 0;">
+            ${opt('dark', '🌙', 'Тёмная')}
+            ${opt('light', '☀️', 'Светлая')}
+            <div style="font-size:12px;color:#888;margin-top:10px;">
+                Выбор темы сохраняется на этом устройстве.
+            </div>
+        </div>
+    `;
+        }
+
         function renderAboutPage() {
             setTimeout(loadAppVersion, 0);
             return `
@@ -4508,6 +4813,7 @@
 
         const settingsMenu = new SettingsMenu();
         settingsMenu
+            .addItem({ id: 'theme', icon: '🎨', label: 'Тема', page: renderThemePage })
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
@@ -4853,10 +5159,46 @@
             document.getElementById('loadingOverlay')?.classList.add('hidden');
         }
 
+        function showBottomNav() {
+            document.getElementById('bottomNav')?.classList.remove('hidden');
+            document.body.classList.add('has-bottom-nav');
+        }
+
+        function hideBottomNav() {
+            document.getElementById('bottomNav')?.classList.add('hidden');
+            document.body.classList.remove('has-bottom-nav');
+        }
+
+        function setActiveNavTab(id) {
+            document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+            document.getElementById(id)?.classList.add('active');
+        }
+
+        function bottomNavGoChats() {
+            document.getElementById('chatDetailSection')?.classList.add('hidden');
+            document.getElementById('chatsSection')?.classList.remove('hidden');
+            document.getElementById('peopleSearchPanel')?.classList.add('hidden');
+            setActiveNavTab('navChatsBtn');
+        }
+
+        function bottomNavContacts() {
+            document.getElementById('chatDetailSection')?.classList.add('hidden');
+            document.getElementById('chatsSection')?.classList.remove('hidden');
+            document.getElementById('peopleSearchPanel')?.classList.remove('hidden');
+            setActiveNavTab('navContactsBtn');
+        }
+
+        function bottomNavCalls() {
+            alert('📞 Звонки пока не поддерживаются в этом клиенте');
+            setActiveNavTab('navChatsBtn');
+        }
+
         function showAuthenticatedUI() {
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('chatsSection').classList.remove('hidden');
             document.getElementById('passwordSection').classList.add('hidden');
+            showBottomNav();
+            setActiveNavTab('navChatsBtn');
             settingsMenu.refreshPage('account');
         }
 
@@ -4865,6 +5207,7 @@
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.add('hidden');
             document.getElementById('passwordSection').classList.add('hidden');
+            hideBottomNav();
             document.getElementById('authStatus').textContent = '🔄 Требуется авторизация';
             document.getElementById('code').value = '';
             document.getElementById('password').value = '';
@@ -6757,6 +7100,7 @@
             currentChatId = chatId;
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.remove('hidden');
+            hideBottomNav();
 
             document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
             if (isBotChat(chat)) {
@@ -7679,6 +8023,8 @@
             updateBotWebAppButton(null);
             document.getElementById('chatDetailSection').classList.add('hidden');
             document.getElementById('chatsSection').classList.remove('hidden');
+            showBottomNav();
+            setActiveNavTab('navChatsBtn');
         };
 
         document.getElementById('sendMessageBtn').onclick = async () => {
