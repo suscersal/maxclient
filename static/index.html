@@ -298,6 +298,16 @@
             padding: 0 4px;
         }
 
+        .chat-list-divider {
+            height: 1px;
+            margin: 8px 4px;
+            background: #eee;
+        }
+
+        html[data-theme="dark"] .chat-list-divider {
+            background: #2C2C2E;
+        }
+
         #globalSearchResultsList .chat-item {
             border-bottom: 1px solid #eee;
         }
@@ -5966,30 +5976,47 @@
             applyChatFilter(phone);
         }
 
-        // Перерисовывает #chatsList с учётом текущего chatFilterQuery:
-        // сначала подходящие чаты (как обычно), затем — если запрос не пуст —
-        // подходящие контакты, с которыми диалога ещё нет.
+        // Перерисовывает #chatsList с учётом текущего chatFilterQuery.
+        // Порядок при активном поиске — как в Telegram: сначала контакты
+        // (их отдаёт сам MAX, это самый релевantный результат), затем
+        // тонкая разделительная черта, и только потом остальное — чаты,
+        // боты, локальные контакты телефона и подсказка по @юзернейму.
         function renderChatsList() {
             const list = document.getElementById('chatsList');
             list.innerHTML = '';
             const qRaw = normalizeSearchText(chatFilterQuery);
             const qDigits = qRaw.replace(/[^\d]/g, '');
-            const chats = qRaw
-                ? chatsSortedCache.filter(chat => textMatchesQuery(chatSearchStrings(chat), qRaw, qDigits))
-                : chatsSortedCache;
-            chats.forEach(chat => list.appendChild(buildChatItemEl(chat)));
+
+            let matchedContactsCount = 0;
 
             if (qRaw) {
                 const shown = new Set();
                 Object.values(contactsById).forEach(contact => {
                     if (typeof contact.id !== 'number') return;
                     if (shown.has(contact.id)) return;
-                    if (hasDialogWithContact(contact.id)) return; // уже в списке выше как чат
+                    if (hasDialogWithContact(contact.id)) return; // уже будет показан ниже как чат
                     if (!textMatchesQuery(contactSearchStrings(contact), qRaw, qDigits)) return;
                     shown.add(contact.id);
+                    matchedContactsCount++;
                     list.appendChild(buildContactItemEl(contact));
                 });
+            }
 
+            const chats = qRaw
+                ? chatsSortedCache.filter(chat => textMatchesQuery(chatSearchStrings(chat), qRaw, qDigits))
+                : chatsSortedCache;
+
+            let restCount = chats.length;
+
+            if (qRaw && matchedContactsCount > 0 && restCount > 0) {
+                const divider = document.createElement('div');
+                divider.className = 'chat-list-divider';
+                list.appendChild(divider);
+            }
+
+            chats.forEach(chat => list.appendChild(buildChatItemEl(chat)));
+
+            if (qRaw) {
                 // Кастомные боты (добавлены вручную или из GitHub-реестра) — идут
                 // после реальных контактов MAX, но до локальных телефонных контактов.
                 // Порядок внутри: сначала добавленные вручную, затем недавно
@@ -6037,10 +6064,14 @@
         }
 
         function applyChatFilter(raw) {
-            chatFilterQuery = raw || '';
-            ensureLocalPhoneContacts();
-            renderChatsList();
-            scheduleGlobalSearch(chatFilterQuery);
+            try {
+                chatFilterQuery = raw || '';
+                ensureLocalPhoneContacts();
+                renderChatsList();
+                scheduleGlobalSearch(chatFilterQuery);
+            } catch (e) {
+                log('❌ Ошибка поиска: ' + (e && e.message ? e.message : e), 'error');
+            }
         }
 
         // ========================================
@@ -6058,7 +6089,10 @@
 
         function scheduleGlobalSearch(raw) {
             const trimmed = (raw || '').trim();
-            clearTimeout(globalSearchTimer);
+            if (globalSearchTimer) {
+                clearTimeout(globalSearchTimer);
+                globalSearchTimer = null;
+            }
             if (trimmed.length < 2) {
                 globalSearchQuery = '';
                 globalSearchResults = [];
@@ -6066,18 +6100,27 @@
                 renderGlobalSearchResults();
                 return;
             }
-            globalSearchTimer = setTimeout(() => performGlobalSearch(trimmed), 400);
+            globalSearchTimer = setTimeout(() => {
+                globalSearchTimer = null;
+                try {
+                    performGlobalSearch(trimmed);
+                } catch (e) {
+                    log('❌ Ошибка поиска: ' + (e && e.message ? e.message : e), 'error');
+                }
+            }, 400);
         }
 
         function performGlobalSearch(trimmed) {
             // Поле могло измениться, пока ждали debounce — не ищем устаревшее.
             if ((chatFilterQuery || '').trim() !== trimmed) return;
+            if (!isConnected) return; // нет соединения — обойдёмся локальными результатами
             globalSearchQuery = trimmed;
             globalSearchLoading = true;
             renderGlobalSearchResults();
 
             const digitCount = (trimmed.match(/\d/g) || []).length;
-            const looksLikePhone = digitCount >= 5 && digitCount >= trimmed.replace(/[\s()+-]/g, '').length * 0.8;
+            const compact = trimmed.replace(/[\s()+-]/g, '');
+            const looksLikePhone = digitCount >= 5 && compact.length > 0 && digitCount >= compact.length * 0.8;
 
             if (looksLikePhone) {
                 const phone = normalizePhoneForSearch(trimmed);
@@ -6089,12 +6132,19 @@
             }
 
             const cleanQuery = trimmed.replace(/^@/, '');
+            if (!cleanQuery) {
+                globalSearchLoading = false;
+                globalSearchResults = [];
+                renderGlobalSearchResults();
+                return;
+            }
             log(`🔎 Поиск "${cleanQuery}"...`, 'info');
             send(60, { type: 'ALL', count: 20, query: cleanQuery });
         }
 
         function renderGlobalSearchResults() {
             const wrap = document.getElementById('globalSearchResultsList');
+            if (!wrap) return;
             if (!globalSearchQuery) {
                 wrap.classList.add('hidden');
                 wrap.innerHTML = '';
@@ -6111,6 +6161,7 @@
                 return;
             }
             globalSearchResults.forEach(item => {
+                if (!item) return;
                 const el = document.createElement('div');
                 el.className = 'chat-item';
                 const avatarUrl = item.avatarUrl ? '/img?url=' + encodeURIComponent(item.avatarUrl) : null;
