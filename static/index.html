@@ -3384,18 +3384,59 @@
             return raw ? '/video?url=' + encodeURIComponent(raw) : null;
         }
 
+        // --- Расшифровка голосовых сообщений (локальный Whisper-сервер) ---
+        // Отдельная нейронка от антискама: настраивается в своём меню
+        // (см. openTranscribeSettings), кнопка "T" на плеере голосового
+        // шлёт исходный (не проксированный) URL аудио на бридж, который
+        // сам скачивает файл и отправляет на локальный сервер распознавания.
+        async function transcribeVoiceMessage(uid, messageId, rawUrl, force) {
+            const btn = document.getElementById(uid + '_t_btn');
+            const box = document.getElementById(uid + '_transcript');
+            if (!box) return;
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            box.style.display = 'block';
+            box.style.color = '#888';
+            box.textContent = 'Распознаю…';
+            try {
+                const resp = await fetch('/api/transcribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, url: rawUrl, force: !!force })
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    box.style.color = '#c00';
+                    box.textContent = '⚠️ ' + (data.error || 'Ошибка распознавания');
+                } else {
+                    box.style.color = '';
+                    box.textContent = data.text;
+                }
+            } catch (e) {
+                box.style.color = '#c00';
+                box.textContent = '⚠️ ' + e.message;
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '📝'; }
+            }
+        }
+
         function createAudioPlayer(messageId, attach) {
             const src = resolveMediaSrc(attach);
+            const rawUrl = attach.baseUrl || attach.fileUrl || attach.url || '';
             const totalLabel = attach.duration ? formatTime(Math.round(attach.duration / 1000)) : '';
             if (!src) {
                 return `<div class="msg-file" style="color:#888;">🎤 Голосовое сообщение ${totalLabel ? '(' + totalLabel + ')' : ''} — недоступно</div>`;
             }
             const uid = 'voiceplayer_' + (++audioPlayerSeq);
+            const transcribeBtn = rawUrl ? `
+            <button type="button" id="${uid}_t_btn" title="Расшифровать (локально)"
+                    onclick="transcribeVoiceMessage('${uid}', '${messageId}', '${rawUrl.replace(/'/g, "\\'")}', false)"
+                    style="flex:0 0 auto;border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;">📝</button>` : '';
             // <audio> без атрибута controls — интерфейс полностью свой,
             // элемент используется только как источник звука/событий.
             return `
           <div class="msg-audio-player" id="${uid}" data-duration-ms="${attach.duration || 0}"
-               style="display:flex;align-items:center;gap:10px;min-width:220px;max-width:280px;">
+               style="display:flex;flex-direction:column;gap:4px;min-width:220px;max-width:280px;">
+          <div style="display:flex;align-items:center;gap:10px;">
             <audio preload="none" src="${src}" style="display:none;"></audio>
             <button type="button" class="voice-play-btn" onclick="toggleAudioPlayer('${uid}')"
                 style="flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:#2196f3;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">▶</button>
@@ -3404,6 +3445,9 @@
               <div class="voice-progress-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:2px;background:#2196f3;"></div>
             </div>
             <span class="voice-time-label" style="flex:0 0 auto;font-size:11px;color:#888;min-width:32px;text-align:right;">${totalLabel || '0:00'}</span>
+            ${transcribeBtn}
+          </div>
+          <div id="${uid}_transcript" style="display:none;font-size:12.5px;line-height:1.4;padding:4px 2px 0;white-space:pre-wrap;"></div>
           </div>`;
         }
 
@@ -3810,6 +3854,87 @@
             } catch (e) {
                 box.textContent = '';
             }
+        }
+
+        let transcribeSettingsCache = null;
+
+        async function loadTranscribeSettings() {
+            try {
+                const resp = await fetch('/api/transcribe/settings');
+                transcribeSettingsCache = await resp.json();
+            } catch (e) {
+                transcribeSettingsCache = { enabled: false, url: 'http://localhost:8090/v1/audio/transcriptions', model: 'whisper-tiny', language: 'ru', autoTranscribeIncoming: false };
+            }
+            return transcribeSettingsCache;
+        }
+
+        async function saveTranscribeSettings() {
+            const body = {
+                enabled: document.getElementById('transcribeEnabled')?.checked || false,
+                url: document.getElementById('transcribeUrl')?.value.trim() || '',
+                model: document.getElementById('transcribeModel')?.value.trim() || '',
+                language: document.getElementById('transcribeLanguage')?.value.trim() || '',
+                autoTranscribeIncoming: document.getElementById('transcribeAutoIncoming')?.checked || false,
+            };
+            const statusEl = document.getElementById('transcribeStatus');
+            try {
+                const resp = await fetch('/api/transcribe/settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+                });
+                transcribeSettingsCache = await resp.json();
+                if (statusEl) statusEl.textContent = '✅ Сохранено';
+            } catch (e) {
+                if (statusEl) statusEl.textContent = '❌ Ошибка: ' + (e.message || e);
+            }
+        }
+
+        function renderTranscribePage() {
+            if (!transcribeSettingsCache) {
+                loadTranscribeSettings();
+            }
+            const cfg = transcribeSettingsCache || {
+                enabled: false, url: 'http://localhost:8090/v1/audio/transcriptions',
+                model: 'whisper-tiny', language: 'ru', autoTranscribeIncoming: false
+            };
+            return `
+        <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
+            Локальная расшифровка входящих голосовых сообщений — отдельная от
+            скам-проверки нейросеть. Работает через локальный Whisper-совместимый
+            сервер (whisper.cpp server, faster-whisper-server и т.п. с эндпоинтом
+            /v1/audio/transcriptions), который нужно запустить самостоятельно.
+            Для слабых телефонов рекомендуются модели <b>tiny</b> или <b>base</b> —
+            они заметно легче моделей скам-проверки. Текст сообщений никуда,
+            кроме указанного локального адреса, не отправляется.
+        </div>
+        <div class="settings-row">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="transcribeEnabled" ${cfg.enabled ? 'checked' : ''}>
+                Включить расшифровку
+            </label>
+        </div>
+        <div class="settings-row">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="transcribeAutoIncoming" ${cfg.autoTranscribeIncoming ? 'checked' : ''}>
+                Автоматически расшифровывать входящие голосовые
+            </label>
+        </div>
+        <div style="margin:14px 0 6px;font-weight:600;">Локальный сервер распознавания</div>
+        <div class="settings-row">
+            <input class="setting-key" id="transcribeUrl" placeholder="http://localhost:8090/v1/audio/transcriptions"
+                   value="${escapeHtml(cfg.url || '')}" style="flex:1;">
+        </div>
+        <div class="settings-row">
+            <input class="setting-value" id="transcribeModel" placeholder="Модель (например whisper-tiny)"
+                   value="${escapeHtml(cfg.model || '')}" style="flex:1;">
+        </div>
+        <div class="settings-row">
+            <input class="setting-value" id="transcribeLanguage" placeholder="Язык (ru, en, ...)"
+                   value="${escapeHtml(cfg.language || '')}" style="flex:1;">
+        </div>
+        <div id="transcribeStatus" style="font-size:12px;color:#888;margin:4px 0;"></div>
+        <div class="settings-content-footer">
+            <button class="btn-save" onclick="saveTranscribeSettings()">💾 Сохранить</button>
+        </div>`;
         }
 
         function renderScamCheckPage() {
@@ -4847,6 +4972,7 @@
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
+            .addItem({ id: 'transcribe', icon: '📝', label: 'Расшифровка аудио (ИИ)', page: renderTranscribePage })
             .addItem({ id: 'about', icon: 'ℹ️', label: 'О приложении', page: renderAboutPage })
             .render();
 

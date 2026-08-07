@@ -125,4 +125,5 @@ dependencies {
     // LiteRT-LM, сохранив тот же контракт bridge.py (generateResponse).
     implementation 'com.google.mediapipe:tasks-genai:0.10.27'
     implementation 'com.google.mediapipe:tasks-text:0.10.29'
+    implementation 'com.alphacephei:vosk-android:0.3.32'
 }

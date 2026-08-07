@@ -168,6 +168,21 @@ confidence — целое 0..100 без % и без минуса.
 reason — короткая причина.
 Никакого текста кроме JSON.
 """
+ASR_MODEL_CACHE_FILE = os.path.join(os.path.dirname(
+    SESSION_FILE), "vosk-model-ru-small.zip")  # или .zip
+ASR_MODEL_EXTRACTED_DIR = os.path.join(
+    os.path.dirname(SESSION_FILE), "vosk-model-ru-small")
+ASR_DOWNLOAD_URL = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"  # ~40 МБ
+
+_asr_model_state = {
+    "downloading": False,
+    "ready": False,
+    "error": None,
+    "downloadedBytes": 0,
+    "totalBytes": 0,
+}
+_asr_recognizer = None
+_asr_lock = threading.Lock()
 
 
 def _get_scam_check_settings():
@@ -199,6 +214,149 @@ def _save_scam_check_settings(patch: dict):
     sess["scamCheck"] = cfg
     save_session(sess)
     return cfg
+
+
+# --- Локальная расшифровка голосовых сообщений (отдельная нейронка) ---
+#
+# Отдельное от антискама меню: пользователь сам поднимает локальный
+# Whisper-совместимый сервер (whisper.cpp server, whisper-asr-webservice,
+# faster-whisper-server и т.п. с OpenAI-совместимым эндпоинтом
+# /v1/audio/transcriptions) и указывает его адрес в настройках. Бридж
+# скачивает аудио голосового сообщения (тот же URL, что и в /video-проксе),
+# отправляет байты на этот сервер и кэширует результат по id сообщения,
+# чтобы не гонять транскрибацию повторно при повторном открытии чата.
+#
+# Для слабых телефонов рекомендуется модель tiny/base (whisper.cpp: файлы
+# ggml-tiny(-q5_1).bin / ggml-base(-q5_1).bin — на порядок легче тех же
+# LLM-моделей антискама).
+TRANSCRIBE_DEFAULT_URL = os.getenv(
+    "TRANSCRIBE_DEFAULT_URL", "http://localhost:8090/v1/audio/transcriptions")
+TRANSCRIBE_DEFAULT_MODEL = os.getenv(
+    "TRANSCRIBE_DEFAULT_MODEL", "whisper-tiny")
+TRANSCRIBE_DEFAULT_LANGUAGE = os.getenv("TRANSCRIBE_DEFAULT_LANGUAGE", "ru")
+TRANSCRIBE_TIMEOUT = int(os.getenv("TRANSCRIBE_TIMEOUT", "60"))
+TRANSCRIBE_CACHE_FILE = os.getenv("TRANSCRIBE_CACHE_FILE", os.path.join(
+    os.path.dirname(SESSION_FILE), "transcribe_cache.json"))
+TRANSCRIBE_CACHE_LIMIT = 500  # сколько расшифровок хранить (по всем чатам)
+
+_transcribe_cache_lock = threading.Lock()
+
+
+def _get_transcribe_settings():
+    sess = load_session()
+    cfg = sess.get("transcribe", {})
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "url": cfg.get("url") or TRANSCRIBE_DEFAULT_URL,
+        "model": cfg.get("model") or TRANSCRIBE_DEFAULT_MODEL,
+        "language": cfg.get("language") or TRANSCRIBE_DEFAULT_LANGUAGE,
+        # Автоматически расшифровывать входящие голосовые при открытии чата,
+        # а не только по нажатию кнопки на конкретном сообщении.
+        "autoTranscribeIncoming": bool(cfg.get("autoTranscribeIncoming", False)),
+    }
+
+
+def _save_transcribe_settings(patch: dict):
+    sess = load_session()
+    cfg = sess.get("transcribe", {})
+    cfg.update({k: v for k, v in patch.items() if v is not None})
+    sess["transcribe"] = cfg
+    save_session(sess)
+    return cfg
+
+
+def _load_transcribe_cache():
+    try:
+        with open(TRANSCRIBE_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_transcribe_cache(cache: dict):
+    try:
+        # Простой лимит по размеру — не даём файлу расти бесконечно,
+        # выкидываем самые старые записи (по порядку вставки в dict).
+        if len(cache) > TRANSCRIBE_CACHE_LIMIT:
+            for k in list(cache.keys())[: len(cache) - TRANSCRIBE_CACHE_LIMIT]:
+                cache.pop(k, None)
+        with open(TRANSCRIBE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"[transcribe] failed to save cache: {e}")
+
+
+def _get_cached_transcript(message_id):
+    with _transcribe_cache_lock:
+        cache = _load_transcribe_cache()
+        return cache.get(str(message_id))
+
+
+def _set_cached_transcript(message_id, text):
+    with _transcribe_cache_lock:
+        cache = _load_transcribe_cache()
+        cache[str(message_id)] = {"text": text, "ts": time.time()}
+        _save_transcribe_cache(cache)
+
+
+def _download_audio_bytes(url: str) -> tuple:
+    """Качает байты голосового сообщения по тому же URL, что использует
+    фронтенд через /video-прокси (см. proxy_video выше). Возвращает
+    (bytes, content_type)."""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)",
+            "Referer": "https://web.max.ru/",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = resp.read()
+        content_type = resp.headers.get("Content-Type", "audio/ogg")
+    return data, content_type
+
+
+def _run_transcribe(audio_bytes: bytes, content_type: str) -> str:
+    """Отправляет аудио на локальный Whisper-совместимый сервер
+    (OpenAI /v1/audio/transcriptions, multipart/form-data) и возвращает
+    текст расшифровки. Бросает исключение при ошибке — вызывающий код сам
+    решает, как её показать пользователю."""
+    cfg = _get_transcribe_settings()
+
+    boundary = uuid.uuid4().hex
+    ext = "ogg" if "ogg" in (content_type or "") else "webm" if "webm" in (
+        content_type or "") else "wav" if "wav" in (content_type or "") else "bin"
+
+    def _field(name, value):
+        return (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+                f'{value}\r\n').encode("utf-8")
+
+    body = b""
+    body += _field("model", cfg["model"])
+    if cfg.get("language"):
+        body += _field("language", cfg["language"])
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+             f'filename="voice.{ext}"\r\nContent-Type: {content_type or "audio/ogg"}\r\n\r\n'
+             ).encode("utf-8")
+    body += audio_bytes
+    body += f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    req = urllib.request.Request(
+        cfg["url"],
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=TRANSCRIBE_TIMEOUT) as resp:
+        raw = resp.read().decode("utf-8")
+    try:
+        parsed = json.loads(raw)
+        # OpenAI-совместимый ответ: {"text": "..."}
+        return (parsed.get("text") or "").strip()
+    except json.JSONDecodeError:
+        # Некоторые серверы (напр. whisper.cpp --output-txt) отдают чистый
+        # текст без JSON-обёртки — на этот случай тоже подстрахуемся.
+        return raw.strip()
 
 
 # --- On-device движок (Android): MediaPipe LLM Inference через Chaquopy ---
@@ -2296,6 +2454,71 @@ def refresh_device_catalog():
     threading.Thread(target=lambda: ensure_device_catalog_cached(
         force=True), daemon=True).start()
     return jsonify({"ok": True, "refreshing": True})
+
+
+@app.route("/api/transcribe/settings", methods=["GET"])
+def get_transcribe_settings():
+    return jsonify(_get_transcribe_settings())
+
+
+@app.route("/api/transcribe/settings", methods=["POST"])
+def set_transcribe_settings():
+    data = request.get_json(force=True) or {}
+    cfg = _save_transcribe_settings({
+        "enabled": data.get("enabled"),
+        "url": (data.get("url") or "").strip() or None,
+        "model": (data.get("model") or "").strip() or None,
+        "language": (data.get("language") or "").strip() or None,
+        "autoTranscribeIncoming": data.get("autoTranscribeIncoming"),
+    })
+    return jsonify(_get_transcribe_settings())
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def transcribe_voice_message():
+    """Расшифровывает голосовое сообщение. Ожидает {messageId, url}, где
+    url — это attach.baseUrl/fileUrl/url с фронта (тот же адрес, что уходит
+    в /video?url=... для проигрывания). Результат кэшируется по messageId,
+    повторный вызов для того же сообщения просто отдаёт кэш (если не
+    передан force=true)."""
+    data = request.get_json(force=True) or {}
+    message_id = data.get("messageId")
+    url = data.get("url")
+    force = bool(data.get("force"))
+
+    if not message_id or not url:
+        return jsonify({"error": "messageId and url are required"}), 400
+
+    if not force:
+        cached = _get_cached_transcript(message_id)
+        if cached:
+            return jsonify({"text": cached["text"], "cached": True})
+
+    cfg = _get_transcribe_settings()
+    if not cfg["url"]:
+        return jsonify({"error": "Адрес локального Whisper-сервера не настроен"}), 400
+
+    try:
+        audio_bytes, content_type = _download_audio_bytes(url)
+    except Exception as e:
+        logger.warning(f"[transcribe] failed to download audio: {e}")
+        return jsonify({"error": f"Не удалось скачать аудио: {e}"}), 502
+
+    try:
+        text = _run_transcribe(audio_bytes, content_type)
+    except urllib.error.URLError as e:
+        logger.warning(f"[transcribe] engine unreachable: {e}")
+        return jsonify({"error": "Локальный сервер распознавания недоступен. "
+                        "Проверьте, что он запущен, и адрес в настройках верный."}), 502
+    except Exception as e:
+        logger.warning(f"[transcribe] failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": f"Ошибка распознавания: {e}"}), 500
+
+    if not text:
+        return jsonify({"error": "Не удалось распознать речь (пустой результат)"}), 502
+
+    _set_cached_transcript(message_id, text)
+    return jsonify({"text": text, "cached": False})
 
 
 @app.route("/api/scam-check/settings", methods=["GET"])

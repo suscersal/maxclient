@@ -9,6 +9,7 @@ start_server() блокирует поток — Kotlin запускает её 
 
 import os
 import sys
+from com.alphacephei import vosk
 
 
 def start_server(session_file: str, port: int, hotpatch_dir: str = "", android_context=None):
