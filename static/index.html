@@ -3004,6 +3004,64 @@
         let isControlsVisible = true;
         let currentProfilePayload = null;
 
+        // ---- EMOJI CDN ----
+        const EMOJI_CDN_URLS = {
+            "👍": "https://st.max.ru/emojis/1F44D_48.webp",
+            "🇷🇺": "https://st.max.ru/emojis/1F1F7-1F1FA_48.webp",
+            "❤️": "https://st.max.ru/emojis/2764_48.webp",
+            "😂": "https://st.max.ru/emojis/1F602_48.webp",
+            "😮": "https://st.max.ru/emojis/1F62E_48.webp",
+            "😢": "https://st.max.ru/emojis/1F622_48.webp",
+            "🙏": "https://st.max.ru/emojis/1F64F_48.webp",
+            "🔥": "https://st.max.ru/emojis/1F525_48.webp",
+            "👏": "https://st.max.ru/emojis/1F44F_48.webp",
+            "👎": "https://st.max.ru/emojis/1F44E_48.webp",
+            "😱": "https://st.max.ru/emojis/1F631_48.webp",
+            "🤢": "https://st.max.ru/emojis/1F922_48.webp",
+            "💔": "https://st.max.ru/emojis/1F494_48.webp",
+            "🤩": "https://st.max.ru/emojis/1F929_48.webp",
+            "💀": "https://st.max.ru/emojis/1F480_48.webp",
+            "🤟": "https://st.max.ru/emojis/1F91F_48.webp",
+            "🤡": "https://st.max.ru/emojis/1F921_48.webp",
+            "😎": "https://st.max.ru/emojis/1F60E_48.webp",
+            "🤨": "https://st.max.ru/emojis/1F928_48.webp",
+            "😐": "https://st.max.ru/emojis/1F610_48.webp",
+            "🤪": "https://st.max.ru/emojis/1F92A_48.webp",
+            "😀": "https://st.max.ru/emojis/1F600_48.webp",
+            "🤤": "https://st.max.ru/emojis/1F924_48.webp",
+            "😇": "https://st.max.ru/emojis/1F607_48.webp",
+            "😘": "https://st.max.ru/emojis/1F618_48.webp",
+            "🥰": "https://st.max.ru/emojis/1F970_48.webp",
+            "🥳": "https://st.max.ru/emojis/1F973_48.webp",
+            "🌚": "https://st.max.ru/emojis/1F31A_48.webp",
+            "🌝": "https://st.max.ru/emojis/1F31D_48.webp",
+            "😴": "https://st.max.ru/emojis/1F634_48.webp",
+            "😈": "https://st.max.ru/emojis/1F608_48.webp",
+            "🤬": "https://st.max.ru/emojis/1F92C_48.webp",
+            "😏": "https://st.max.ru/emojis/1F60F_48.webp",
+            "🤔": "https://st.max.ru/emojis/1F914_48.webp",
+            "🫣": "https://st.max.ru/emojis/1FAE3_48.webp",
+            "😳": "https://st.max.ru/emojis/1F633_48.webp",
+            "😔": "https://st.max.ru/emojis/1F614_48.webp",
+            "🥲": "https://st.max.ru/emojis/1F972_48.webp",
+            "🐱": "https://st.max.ru/emojis/1F431_48.webp",
+            "🐶": "https://st.max.ru/emojis/1F436_48.webp",
+            "💪": "https://st.max.ru/emojis/1F4AA_48.webp",
+            "🤞": "https://st.max.ru/emojis/1F91E_48.webp",
+            "👋": "https://st.max.ru/emojis/1F44B_48.webp",
+            "🤝": "https://st.max.ru/emojis/1F91D_48.webp",
+            "💋": "https://st.max.ru/emojis/1F48B_48.webp",
+            "👑": "https://st.max.ru/emojis/1F451_48.webp",
+            "🍷": "https://st.max.ru/emojis/1F377_48.webp",
+            "🍑": "https://st.max.ru/emojis/1F351_48.webp",
+            "✨": "https://st.max.ru/emojis/2728_48.webp"
+        };
+
+        function getEmojiCDNUrl(emoji) {
+            const code = emoji.codePointAt(0).toString(16).toUpperCase();
+            return `https://st.max.ru/emojis/${code}_48.webp`;
+        }
+
         const video = document.getElementById('videoPlayer');
         video.muted = false
         const modal = document.getElementById('videoModal');
@@ -6570,51 +6628,23 @@
                 let badges = '';
                 if (Array.isArray(counts)) {
                     counts.forEach(r => {
-                        const emoji = r.reaction || '👍';
+                        const emoji = r.reaction || '🚫';
                         const count = r.count ?? 1;
                         const mine = m.reactionInfo?.yourReaction === emoji ? ' mine' : '';
-                        badges +=
-                            `<span class="reaction-badge${mine}" data-emoji="${escapeHtml(emoji)}">${emoji} ${count}</span>`;
+                        const imgSrc = EMOJI_CDN_URLS[emoji];
+                        let inner;
+                        if (imgSrc) {
+                            inner = `<img src="${imgSrc}" alt="${escapeHtml(emoji)}" style="width:16px;height:16px;vertical-align:middle;" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(emoji)}';"> ${count}`;
+                        } else {
+                            inner = `${escapeHtml(emoji)} ${count}`;
+                        }
+                        badges += `<span class="reaction-badge${mine}" data-emoji="${escapeHtml(emoji)}" data-msg-id="${m.id}" onclick="handleReactionBadgeClick(this)" style="cursor:pointer;">${inner}</span>`;
                     });
                 }
                 return badges ? `<div class="msg-reactions">${badges}</div>` : '';
             } catch (err) {
                 return '';
             }
-        }
-
-        // Реакции на сообщения (двойной тап по бабблу — как в Telegram).
-        // opcode 178 = MSG_REACTION, opcode 179 = MSG_CANCEL_REACTION.
-        const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
-        let reactionPickerEl = null;
-
-        function closeReactionPicker() {
-            if (reactionPickerEl) { reactionPickerEl.remove(); reactionPickerEl = null; }
-            document.removeEventListener('click', closeReactionPickerOnOutsideClick, true);
-        }
-        function closeReactionPickerOnOutsideClick(e) {
-            if (reactionPickerEl && !reactionPickerEl.contains(e.target)) closeReactionPicker();
-        }
-        function showReactionPicker(x, y, m) {
-            closeReactionPicker();
-            const el = document.createElement('div');
-            el.style.cssText = 'position:fixed;z-index:1000002;background:#fff;border:1px solid #555;' +
-                'border-radius:20px;padding:6px 8px;display:flex;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,.5);';
-            QUICK_REACTIONS.forEach(emo => {
-                const b = document.createElement('span');
-                b.textContent = emo;
-                b.style.cssText = 'cursor:pointer;font-size:20px;';
-                b.onclick = (ev) => { ev.stopPropagation(); sendReaction(m, emo); closeReactionPicker(); };
-                el.appendChild(b);
-            });
-            document.body.appendChild(el);
-            const rect = el.getBoundingClientRect();
-            const left = Math.min(Math.max(4, x - rect.width / 2), window.innerWidth - rect.width - 4);
-            const top = Math.max(4, y - rect.height - 12);
-            el.style.left = left + 'px';
-            el.style.top = top + 'px';
-            reactionPickerEl = el;
-            setTimeout(() => document.addEventListener('click', closeReactionPickerOnOutsideClick, true), 0);
         }
 
         function sendReaction(m, emoji) {
@@ -6647,6 +6677,17 @@
             } else {
                 send(178, { chatId: currentChatId, messageId: m.id, reaction: { reactionType: 'EMOJI', id: emoji } });
             }
+        }
+        function handleReactionBadgeClick(el) {
+            const msgId = el.dataset.msgId;
+            const emoji = el.dataset.emoji;
+            if (!msgId || !emoji) return;
+            // Находим сообщение в кэше текущего чата
+            const messages = messagesByChatId[currentChatId];
+            if (!messages) return;
+            const m = messages.find(msg => String(msg.id) === String(msgId));
+            if (!m) return;
+            sendReaction(m, emoji);
         }
 
         // Кэш, чтобы не дёргать /lottie повторно для одного и того же стикера
