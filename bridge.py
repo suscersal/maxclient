@@ -2480,7 +2480,7 @@ def _run_scam_check_classifier(model_path, user_content):
     scam_score = scores.get("scam", 0.0)
     return {
         "is_scam": scam_score > 0.5,
-        "confidence": round(scam_score * 100),
+        "confidence": max(0, min(100, round(scam_score * 100))),
         "reason": "on-device classifier",
     }
 
@@ -2624,6 +2624,12 @@ def scam_check():
         return jsonify({"error": "empty text"}), 400
     try:
         result = _run_scam_check(text, context=context)
+        # Финальная подстраховка перед отдачей клиенту: каким бы путём ни был
+        # получен вердикт, confidence должен быть в [0, 100]. Это дублирует
+        # клэмп в _parse_scam_verdict_text(), но защищает и от возможных
+        # будущих путей формирования result, которые забудут его вызвать.
+        if isinstance(result.get("confidence"), (int, float)) and not isinstance(result.get("confidence"), bool):
+            result["confidence"] = max(0, min(100, int(result["confidence"])))
         confidence = result.get("confidence")
         logger.info(
             f"[scam-check] verdict: is_scam={result.get('is_scam')} "
@@ -2776,6 +2782,11 @@ def scan_all_cached_chats(self_id=None, chat_id_filter=None):
                                 dup_note).strip() if context_text else dup_note
             try:
                 result = _run_scam_check(text, context=context_text)
+                # Та же финальная подстраховка, что и в /api/scam-check —
+                # см. комментарий там.
+                if isinstance(result.get("confidence"), (int, float)) and not isinstance(result.get("confidence"), bool):
+                    result["confidence"] = max(
+                        0, min(100, int(result["confidence"])))
                 confidence = result.get("confidence")
                 is_scam = bool(result.get("is_scam"))
                 pct_str = f"{confidence}%" if confidence is not None else "?%"

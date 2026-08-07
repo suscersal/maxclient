@@ -2780,6 +2780,19 @@
         </div>
     </div>
 
+    <!-- ===== SCAM-CHECK: "Все проверенные" (отдельная модалка, а не
+         разворачивающийся <details> внутри панели — тот было неудобно
+         закрыть, и он растягивал панель профиля чата до бесконечности) ===== -->
+    <div class="settings-modal-overlay" id="scamAllCheckedModal">
+        <div class="settings-modal" style="max-height:80vh;">
+            <div class="settings-modal-header">
+                <h2 id="scamAllCheckedTitle">🛡️ Все проверенные</h2>
+                <button class="settings-modal-close" onclick="closeScamAllCheckedModal()">✕</button>
+            </div>
+            <div class="settings-content" id="scamAllCheckedBody"></div>
+        </div>
+    </div>
+
     <!-- ===== CHAT PROFILE MODAL (центр экрана) ===== -->
     <div class="chat-profile-overlay" id="chatProfileModal">
         <div class="chat-profile-modal">
@@ -3662,6 +3675,15 @@
         let scamCheckQueue = [];
         let scamCheckBusy = false;
 
+        // Модели (особенно слабые on-device) иногда присылают confidence вне
+        // диапазона 0..100 (300, -500 и т.п.). Бэкенд уже зажимает диапазон,
+        // но подстраховываемся и на фронте — на случай старого закэшированного
+        // вердикта или бриджа, запущенного без последнего обновления кода.
+        function clampPct(v) {
+            if (typeof v !== 'number' || isNaN(v)) return v;
+            return Math.max(0, Math.min(100, Math.round(v)));
+        }
+
         // Три категории риска по проценту confidence (те же пороги, что и на
         // бэкенде — см. SCAM_THRESHOLD_LIKELY/SCAM_THRESHOLD_SCAM в bridge.py):
         // <50 — не скам, [50,90) — вероятно скам, >=90 — скам (красным).
@@ -3997,6 +4019,9 @@
                 });
                 if (res.ok) {
                     const verdict = await res.json();
+                    if (typeof verdict.confidence === 'number') {
+                        verdict.confidence = clampPct(verdict.confidence);
+                    }
                     console.log('[scam-check] verdict received', { msgId: job.msgId, verdict });
                     scamVerdictCache[job.msgId] = verdict;
                     applyScamVerdictToDom(job.msgId, verdict);
@@ -4018,7 +4043,7 @@
                 console.warn('[scam-check] badge element not found in DOM for msgId', msgId, '(сообщение уже перерисовано/удалено?)');
                 return;
             }
-            const pct = verdict.confidence ?? '?';
+            const pct = typeof verdict.confidence === 'number' ? clampPct(verdict.confidence) : (verdict.confidence ?? '?');
             const cat = scamCategory(verdict);
             el.style.display = '';
             el.classList.remove('msg-scam-badge-safe', 'msg-scam-badge-likely');
@@ -4902,6 +4927,47 @@
             }
         }
 
+        // Результаты последнего массового скана — держим отдельно от текста
+        // панели, чтобы модалка "Все проверенные" могла их отрисовать по
+        // клику на кнопку, не гоняя данные повторно с бэкенда.
+        let lastScamAllCheckedResults = [];
+
+        const SCAM_CAT_STYLE = {
+            scam: { border: 'rgba(229,57,53,0.3)', bg: 'rgba(229,57,53,0.06)', icon: '⚠️' },
+            likely: { border: 'rgba(224,123,0,0.35)', bg: 'rgba(224,123,0,0.07)', icon: '⚠️' },
+            safe: { border: 'rgba(0,0,0,0.08)', bg: 'rgba(0,0,0,0.03)', icon: '✅' },
+        };
+
+        function renderScamRow(f) {
+            const cat = scamCategory(f);
+            const s = SCAM_CAT_STYLE[cat] || SCAM_CAT_STYLE.safe;
+            const pct = typeof f.confidence === 'number' ? clampPct(f.confidence) : (f.confidence ?? '?');
+            return `
+                <div style="border:1px solid ${s.border};background:${s.bg};border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+                    <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${s.icon} ${pct}%</span></div>
+                    ${f.reason ? `<div style="color:#666;margin-top:2px;">${escapeHtml(f.reason)}</div>` : ''}
+                    <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
+                </div>
+            `;
+        }
+
+        function openScamAllCheckedModal() {
+            const modal = document.getElementById('scamAllCheckedModal');
+            const body = document.getElementById('scamAllCheckedBody');
+            const title = document.getElementById('scamAllCheckedTitle');
+            if (!modal || !body) return;
+            title.textContent = `🛡️ Все проверенные (${lastScamAllCheckedResults.length})`;
+            body.innerHTML = lastScamAllCheckedResults.length
+                ? lastScamAllCheckedResults.map(renderScamRow).join('')
+                : '<div style="color:#888;padding:12px 0;">Пока пусто.</div>';
+            modal.classList.add('active');
+        }
+
+        function closeScamAllCheckedModal() {
+            const modal = document.getElementById('scamAllCheckedModal');
+            if (modal) modal.classList.remove('active');
+        }
+
         async function pollScamCheckChatStatus() {
             const label = document.getElementById('scamCheckChatBtnLabel');
             const out = document.getElementById('scamCheckChatResult');
@@ -4923,7 +4989,9 @@
                     // предупредим, чтобы не искать проблему в другом месте.
                     console.warn('[scam-check][chat-check] в ответе бэкенда нет поля "results" — похоже, запущена старая версия bridge.py. Перезапустите бридж (сам процесс, не просто перезагрузите страницу), чтобы подтянуть обновлённый код с логированием процента по каждому сообщению.');
                 }
-                const results = st.results || st.flagged || [];
+                const results = (st.results || st.flagged || []).map(f => (
+                    typeof f.confidence === 'number' ? { ...f, confidence: clampPct(f.confidence) } : f
+                ));
                 if (results.length > scamScanLoggedCount) {
                     console.log(`[scam-check][chat-check] новые результаты (${results.length - scamScanLoggedCount}):`);
                     results.slice(scamScanLoggedCount).forEach(f => {
@@ -4944,38 +5012,23 @@
                 } else if (!st.checked) {
                     out.innerHTML = 'ℹ️ Не найдено сообщений этого чата в кэше (откройте чат, полистайте сообщения и попробуйте снова).';
                 } else {
-                    const results = st.results || st.flagged || [];
-                    const CAT_STYLE = {
-                        scam: { border: 'rgba(229,57,53,0.3)', bg: 'rgba(229,57,53,0.06)', icon: '⚠️' },
-                        likely: { border: 'rgba(224,123,0,0.35)', bg: 'rgba(224,123,0,0.07)', icon: '⚠️' },
-                        safe: { border: 'rgba(0,0,0,0.08)', bg: 'rgba(0,0,0,0.03)', icon: '✅' },
-                    };
-                    const renderRow = (f) => {
-                        const cat = scamCategory(f);
-                        const s = CAT_STYLE[cat] || CAT_STYLE.safe;
-                        return `
-                        <div style="border:1px solid ${s.border};background:${s.bg};border-radius:8px;padding:8px 10px;margin-top:8px;">
-                            <div style="font-weight:600;display:flex;justify-content:space-between;"><span>${s.icon} ${f.confidence ?? '?'}%</span></div>
-                            ${f.reason ? `<div style="color:#666;margin-top:2px;">${escapeHtml(f.reason)}</div>` : ''}
-                            <div style="margin-top:4px;font-style:italic;">«${escapeHtml((f.text || '').slice(0, 200))}»</div>
-                        </div>
-                    `;
-                    };
+                    const results = (st.results || st.flagged || []).map(f => (
+                        typeof f.confidence === 'number' ? { ...f, confidence: clampPct(f.confidence) } : f
+                    ));
                     // "Флагнутые" в сводке — вероятно скам ИЛИ скам (confidence >= 50),
                     // а не только жёсткая категория "scam" (>=90).
                     const flaggedCount = results.filter(f => scamCategory(f) !== 'safe').length;
                     const summary = flaggedCount
                         ? `⚠️ Проверено ${st.checked}, найдено подозрительных: ${flaggedCount}`
                         : `✅ Проверено ${st.checked} сообщений — подозрительных не найдено.`;
-                    // Список ВСЕХ проверенных сообщений с процентом скама у
-                    // каждого (не только у флагнутых) — скрыт по умолчанию,
-                    // разворачивается по клику, чтобы не загромождать панель.
+                    // Список ВСЕХ проверенных сообщений (не только флагнутых) —
+                    // отдельная модалка с кнопкой закрытия, а не разворачивающийся
+                    // <details> внутри панели (тот было неудобно закрыть).
+                    lastScamAllCheckedResults = results;
                     out.innerHTML = summary +
                         (results.length ? `
-                            <details style="margin-top:8px;">
-                                <summary style="cursor:pointer;color:#888;">Показать все проверенные (${results.length})</summary>
-                                ${results.map(f => renderRow(f)).join('')}
-                            </details>
+                            <button type="button" class="settings-menu-item" style="margin-top:8px;width:auto;padding:6px 10px;"
+                                onclick="openScamAllCheckedModal()">Показать все проверенные (${results.length})</button>
                         ` : '');
                 }
             } catch (e) {
@@ -6555,7 +6608,7 @@
             if (m.text) {
                 const cached = scamVerdictCache[m.id];
                 if (cached) {
-                    const pct = cached.confidence ?? '?';
+                    const pct = typeof cached.confidence === 'number' ? clampPct(cached.confidence) : (cached.confidence ?? '?');
                     const cat = scamCategory(cached);
                     // Процент риска показываем для ЛЮБОГО проверенного
                     // сообщения, не только для помеченных как скам.
@@ -7885,9 +7938,16 @@
             if (e.target === e.currentTarget) closeSettingsModal();
         });
 
+        document.getElementById('scamAllCheckedModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeScamAllCheckedModal();
+        });
+
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && document.getElementById('settingsModal').classList.contains('active')) {
                 closeSettingsModal();
+            }
+            if (e.key === 'Escape' && document.getElementById('scamAllCheckedModal').classList.contains('active')) {
+                closeScamAllCheckedModal();
             }
         });
 
