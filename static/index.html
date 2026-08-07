@@ -3056,6 +3056,84 @@
             "🍑": "https://st.max.ru/emojis/1F351_48.webp",
             "✨": "https://st.max.ru/emojis/2728_48.webp"
         };
+        // ========================================
+        // КЭШИРОВАНИЕ ЭМОДЗИ (картинки CDN)
+        // ========================================
+        const EMOJI_CACHE_KEY = 'maxclient_emoji_cache';
+        const EMOJI_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
+
+        async function loadEmojiToCache() {
+            try {
+                const cached = localStorage.getItem(EMOJI_CACHE_KEY);
+                let cache = {};
+                let needUpdate = true;
+                if (cached) {
+                    try {
+                        cache = JSON.parse(cached);
+                        if (cache.timestamp && (Date.now() - cache.timestamp < EMOJI_CACHE_TTL)) {
+                            needUpdate = false;
+                        }
+                    } catch (e) { }
+                }
+                if (!needUpdate && cache.data) {
+                    // Кэш актуален, проставляем все src через data:image
+                    for (const [emoji, dataUrl] of Object.entries(cache.data)) {
+                        if (EMOJI_CDN_URLS[emoji]) {
+                            // Меняем оригинальную ссылку на dataUrl, чтобы не грузить с CDN
+                            // Но мы не можем изменить EMOJI_CDN_URLS, потому что это константа.
+                            // Лучше создать функцию getEmojiSrc, которая сначала проверяет кэш.
+                        }
+                    }
+                    return;
+                }
+                // Нужно обновить кэш — загружаем все картинки
+                const newCache = { data: {}, timestamp: Date.now() };
+                for (const [emoji, url] of Object.entries(EMOJI_CDN_URLS)) {
+                    try {
+                        const resp = await fetch(url);
+                        if (resp.ok) {
+                            const blob = await resp.blob();
+                            const reader = new FileReader();
+                            const dataUrl = await new Promise((resolve) => {
+                                reader.onload = () => resolve(reader.result);
+                                reader.readAsDataURL(blob);
+                            });
+                            newCache.data[emoji] = dataUrl;
+                        } else {
+                            // Если не удалось загрузить, оставляем оригинальный URL
+                        }
+                    } catch (e) {
+                        console.warn('Failed to cache emoji:', emoji, e);
+                    }
+                }
+                localStorage.setItem(EMOJI_CACHE_KEY, JSON.stringify(newCache));
+                // После кэширования можно обновить страницу, но мы просто сохраним.
+                // Можно добавить функцию getEmojiSrc, которая будет использовать кэш.
+            } catch (e) {
+                console.warn('Emoji cache failed:', e);
+            }
+        }
+
+        // Функция получения src для эмодзи (сначала из кэша, потом с CDN)
+        function getEmojiSrc(emoji) {
+            try {
+                const cached = localStorage.getItem(EMOJI_CACHE_KEY);
+                if (cached) {
+                    const cache = JSON.parse(cached);
+                    if (cache.data && cache.data[emoji]) {
+                        return cache.data[emoji]; // dataURL
+                    }
+                }
+            } catch (e) { }
+            return EMOJI_CDN_URLS[emoji] || null;
+        }
+
+        // Предзагрузка при старте
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => loadEmojiToCache());
+        } else {
+            loadEmojiToCache();
+        }
 
         function getEmojiCDNUrl(emoji) {
             const code = emoji.codePointAt(0).toString(16).toUpperCase();
@@ -8737,6 +8815,59 @@
         });
 
         window.onbeforeunload = () => { if (ws) ws.close(); };
+        // ========================================
+        // КЕШИРОВАНИЕ ЭМОДЗИ (Cache API)
+        // ========================================
+        async function preloadEmojis() {
+            try {
+                const cache = await caches.open('emoji-cache-v1');
+                const urls = Object.values(window.EMOJI_CDN_URLS || {});
+                // Загружаем все уникальные URL
+                const uniqueUrls = [...new Set(urls)];
+                // Кешируем их
+                await cache.addAll(uniqueUrls);
+                console.log('[emoji-cache] Preloaded', uniqueUrls.length, 'emojis');
+            } catch (e) {
+                console.warn('[emoji-cache] Preload failed', e);
+            }
+        }
+
+        // Функция получения кешированного URL для эмодзи (если в кеше нет, возвращает исходный URL)
+        async function getCachedEmojiUrl(emoji) {
+            const src = window.EMOJI_CDN_URLS && window.EMOJI_CDN_URLS[emoji];
+            if (!src) return null;
+            // Пытаемся получить из кеша, но если нет – возвращаем исходный
+            try {
+                const cache = await caches.open('emoji-cache-v1');
+                const response = await cache.match(src);
+                if (response) {
+                    // Можно вернуть blob URL, но проще вернуть исходный URL – браузер возьмёт из кеша
+                    // Чтобы избежать лишнего запроса, можно вернуть src, т.к. браузер сам будет использовать кеш.
+                    return src;
+                } else {
+                    // Если нет в кеше – загружаем и сохраняем
+                    const fetchResp = await fetch(src);
+                    if (fetchResp.ok) {
+                        await cache.put(src, fetchResp.clone());
+                        return src;
+                    } else {
+                        return src; // fallback
+                    }
+                }
+            } catch (e) {
+                return src; // fallback
+            }
+        }
+
+        // Запускаем предзагрузку при старте (можно вызывать после авторизации)
+        // Предлагаем вызывать после того, как пользователь авторизовался и загрузились чаты.
+        // Можно вставить вызов в функцию showAuthenticatedUI()
+        // Например:
+        const originalShowAuthenticatedUI = window.showAuthenticatedUI;
+        window.showAuthenticatedUI = function () {
+            originalShowAuthenticatedUI.apply(this, arguments);
+            setTimeout(preloadEmojis, 1000); // предзагружаем после показа UI
+        };
 
     </script>
     <script src="lottie.min.js"></script>
