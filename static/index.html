@@ -523,6 +523,22 @@
             border: 1px solid rgba(224, 123, 0, 0.3);
         }
 
+        /* Маленький чип "быстро" рядом с бейджем скам-проверки — как у
+           Gemini/подобных: просто факт скорости, без объяснения методики. */
+        .msg-scam-speed-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            font-size: 10px;
+            color: #888;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            padding: 1px 6px;
+            margin-left: 6px;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+
         .bot-webapp-bar {
             display: flex;
             align-items: center;
@@ -3751,7 +3767,7 @@
                 if (!st.onDeviceSupported) {
                     box.textContent = 'On-device модель недоступна (не Android-сборка) — используется внешний сервер ниже.';
                 } else if (st.modelReady) {
-                    box.textContent = '✅ Модель на устройстве готова, проверка работает автоматически.';
+                    box.innerHTML = '✅ Модель на устройстве готова, проверка работает автоматически. <span class="msg-scam-speed-chip">⚡ Быстро</span>';
                     if (deleteBtn) deleteBtn.style.display = '';
                 } else if (st.downloading) {
                     const pct = st.totalBytes ? Math.round(st.downloadedBytes / st.totalBytes * 100) : null;

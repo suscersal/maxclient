@@ -839,6 +839,11 @@ def _parse_scam_verdict_text(content: str):
         # числа — приводим к int, чтобы фронт не получал мусор.
         m = re.search(r"-?\d+", confidence)
         confidence = int(m.group()) if m else None
+    if isinstance(confidence, (int, float)):
+        # Маленькие on-device модели иногда игнорируют рамки 0..100 из
+        # промпта и пишут что попало (видели 356, -378 и т.п.) — сами
+        # зажимаем диапазон, чтобы фронт не показывал абсурдные проценты.
+        confidence = max(0, min(100, int(confidence)))
     return {
         "is_scam": bool(verdict.get("is_scam", False)),
         "confidence": confidence,
