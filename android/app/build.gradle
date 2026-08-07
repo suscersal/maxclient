@@ -124,5 +124,5 @@ dependencies {
     // фич не будет) — при желании со временем можно мигрировать на
     // LiteRT-LM, сохранив тот же контракт bridge.py (generateResponse).
     implementation 'com.google.mediapipe:tasks-genai:0.10.27'
-    implementation 'com.google.mediapipe:tasks-text'
+    implementation 'com.google.mediapipe:tasks-text:0.10.29'
 }
