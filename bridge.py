@@ -174,7 +174,7 @@ def _get_scam_check_settings():
     sess = load_session()
     cfg = sess.get("scamCheck", {})
     model_id = cfg.get("onDeviceModelId") or DEFAULT_ONDEVICE_MODEL_ID
-    if model_id not in ONDEVICE_MODELS:
+    if model_id not in _ondevice_models():
         model_id = DEFAULT_ONDEVICE_MODEL_ID
     return {
         "enabled": bool(cfg.get("enabled", False)),
@@ -219,16 +219,71 @@ ONDEVICE_REPO_RAW_BASE = (
     "https://media.githubusercontent.com/media/suscersal/"
     "task_for_ai_maxclient/refs/heads/main"
 )
-ONDEVICE_MODELS = {
-    "gemma3-1b-int4": {
-        "label": "Gemma 3 1B · int4 (~530 МБ, самая лёгкая)",
-        "file": "gemma3-1b-it-int4.task",
-        # Точный размер пока не подтверждён — сопоставление для этой модели
-        # идёт только по имени файла.
-        "size": 554696704,
-    },
-}
-DEFAULT_ONDEVICE_MODEL_ID = "gemma3-1b-int4"
+ONDEVICE_REPO_API_URL = (
+    "https://api.github.com/repos/suscersal/task_for_ai_maxclient/contents"
+)
+_ondevice_catalog_cache = {"models": None, "fetchedAt": 0}
+ONDEVICE_CATALOG_TTL = 600  # секунд — не дёргать GitHub API на каждый чих
+# .task — Gemma/LLM-бандл (zip), .tflite — классификатор (single-file,
+# BertNLClassifier/TextClassifier).
+_KNOWN_EXTS = (".task", ".tflite")
+
+
+def _fetch_ondevice_catalog(force=False):
+    """Тянет актуальный список файлов моделей прямо из репозитория на
+    GitHub вместо жёстко прописанного словаря — любой .task/.tflite,
+    залитый в репо, сразу становится доступен без правки кода. Кешируется
+    на ONDEVICE_CATALOG_TTL секунд (лимит GitHub API без токена — 60
+    запросов/час на IP)."""
+    now = time.time()
+    if not force and _ondevice_catalog_cache["models"] is not None \
+            and now - _ondevice_catalog_cache["fetchedAt"] < ONDEVICE_CATALOG_TTL:
+        return _ondevice_catalog_cache["models"]
+
+    models = {}
+    try:
+        req = urllib.request.Request(
+            ONDEVICE_REPO_API_URL,
+            headers={"User-Agent": "maxclient-bridge",
+                     "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            entries = json.loads(resp.read().decode("utf-8"))
+        for entry in entries:
+            name = entry.get("name", "")
+            if entry.get("type") != "file":
+                continue
+            if not name.lower().endswith(_KNOWN_EXTS):
+                continue
+            model_id = os.path.splitext(name)[0]
+            kind = "llm" if name.lower().endswith(".task") else "classifier"
+            models[model_id] = {
+                "label": name,
+                "file": name,
+                "size": entry.get("size") or 0,
+                "kind": kind,
+            }
+    except Exception as e:
+        logger.warning(
+            f"[scam-check] failed to fetch model catalog from repo: {e}")
+        if _ondevice_catalog_cache["models"] is not None:
+            return _ondevice_catalog_cache["models"]
+        return {}
+
+    if models:
+        _ondevice_catalog_cache["models"] = models
+        _ondevice_catalog_cache["fetchedAt"] = now
+    return models or _ondevice_catalog_cache["models"] or {}
+
+
+def _ondevice_models():
+    """Заменяет прежний статичный ONDEVICE_MODELS — используется везде,
+    где раньше читался словарь напрямую."""
+    return _fetch_ondevice_catalog()
+
+
+DEFAULT_ONDEVICE_MODEL_ID = os.getenv(
+    "DEFAULT_ONDEVICE_MODEL_ID", "gemma3-1b-it-int4")
 
 
 def _current_ondevice_model_id():
@@ -237,8 +292,8 @@ def _current_ondevice_model_id():
 
 def _model_file_path(model_id=None):
     model_id = model_id or _current_ondevice_model_id()
-    info = ONDEVICE_MODELS.get(
-        model_id, ONDEVICE_MODELS[DEFAULT_ONDEVICE_MODEL_ID])
+    info = _ondevice_models().get(
+        model_id, _ondevice_models()[DEFAULT_ONDEVICE_MODEL_ID])
     override = os.getenv("GEMMA_MODEL_FILE")
     if override:
         # Явный override через переменную окружения (например, для отладки
@@ -249,8 +304,8 @@ def _model_file_path(model_id=None):
 
 def _model_download_url(model_id=None):
     model_id = model_id or _current_ondevice_model_id()
-    info = ONDEVICE_MODELS.get(
-        model_id, ONDEVICE_MODELS[DEFAULT_ONDEVICE_MODEL_ID])
+    info = _ondevice_models().get(
+        model_id, _ondevice_models()[DEFAULT_ONDEVICE_MODEL_ID])
     override = os.getenv("GEMMA_MODEL_DOWNLOAD_URL")
     if override:
         return override
@@ -318,14 +373,14 @@ def _guess_model_id_for_file(filename: str, size: int):
     """Пытается понять, какой модели из ONDEVICE_MODELS соответствует
     найденный на диске файл — сперва по точному размеру (надёжнее всего),
     потом по имени файла."""
-    for model_id, info in ONDEVICE_MODELS.items():
+    for model_id, info in _ondevice_models().items():
         if info.get("size") and size == info["size"]:
             return model_id
     fname_lower = filename.lower()
-    for model_id, info in ONDEVICE_MODELS.items():
+    for model_id, info in _ondevice_models().items():
         if fname_lower == info["file"].lower():
             return model_id
-    for model_id, info in ONDEVICE_MODELS.items():
+    for model_id, info in _ondevice_models().items():
         stem = os.path.splitext(info["file"])[0].lower()
         if stem in fname_lower:
             return model_id
@@ -333,10 +388,12 @@ def _guess_model_id_for_file(filename: str, size: int):
 
 
 def scan_for_local_task_files():
-    """Ищет ЛЮБЫЕ *.task файлы в известных доступных директориях (не только
-    совпадающие с каталогом ONDEVICE_MODELS — пользователь мог скачать
-    какую-то другую .task модель вручную) и для каждого сразу проверяет,
-    настоящий ли это zip-бандл, и на какую модель из каталога он похож."""
+    """Ищет ЛЮБЫЕ *.task/*.tflite файлы в известных доступных директориях
+    (не только совпадающие с каталогом _ondevice_models() — пользователь мог
+    скачать модель вручную) и для каждого сразу проверяет, валидный ли это
+    файл, и на какую модель из каталога он похож. .task проверяется на
+    zip-бандл (формат Gemma/LLM); .tflite — единый flatbuffer-файл, не zip,
+    так что для него просто проверяем, что он непустой."""
     results = []
     seen_paths = set()
     for d in _candidate_scan_dirs():
@@ -344,7 +401,10 @@ def scan_for_local_task_files():
             if not os.path.isdir(d):
                 continue
             for name in os.listdir(d):
-                if not name.lower().endswith(".task"):
+                name_lower = name.lower()
+                is_task = name_lower.endswith(".task")
+                is_tflite = name_lower.endswith(".tflite")
+                if not is_task and not is_tflite:
                     continue
                 full = os.path.join(d, name)
                 if full in seen_paths or not os.path.isfile(full):
@@ -354,7 +414,7 @@ def scan_for_local_task_files():
                     size = os.path.getsize(full)
                 except OSError:
                     continue
-                valid = zipfile.is_zipfile(full)
+                valid = zipfile.is_zipfile(full) if is_task else size > 0
                 results.append({
                     "path": full,
                     "name": name,
@@ -435,7 +495,7 @@ def ensure_gemma_model_cached(model_id=None):
     _model_download_state (см. /api/scam-check/model-status). Если файл уже
     есть — не трогает сеть вообще. Не блокирует запуск бриджа — вызывается в
     фоновом потоке (см. set_android_context и /api/scam-check/settings).
-    model_id — какую модель из ONDEVICE_MODELS качать; по умолчанию берётся
+    model_id — какую модель из _ondevice_models() качать; по умолчанию берётся
     текущий выбор пользователя из настроек."""
     model_file = _model_file_path(model_id)
     download_url = _model_download_url(model_id)
@@ -2243,7 +2303,7 @@ def set_scam_check_settings():
     data = request.get_json(force=True) or {}
     prev_model_id = _get_scam_check_settings()["onDeviceModelId"]
     requested_model_id = data.get("onDeviceModelId")
-    if requested_model_id is not None and requested_model_id not in ONDEVICE_MODELS:
+    if requested_model_id is not None and requested_model_id not in _ondevice_models():
         return jsonify({"error": f"unknown onDeviceModelId: {requested_model_id}"}), 400
     cfg = _save_scam_check_settings({
         "enabled": data.get("enabled"),
@@ -2257,7 +2317,7 @@ def set_scam_check_settings():
         # Модель сменили — сбрасываем движок и, если старый файл больше не
         # нужен (не совпадает с новым выбором), удаляем его, чтобы не копить
         # несколько .task-файлов на телефоне одновременно.
-        if prev_model_id in ONDEVICE_MODELS:
+        if prev_model_id in _ondevice_models():
             delete_gemma_model(prev_model_id)
         global _llm_engine, _llm_init_error, _llm_init_failed_for_mtime
         with _llm_engine_lock:
@@ -2280,7 +2340,7 @@ def scam_check_list_models():
     какая сейчас выбрана и скачана ли она уже."""
     current = _get_scam_check_settings()["onDeviceModelId"]
     items = []
-    for model_id, info in ONDEVICE_MODELS.items():
+    for model_id, info in _ondevice_models().items():
         items.append({
             "id": model_id,
             "label": info["label"],
@@ -2354,9 +2414,10 @@ def scam_check_use_local():
         return jsonify({"error": "path required"}), 400
     if not os.path.isfile(path):
         return jsonify({"error": "file not found"}), 404
-    if not zipfile.is_zipfile(path):
-        return jsonify({"error": "not a valid .task (zip) file"}), 400
-    if model_id not in ONDEVICE_MODELS:
+    is_tflite = path.lower().endswith(".tflite")
+    if not is_tflite and not zipfile.is_zipfile(path):
+        return jsonify({"error": "not a valid .task (zip) or .tflite file"}), 400
+    if model_id not in _ondevice_models():
         return jsonify({"error": "unknown modelId"}), 400
     dest = _model_file_path(model_id)
     try:
@@ -2372,6 +2433,51 @@ def scam_check_use_local():
     })
     logger.info(f"[scam-check] adopted local file {path} as model {model_id}")
     return jsonify({"ok": True, "modelId": model_id, "size": size})
+
+
+_text_classifier = None
+_text_classifier_path = None
+_text_classifier_lock = threading.Lock()
+
+
+def _get_text_classifier(model_path):
+    """Ленивая инициализация MediaPipe TextClassifier — отдельный движок от
+    LlmInference (используется для .tflite-классификаторов вроде
+    scam-detector-ru.tflite, в отличие от генеративных .task/Gemma).
+    Пересоздаёт классификатор, если путь к файлу модели поменялся (сменили
+    модель в настройках)."""
+    global _text_classifier, _text_classifier_path
+    with _text_classifier_lock:
+        if _text_classifier is None or _text_classifier_path != model_path:
+            from com.google.mediapipe.tasks.text.textclassifier import TextClassifier
+            from com.google.mediapipe.tasks.core import BaseOptions
+            base_options = BaseOptions.builder().setModelAssetPath(model_path).build()
+            options = TextClassifier.TextClassifierOptions.builder() \
+                .setBaseOptions(base_options).build()
+            _text_classifier = TextClassifier.createFromOptions(
+                _android_context, options)
+            _text_classifier_path = model_path
+        return _text_classifier
+
+
+def _run_scam_check_classifier(model_path, user_content):
+    """Путь инференса для .tflite-классификаторов (kind == 'classifier') —
+    в отличие от LlmInference с промптом, отдаёт готовые скоры по классам
+    напрямую, без парсинга сгенерированного текстом JSON — быстрее и не
+    может сломаться на невалидном выводе модели."""
+    classifier = _get_text_classifier(model_path)
+    result = classifier.classify(user_content)
+    categories = result.classificationResult().classifications().get(0).categories()
+    scores = {}
+    for i in range(categories.size()):
+        cat = categories.get(i)
+        scores[str(cat.categoryName())] = float(cat.score())
+    scam_score = scores.get("scam", 0.0)
+    return {
+        "is_scam": scam_score > 0.5,
+        "confidence": round(scam_score * 100),
+        "reason": "on-device classifier",
+    }
 
 
 def _run_scam_check(text: str, context: str = "") -> dict:
@@ -2390,6 +2496,27 @@ def _run_scam_check(text: str, context: str = "") -> dict:
     if not text:
         raise RuntimeError("empty text")
     context = (context or "").strip()[:1500]
+
+    if context:
+        user_content_early = (
+            "Предыдущие сообщения в этом чате (для контекста, самое старое "
+            "первым):\n" + context +
+            "\n\nПроверяемое сообщение (оцени именно его, с учётом контекста выше):\n" + text
+        )
+    else:
+        user_content_early = text
+
+    current_model_id = _current_ondevice_model_id()
+    current_model_info = _ondevice_models().get(current_model_id, {})
+    if current_model_info.get("kind") == "classifier" and _android_context is not None \
+            and os.path.exists(_model_file_path(current_model_id)):
+        try:
+            return _run_scam_check_classifier(
+                _model_file_path(current_model_id), user_content_early)
+        except Exception as e:
+            logger.warning(
+                f"[scam-check] classifier inference failed, falling back: {e}")
+            # падаем ниже в обычную ветку LLM/внешний сервер как fallback
 
     llm = get_on_device_llm()
     on_device_status = (
