@@ -4310,6 +4310,18 @@
                     setTimeout(refreshTranscribeModelStatus, 1500);
                 } else if (st.error) {
                     console.error('[transcribe] model download error:', st.error, 'full status:', JSON.stringify(st));
+                    const hdrHex = (st.whisper && st.whisper.debugHeaderHex) || st.debugHeaderHex;
+                    if (hdrHex) {
+                        let asText = '';
+                        try {
+                            asText = hdrHex.match(/.{1,2}/g).map(b => {
+                                const c = parseInt(b, 16);
+                                return (c >= 32 && c < 127) ? String.fromCharCode(c) : '.';
+                            }).join('');
+                        } catch (e) { }
+                        console.error('[transcribe] первые 64 байта скачанного файла (hex):', hdrHex);
+                        console.error('[transcribe] те же байты как текст:', asText);
+                    }
                     box.textContent = '❌ Не удалось скачать модель: ' + st.error;
                     if (retryBtn) retryBtn.style.display = '';
                 } else {

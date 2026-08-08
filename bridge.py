@@ -192,6 +192,8 @@ _whisper_model_state = {
     "error": None,
     "downloadedBytes": 0,
     "totalBytes": 0,
+    "debugHeaderHex": None,   # hex первых байт скачанного файла — для диагностики
+                              # без доступа к серверным логам (видно в debug-консоли UI)
 }
 _whisper_model_lock = threading.Lock()
 
@@ -615,6 +617,10 @@ def _install_whisper_model_from_file(src_path: str) -> bool:
         logger.warning(
             f"[transcribe] {msg} | magic_got={magic!r} magic_expected=b'ggml'")
         _whisper_model_state["error"] = msg
+        # Кладём hex первых 64 байт в state, чтобы можно было посмотреть
+        # содержимое скачанного файла прямо из debug-консоли UI, без
+        # доступа к серверным логам/файловой системе устройства.
+        _whisper_model_state["debugHeaderHex"] = head.hex()
         return False
     if src_path != WHISPER_MODEL_FILE:
         os.replace(src_path, WHISPER_MODEL_FILE)
@@ -625,6 +631,7 @@ def _install_whisper_model_from_file(src_path: str) -> bool:
         pass  # десктоп / модель ещё не грузилась — нечего сбрасывать
     _whisper_model_state["ready"] = True
     _whisper_model_state["error"] = None
+    _whisper_model_state["debugHeaderHex"] = None
     return True
 
 
