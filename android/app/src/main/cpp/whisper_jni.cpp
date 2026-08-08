@@ -1,0 +1,95 @@
+// JNI-мост между WhisperBridge.kt и upstream whisper.cpp (MIT).
+// Три пары: init/free контекста + сама транскрипция, плюс диагностика
+// сборки (nativeGetSystemInfo) — пригодится в _java_import_diagnostics.
+
+#include <jni.h>
+#include <string>
+#include <vector>
+#include <cstring>
+#include "whisper.h"
+
+extern "C" {
+
+JNIEXPORT jlong JNICALL
+Java_com_suscersal_maxclient_WhisperBridge_nativeInitContext(
+        JNIEnv *env, jclass /*clazz*/, jstring modelPath) {
+    const char *path = env->GetStringUTFChars(modelPath, nullptr);
+
+    struct whisper_context_params cparams = whisper_context_default_params();
+    cparams.use_gpu = false; // CPU-only на мобильных — без OpenCL/Metal-бэкенда
+
+    struct whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
+
+    env->ReleaseStringUTFChars(modelPath, path);
+
+    return reinterpret_cast<jlong>(ctx);
+}
+
+JNIEXPORT void JNICALL
+Java_com_suscersal_maxclient_WhisperBridge_nativeFreeContext(
+        JNIEnv * /*env*/, jclass /*clazz*/, jlong ctxPtr) {
+    if (ctxPtr == 0) return;
+    auto *ctx = reinterpret_cast<struct whisper_context *>(ctxPtr);
+    whisper_free(ctx);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_suscersal_maxclient_WhisperBridge_nativeTranscribe(
+        JNIEnv *env, jclass /*clazz*/, jlong ctxPtr,
+        jbyteArray pcm16, jstring language) {
+    if (ctxPtr == 0) {
+        return env->NewStringUTF("");
+    }
+    auto *ctx = reinterpret_cast<struct whisper_context *>(ctxPtr);
+
+    // PCM16LE mono -> float32 [-1, 1], как ожидает whisper_full
+    jsize byteLen = env->GetArrayLength(pcm16);
+    jbyte *bytes = env->GetByteArrayElements(pcm16, nullptr);
+
+    size_t sampleCount = static_cast<size_t>(byteLen) / 2;
+    std::vector<float> samples(sampleCount);
+    const auto *pcm = reinterpret_cast<const int16_t *>(bytes);
+    for (size_t i = 0; i < sampleCount; ++i) {
+        samples[i] = static_cast<float>(pcm[i]) / 32768.0f;
+    }
+    env->ReleaseByteArrayElements(pcm16, bytes, JNI_ABORT);
+
+    const char *langChars = env->GetStringUTFChars(language, nullptr);
+    std::string lang(langChars);
+    env->ReleaseStringUTFChars(language, langChars);
+
+    struct whisper_full_params wparams =
+            whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    wparams.print_progress = false;
+    wparams.print_special = false;
+    wparams.print_realtime = false;
+    wparams.print_timestamps = false;
+    wparams.translate = false;
+    wparams.single_segment = false;
+    wparams.no_context = true;
+    wparams.language = (lang == "auto") ? nullptr : lang.c_str();
+    wparams.n_threads = 4;
+
+    int rc = whisper_full(ctx, wparams, samples.data(), static_cast<int>(samples.size()));
+    if (rc != 0) {
+        return env->NewStringUTF("");
+    }
+
+    std::string result;
+    int nSegments = whisper_full_n_segments(ctx);
+    for (int i = 0; i < nSegments; ++i) {
+        const char *segText = whisper_full_get_segment_text(ctx, i);
+        result += segText;
+    }
+
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_suscersal_maxclient_WhisperBridge_nativeGetSystemInfo(
+        JNIEnv *env, jclass /*clazz*/) {
+    const char *info = whisper_print_system_info();
+    return env->NewStringUTF(info ? info : "");
+}
+
+} // extern "C"
