@@ -436,7 +436,7 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
     from java.io import File, FileOutputStream
     from android.media import (MediaExtractor, MediaCodec, MediaFormat,
                                 MediaCodecList, MediaCodecInfo)
-    import jarray  # предоставляется Chaquopy для Java byte[]
+    
 
     tmp_in = os.path.join(os.path.dirname(
         SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
