@@ -4220,7 +4220,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 const resp = await fetch('/api/transcribe/settings');
                 transcribeSettingsCache = await resp.json();
             } catch (e) {
-                transcribeSettingsCache = { enabled: false, url: 'http://localhost:8090/v1/audio/transcriptions', model: 'whisper-tiny', language: 'ru', autoTranscribeIncoming: false };
+                transcribeSettingsCache = { enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false };
             }
             return transcribeSettingsCache;
         }
@@ -4230,38 +4230,88 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 enabled: document.getElementById('transcribeEnabled')?.checked || false,
                 url: document.getElementById('transcribeUrl')?.value.trim() || '',
                 model: document.getElementById('transcribeModel')?.value.trim() || '',
-                language: document.getElementById('transcribeLanguage')?.value.trim() || '',
+                language: document.getElementById('transcribeLanguage')?.value.trim() || 'ru',
                 autoTranscribeIncoming: document.getElementById('transcribeAutoIncoming')?.checked || false,
             };
-            const statusEl = document.getElementById('transcribeStatus');
+            const statusEl = document.getElementById('transcribeSaveStatus');
             try {
                 const resp = await fetch('/api/transcribe/settings', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                 });
                 transcribeSettingsCache = await resp.json();
                 if (statusEl) statusEl.textContent = '✅ Сохранено';
+                refreshTranscribeModelStatus();
             } catch (e) {
                 if (statusEl) statusEl.textContent = '❌ Ошибка: ' + (e.message || e);
             }
         }
 
+        async function refreshTranscribeModelStatus() {
+            const box = document.getElementById('transcribeModelStatus');
+            const barWrap = document.getElementById('transcribeProgressWrap');
+            const bar = document.getElementById('transcribeProgressBar');
+            const deleteBtn = document.getElementById('transcribeDeleteBtn');
+            const retryBtn = document.getElementById('transcribeRetryBtn');
+            if (!box) return;
+            try {
+                const res = await fetch('/api/transcribe/model-status');
+                const st = await res.json();
+                if (barWrap) barWrap.style.display = 'none';
+                if (deleteBtn) deleteBtn.style.display = 'none';
+                if (retryBtn) retryBtn.style.display = 'none';
+
+                if (!st.onDeviceSupported) {
+                    box.textContent = 'On-device модель недоступна (не Android-сборка) — можно указать внешний сервер ниже.';
+                } else if (st.ready) {
+                    box.innerHTML = '✅ Модель на устройстве готова, распознавание работает офлайн.';
+                    if (deleteBtn) deleteBtn.style.display = '';
+                } else if (st.downloading) {
+                    const pct = st.totalBytes ? Math.round(st.downloadedBytes / st.totalBytes * 100) : null;
+                    box.textContent = pct != null
+                        ? `⏳ Скачивается модель (~40 МБ): ${pct}% (${formatBytes(st.downloadedBytes)} / ${formatBytes(st.totalBytes)})`
+                        : `⏳ Скачивается модель: ${formatBytes(st.downloadedBytes)}…`;
+                    if (barWrap && bar) {
+                        barWrap.style.display = '';
+                        bar.style.width = (pct != null ? pct : 0) + '%';
+                    }
+                    setTimeout(refreshTranscribeModelStatus, 1500);
+                } else if (st.error) {
+                    box.textContent = '❌ Не удалось скачать модель: ' + st.error;
+                    if (retryBtn) retryBtn.style.display = '';
+                } else {
+                    box.textContent = 'Модель ещё не скачана.';
+                    if (retryBtn) { retryBtn.style.display = ''; retryBtn.textContent = '⬇️ Скачать модель'; }
+                }
+            } catch (e) {
+                box.textContent = '';
+            }
+        }
+
+        async function transcribeModelDownload() {
+            await fetch('/api/transcribe/model/download', { method: 'POST' });
+            refreshTranscribeModelStatus();
+        }
+
+        async function transcribeModelDelete() {
+            if (!confirm('Удалить скачанную модель распознавания речи?')) return;
+            await fetch('/api/transcribe/model', { method: 'DELETE' });
+            refreshTranscribeModelStatus();
+        }
+
         function renderTranscribePage() {
             if (!transcribeSettingsCache) {
-                loadTranscribeSettings();
+                loadTranscribeSettings().then(() => refreshTranscribeModelStatus());
             }
+            setTimeout(refreshTranscribeModelStatus, 0);
             const cfg = transcribeSettingsCache || {
-                enabled: false, url: 'http://localhost:8090/v1/audio/transcriptions',
-                model: 'whisper-tiny', language: 'ru', autoTranscribeIncoming: false
+                enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false
             };
             return `
         <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
             Локальная расшифровка входящих голосовых сообщений — отдельная от
-            скам-проверки нейросеть. Работает через локальный Whisper-совместимый
-            сервер (whisper.cpp server, faster-whisper-server и т.п. с эндпоинтом
-            /v1/audio/transcriptions), который нужно запустить самостоятельно.
-            Для слабых телефонов рекомендуются модели <b>tiny</b> или <b>base</b> —
-            они заметно легче моделей скам-проверки. Текст сообщений никуда,
-            кроме указанного локального адреса, не отправляется.
+            скам-проверки нейросеть (Vosk), работает прямо на устройстве, офлайн,
+            без сервера. Модель маленькая (~40 МБ) и тянет даже слабые телефоны.
+            Скачивается один раз при включении.
         </div>
         <div class="settings-row">
             <label style="display:flex;align-items:center;gap:8px;">
@@ -4275,20 +4325,35 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 Автоматически расшифровывать входящие голосовые
             </label>
         </div>
-        <div style="margin:14px 0 6px;font-weight:600;">Локальный сервер распознавания</div>
-        <div class="settings-row">
-            <input class="setting-key" id="transcribeUrl" placeholder="http://localhost:8090/v1/audio/transcriptions"
-                   value="${escapeHtml(cfg.url || '')}" style="flex:1;">
+        <div id="transcribeModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
+        <div id="transcribeProgressWrap" style="display:none;height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:8px;">
+            <div id="transcribeProgressBar" style="height:100%;width:0%;background:#4a9eff;transition:width .3s;"></div>
         </div>
-        <div class="settings-row">
-            <input class="setting-value" id="transcribeModel" placeholder="Модель (например whisper-tiny)"
-                   value="${escapeHtml(cfg.model || '')}" style="flex:1;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button type="button" id="transcribeRetryBtn" style="display:none;" onclick="transcribeModelDownload()">⬇️ Скачать модель</button>
+            <button type="button" id="transcribeDeleteBtn" style="display:none;" onclick="transcribeModelDelete()">🗑️ Удалить модель</button>
         </div>
-        <div class="settings-row">
-            <input class="setting-value" id="transcribeLanguage" placeholder="Язык (ru, en, ...)"
-                   value="${escapeHtml(cfg.language || '')}" style="flex:1;">
-        </div>
-        <div id="transcribeStatus" style="font-size:12px;color:#888;margin:4px 0;"></div>
+        <details style="margin-top:10px;">
+            <summary style="cursor:pointer;font-weight:600;">Дополнительно: внешний сервер (fallback)</summary>
+            <div style="line-height:1.5;margin:8px 0;font-size:13px;color:#888;">
+                Если on-device модель недоступна или не справилась — можно указать
+                свой Whisper-совместимый сервер (эндпоинт /v1/audio/transcriptions).
+                Необязательно.
+            </div>
+            <div class="settings-row">
+                <input class="setting-key" id="transcribeUrl" placeholder="http://localhost:8090/v1/audio/transcriptions"
+                       value="${escapeHtml(cfg.url || '')}" style="flex:1;">
+            </div>
+            <div class="settings-row">
+                <input class="setting-value" id="transcribeModel" placeholder="Модель (например whisper-tiny)"
+                       value="${escapeHtml(cfg.model || '')}" style="flex:1;">
+            </div>
+            <div class="settings-row">
+                <input class="setting-value" id="transcribeLanguage" placeholder="Язык (ru, en, ...)"
+                       value="${escapeHtml(cfg.language || 'ru')}" style="flex:1;">
+            </div>
+        </details>
+        <div id="transcribeSaveStatus" style="font-size:12px;color:#888;margin:8px 0 0;"></div>
         <div class="settings-content-footer">
             <button class="btn-save" onclick="saveTranscribeSettings()">💾 Сохранить</button>
         </div>`;

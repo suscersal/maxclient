@@ -265,6 +265,271 @@ def _save_transcribe_settings(patch: dict):
     return cfg
 
 
+# --- On-device распознавание (Android): Vosk через Chaquopy ---
+#
+# В отличие от антискама (LLM, сотни МБ, требует GPU/NPU) распознавание речи
+# должно тянуть даже слабый телефон — поэтому тут не MediaPipe-LLM и не
+# внешний сервер, а Vosk: маленькая офлайн-модель (~40 МБ для ru-small),
+# работает на CPU в реальном времени даже на старых устройствах.
+# com.alphacephei:vosk-android уже подключена в build.gradle и импортирована
+# в bridge_launcher.py (from com.alphacephei import vosk) — здесь она
+# реально используется.
+#
+# Vosk принимает только сырой PCM16 mono. Голосовые сообщения приходят в
+# OGG/Opus — решаем это средствами самого Android (android.media.
+# MediaExtractor + MediaCodec), без ffmpeg и без сторонних C-библиотек,
+# которые Chaquopy не соберёт под arm64 сама.
+_asr_model_lock = threading.Lock()
+_vosk_model = None  # кешируем — инициализация модели не бесплатная
+
+
+def _ensure_asr_download_dir():
+    os.makedirs(os.path.dirname(ASR_MODEL_CACHE_FILE), exist_ok=True)
+
+
+def ensure_asr_model_cached():
+    """Качает и распаковывает Vosk-модель один раз, с прогрессом в
+    _asr_model_state (см. /api/transcribe/model-status). Не блокирует
+    остальной бридж — вызывается в фоновом потоке."""
+    if os.path.isdir(ASR_MODEL_EXTRACTED_DIR) and os.listdir(ASR_MODEL_EXTRACTED_DIR):
+        _asr_model_state["ready"] = True
+        return True
+    with _asr_model_lock:
+        if os.path.isdir(ASR_MODEL_EXTRACTED_DIR) and os.listdir(ASR_MODEL_EXTRACTED_DIR):
+            _asr_model_state["ready"] = True
+            return True
+        if _asr_model_state["downloading"]:
+            return False
+        _ensure_asr_download_dir()
+        _asr_model_state.update(
+            {"downloading": True, "error": None, "downloadedBytes": 0, "totalBytes": 0})
+
+    tmp_path = ASR_MODEL_CACHE_FILE + ".part"
+    timeout = int(os.getenv("ASR_MODEL_DOWNLOAD_TIMEOUT", "60"))
+    max_retries = int(os.getenv("ASR_MODEL_DOWNLOAD_RETRIES", "5"))
+    try:
+        logger.info(
+            f"[transcribe] downloading Vosk model from {ASR_DOWNLOAD_URL} (~40MB, one-time)…")
+        total = 0
+        attempt = 0
+        while True:
+            downloaded_so_far = os.path.getsize(
+                tmp_path) if os.path.exists(tmp_path) else 0
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resume = downloaded_so_far > 0
+            if resume:
+                headers["Range"] = f"bytes={downloaded_so_far}-"
+            req = urllib.request.Request(ASR_DOWNLOAD_URL, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    if resume and resp.status != 206:
+                        downloaded_so_far = 0
+                        mode = "wb"
+                    else:
+                        mode = "ab" if resume else "wb"
+                    content_length = resp.getheader("Content-Length")
+                    if content_length:
+                        total = downloaded_so_far + \
+                            int(content_length) if (
+                                resume and resp.status == 206) else int(content_length)
+                    _asr_model_state["totalBytes"] = total
+                    downloaded = downloaded_so_far
+                    _asr_model_state["downloadedBytes"] = downloaded
+                    with open(tmp_path, mode) as f:
+                        while True:
+                            chunk = resp.read(1024 * 256)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            _asr_model_state["downloadedBytes"] = downloaded
+                break
+            except (socket.timeout, TimeoutError, ConnectionError, urllib.error.URLError) as e:
+                attempt += 1
+                if attempt > max_retries:
+                    raise
+                logger.warning(
+                    f"[transcribe] transient network error ({e}), retry {attempt}/{max_retries}…")
+                time.sleep(min(2 ** attempt, 30))
+                continue
+
+        if not zipfile.is_zipfile(tmp_path):
+            os.remove(tmp_path)
+            msg = "скачанный файл повреждён (не zip) — попробуйте ещё раз"
+            logger.warning(f"[transcribe] {msg}")
+            _asr_model_state["error"] = msg
+            return False
+
+        # Модель распаковываем во временную папку и переименовываем в
+        # финальную одним атомарным шагом — чтобы наполовину распакованная
+        # директория никогда не воспринималась как готовая модель.
+        extract_tmp = ASR_MODEL_EXTRACTED_DIR + ".part"
+        if os.path.isdir(extract_tmp):
+            shutil.rmtree(extract_tmp, ignore_errors=True)
+        with zipfile.ZipFile(tmp_path) as zf:
+            zf.extractall(os.path.dirname(ASR_MODEL_EXTRACTED_DIR))
+        # Архив Vosk распаковывается в папку с именем внутри zip
+        # (vosk-model-small-ru-0.22) — приводим её к ожидаемому пути.
+        extracted_name = None
+        with zipfile.ZipFile(tmp_path) as zf:
+            top_level = {p.split("/")[0] for p in zf.namelist() if p}
+            if len(top_level) == 1:
+                extracted_name = top_level.pop()
+        actual_dir = os.path.join(os.path.dirname(
+            ASR_MODEL_EXTRACTED_DIR), extracted_name) if extracted_name else None
+        if actual_dir and os.path.isdir(actual_dir) and actual_dir != ASR_MODEL_EXTRACTED_DIR:
+            if os.path.isdir(ASR_MODEL_EXTRACTED_DIR):
+                shutil.rmtree(ASR_MODEL_EXTRACTED_DIR, ignore_errors=True)
+            os.replace(actual_dir, ASR_MODEL_EXTRACTED_DIR)
+
+        os.remove(tmp_path)
+        logger.info("[transcribe] Vosk model ready")
+        _asr_model_state["ready"] = True
+        return True
+    except Exception as e:
+        logger.warning(f"[transcribe] model download failed: {e}")
+        _asr_model_state["error"] = str(e)
+        return False
+    finally:
+        if os.path.exists(tmp_path) and not _asr_model_state.get("ready"):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+        _asr_model_state["downloading"] = False
+
+
+def delete_asr_model():
+    global _vosk_model
+    with _asr_model_lock:
+        _vosk_model = None
+        if os.path.isdir(ASR_MODEL_EXTRACTED_DIR):
+            shutil.rmtree(ASR_MODEL_EXTRACTED_DIR, ignore_errors=True)
+        if os.path.exists(ASR_MODEL_CACHE_FILE):
+            try:
+                os.remove(ASR_MODEL_CACHE_FILE)
+            except Exception:
+                pass
+        _asr_model_state.update(
+            {"ready": False, "error": None, "downloadedBytes": 0, "totalBytes": 0})
+
+
+def _get_vosk_model():
+    """Ленивая инициализация — Model(dir) читает граф с диска и держит его в
+    памяти, поэтому создаём один раз и переиспользуем между сообщениями."""
+    global _vosk_model
+    if _vosk_model is not None:
+        return _vosk_model
+    with _asr_model_lock:
+        if _vosk_model is None:
+            from com.alphacephei import vosk
+            _vosk_model = vosk.Model(ASR_MODEL_EXTRACTED_DIR)
+        return _vosk_model
+
+
+def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
+    """Декодирует OGG/Opus (или любой формат, который умеет сам Android) в
+    сырой PCM16 mono 16kHz средствами платформы — android.media.
+    MediaExtractor + MediaCodec. Это НЕ работает на десктопе (python
+    bridge.py напрямую) — там просто бросится ImportError, вызывающий код
+    ловит это и уходит на fallback (внешний сервер, если настроен)."""
+    from java.io import File, FileOutputStream
+    from android.media import (MediaExtractor, MediaCodec, MediaFormat,
+                                MediaCodecList, MediaCodecInfo)
+    import jarray  # предоставляется Chaquopy для Java byte[]
+
+    tmp_in = os.path.join(os.path.dirname(
+        SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
+    with open(tmp_in, "wb") as f:
+        f.write(audio_bytes)
+
+    extractor = MediaExtractor()
+    pcm_chunks = []
+    try:
+        extractor.setDataSource(tmp_in)
+        track_format = None
+        track_index = -1
+        for i in range(extractor.getTrackCount()):
+            fmt = extractor.getTrackFormat(i)
+            mime = fmt.getString(MediaFormat.KEY_MIME)
+            if mime and mime.startswith("audio/"):
+                track_format = fmt
+                track_index = i
+                break
+        if track_index < 0:
+            raise RuntimeError("audio track not found")
+        extractor.selectTrack(track_index)
+
+        mime = track_format.getString(MediaFormat.KEY_MIME)
+        codec = MediaCodec.createDecoderByType(mime)
+        codec.configure(track_format, None, None, 0)
+        codec.start()
+
+        input_done = False
+        output_done = False
+        timeout_us = 10000
+
+        while not output_done:
+            if not input_done:
+                in_idx = codec.dequeueInputBuffer(timeout_us)
+                if in_idx >= 0:
+                    in_buf = codec.getInputBuffer(in_idx)
+                    sample_size = extractor.readSampleData(in_buf, 0)
+                    if sample_size < 0:
+                        codec.queueInputBuffer(
+                            in_idx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        input_done = True
+                    else:
+                        pts = extractor.getSampleTime()
+                        codec.queueInputBuffer(in_idx, 0, sample_size, pts, 0)
+                        extractor.advance()
+
+            info = MediaCodec.BufferInfo()
+            out_idx = codec.dequeueOutputBuffer(info, timeout_us)
+            if out_idx >= 0:
+                out_buf = codec.getOutputBuffer(out_idx)
+                out_buf.rewind()
+                # Chaquopy: java.nio.ByteBuffer.get(byte[]) читает буфер в
+                # Java-массив, который затем прозрачно конвертируется в
+                # Python bytes.
+                arr = jarray.zeros(info.size, 'b')
+                out_buf.get(arr)
+                pcm_chunks.append(bytes(bytearray(arr)))
+                codec.releaseOutputBuffer(out_idx, False)
+                if info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM:
+                    output_done = True
+            elif out_idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED:
+                pass
+
+        codec.stop()
+        codec.release()
+    finally:
+        extractor.release()
+        try:
+            os.remove(tmp_in)
+        except Exception:
+            pass
+
+    return b"".join(pcm_chunks)
+
+
+def _run_transcribe_ondevice(audio_bytes: bytes) -> str:
+    """Полный офлайн-путь: decode (MediaCodec) -> Vosk. Бросает исключение,
+    если модель не готова или декод/распознавание не удались — вызывающий
+    код сам решает про fallback."""
+    if not _asr_model_state.get("ready"):
+        raise RuntimeError("модель ещё не скачана")
+    from com.alphacephei import vosk
+    model = _get_vosk_model()
+    pcm = _decode_audio_to_pcm16(audio_bytes)
+    if not pcm:
+        raise RuntimeError("не удалось декодировать аудио")
+    rec = vosk.Recognizer(model, 16000.0)
+    rec.AcceptWaveform(pcm)
+    result = json.loads(rec.FinalResult())
+    return (result.get("text") or "").strip()
+
+
 def _load_transcribe_cache():
     try:
         with open(TRANSCRIBE_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -645,6 +910,8 @@ def set_android_context(ctx):
     # сразу в фоне, не дожидаясь первого сообщения.
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
+    if _get_transcribe_settings()["enabled"]:
+        threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
 
 
 def ensure_gemma_model_cached(model_id=None):
@@ -2471,7 +2738,28 @@ def set_transcribe_settings():
         "language": (data.get("language") or "").strip() or None,
         "autoTranscribeIncoming": data.get("autoTranscribeIncoming"),
     })
+    if cfg.get("enabled"):
+        # Включили — качаем модель сразу в фоне, не дожидаясь первого
+        # голосового сообщения (как и антискам делает при своём включении).
+        threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
     return jsonify(_get_transcribe_settings())
+
+
+@app.route("/api/transcribe/model-status", methods=["GET"])
+def transcribe_model_status():
+    return jsonify({**_asr_model_state, "onDeviceSupported": _android_context is not None})
+
+
+@app.route("/api/transcribe/model/download", methods=["POST"])
+def transcribe_model_download():
+    threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@app.route("/api/transcribe/model", methods=["DELETE"])
+def transcribe_model_delete():
+    delete_asr_model()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/transcribe", methods=["POST"])
@@ -2480,7 +2768,10 @@ def transcribe_voice_message():
     url — это attach.baseUrl/fileUrl/url с фронта (тот же адрес, что уходит
     в /video?url=... для проигрывания). Результат кэшируется по messageId,
     повторный вызов для того же сообщения просто отдаёт кэш (если не
-    передан force=true)."""
+    передан force=true).
+    Сначала пробуем on-device Vosk (если модель скачана), и только если она
+    недоступна/не готова — fallback на внешний сервер из настроек (если
+    задан url)."""
     data = request.get_json(force=True) or {}
     message_id = data.get("messageId")
     url = data.get("url")
@@ -2495,8 +2786,8 @@ def transcribe_voice_message():
             return jsonify({"text": cached["text"], "cached": True})
 
     cfg = _get_transcribe_settings()
-    if not cfg["url"]:
-        return jsonify({"error": "Адрес локального Whisper-сервера не настроен"}), 400
+    if not cfg["enabled"]:
+        return jsonify({"error": "Расшифровка аудио выключена в настройках"}), 400
 
     try:
         audio_bytes, content_type = _download_audio_bytes(url)
@@ -2504,20 +2795,31 @@ def transcribe_voice_message():
         logger.warning(f"[transcribe] failed to download audio: {e}")
         return jsonify({"error": f"Не удалось скачать аудио: {e}"}), 502
 
-    try:
-        text = _run_transcribe(audio_bytes, content_type)
-    except urllib.error.URLError as e:
-        logger.warning(f"[transcribe] engine unreachable: {e}")
-        return jsonify({"error": "Локальный сервер распознавания недоступен. "
-                        "Проверьте, что он запущен, и адрес в настройках верный."}), 502
-    except Exception as e:
-        logger.warning(f"[transcribe] failed: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": f"Ошибка распознавания: {e}"}), 500
+    text = None
+    ondevice_error = None
+    if _asr_model_state.get("ready"):
+        try:
+            text = _run_transcribe_ondevice(audio_bytes)
+        except Exception as e:
+            ondevice_error = e
+            logger.warning(f"[transcribe] on-device failed: {e}\n{traceback.format_exc()}")
+
+    if not text and cfg.get("url"):
+        try:
+            text = _run_transcribe(audio_bytes, content_type)
+        except Exception as e:
+            logger.warning(f"[transcribe] fallback server failed: {e}")
+            if ondevice_error is not None:
+                return jsonify({"error": f"Локально: {ondevice_error}; сервер: {e}"}), 502
+            return jsonify({"error": "Локальный сервер распознавания недоступен. "
+                            "Проверьте, что он запущен, и адрес в настройках верный."}), 502
 
     if not text:
-        return jsonify({"error": "Не удалось распознать речь (пустой результат)"}), 502
+        if not _asr_model_state.get("ready") and not cfg.get("url"):
+            return jsonify({"error": "Модель ещё не скачана — откройте настройки "
+                            "«Расшифровка аудио» и дождитесь загрузки"}), 400
+        return jsonify({"error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}"}), 502
 
-    _set_cached_transcript(message_id, text)
     return jsonify({"text": text, "cached": False})
 
 
