@@ -150,62 +150,59 @@
             font-size: 14px;
             outline: none;
         }
-
         /* ===== НОВЫЕ СТИЛИ ДЛЯ НАСТРОЕК (МОБИЛЬНАЯ ВЕРСИЯ) ===== */
 
-        /* Меню настроек — ограничиваем высоту и делаем скролл */
-        .settings-menu {
-            max-height: 200px;
-            /* Показываем ~3-4 пункта */
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-            flex-shrink: 0;
-        }
+/* Меню настроек — ограничиваем высоту и делаем скролл */
+.settings-menu {
+    max-height: 200px; /* Показываем ~3-4 пункта */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-shrink: 0;
+}
 
-        /* Скрываем скроллбар для чистоты интерфейса */
-        .settings-menu::-webkit-scrollbar {
-            width: 3px;
-        }
+/* Скрываем скроллбар для чистоты интерфейса */
+.settings-menu::-webkit-scrollbar {
+    width: 3px;
+}
+.settings-menu::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
 
-        .settings-menu::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 3px;
-        }
+/* Уменьшаем отступы в меню для компактности */
+.settings-menu-item {
+    padding: 10px 12px;
+    font-size: 14px;
+    min-height: 44px;
+}
 
-        /* Уменьшаем отступы в меню для компактности */
-        .settings-menu-item {
-            padding: 10px 12px;
-            font-size: 14px;
-            min-height: 44px;
-        }
+.settings-menu-item .icon {
+    font-size: 18px;
+    width: 28px;
+}
 
-        .settings-menu-item .icon {
-            font-size: 18px;
-            width: 28px;
-        }
+/* Контент настройки тоже с ограничением */
+.settings-content {
+    max-height: 50vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 0;
+}
 
-        /* Контент настройки тоже с ограничением */
-        .settings-content {
-            max-height: 50vh;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-            padding: 4px 0;
-        }
+/* Сама модалка чуть меньше, чтобы влезала на экран */
+.settings-modal {
+    max-height: 80vh;
+    padding: 16px 16px 20px;
+}
 
-        /* Сама модалка чуть меньше, чтобы влезала на экран */
-        .settings-modal {
-            max-height: 80vh;
-            padding: 16px 16px 20px;
-        }
+.settings-modal-header h2 {
+    font-size: 18px;
+}
 
-        .settings-modal-header h2 {
-            font-size: 18px;
-        }
-
-        /* В тёмной теме поправляем скроллбар */
-        html[data-theme="dark"] .settings-menu::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-        }
+/* В тёмной теме поправляем скроллбар */
+html[data-theme="dark"] .settings-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+}
 
         .input-group button {
             padding: 10px 20px;
@@ -217,180 +214,175 @@
             cursor: pointer;
             white-space: nowrap;
         }
-
         /* ===== ИСПРАВЛЕНИЯ ДЛЯ ТЁМНОЙ ТЕМЫ ===== */
 
-        /* Цвета текста в настройках */
-        .settings-modal h2,
-        .settings-modal .settings-menu-item,
-        .settings-modal .settings-content-page,
-        .settings-modal .settings-empty,
-        .settings-modal label,
-        .settings-modal .settings-row input,
-        .settings-modal .settings-row select,
-        .settings-modal .settings-content-footer button {
-            color: inherit;
-        }
+/* Цвета текста в настройках */
+.settings-modal h2,
+.settings-modal .settings-menu-item,
+.settings-modal .settings-content-page,
+.settings-modal .settings-empty,
+.settings-modal label,
+.settings-modal .settings-row input,
+.settings-modal .settings-row select,
+.settings-modal .settings-content-footer button {
+    color: inherit;
+}
 
-        /* Фон модалки в тёмной теме */
-        html[data-theme="dark"] .settings-modal {
-            background: #1C1C1E;
-        }
+/* Фон модалки в тёмной теме */
+html[data-theme="dark"] .settings-modal {
+    background: #1C1C1E;
+}
 
-        html[data-theme="dark"] .settings-modal-header {
-            border-bottom-color: #2C2C2E;
-        }
+html[data-theme="dark"] .settings-modal-header {
+    border-bottom-color: #2C2C2E;
+}
 
-        html[data-theme="dark"] .settings-modal-header h2 {
-            color: #FFFFFF;
-        }
+html[data-theme="dark"] .settings-modal-header h2 {
+    color: #FFFFFF;
+}
 
-        /* Пункты меню */
-        html[data-theme="dark"] .settings-menu-item {
-            color: #FFFFFF;
-        }
+/* Пункты меню */
+html[data-theme="dark"] .settings-menu-item {
+    color: #FFFFFF;
+}
 
-        html[data-theme="dark"] .settings-menu-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-        }
+html[data-theme="dark"] .settings-menu-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
 
-        html[data-theme="dark"] .settings-menu-item:active {
-            background: rgba(255, 255, 255, 0.12);
-        }
+html[data-theme="dark"] .settings-menu-item:active {
+    background: rgba(255, 255, 255, 0.12);
+}
 
-        /* Текст в контенте */
-        html[data-theme="dark"] .settings-content-page {
-            color: #FFFFFF;
-        }
+/* Текст в контенте */
+html[data-theme="dark"] .settings-content-page {
+    color: #FFFFFF;
+}
 
-        html[data-theme="dark"] .settings-empty {
-            color: #8E8E93;
-        }
+html[data-theme="dark"] .settings-empty {
+    color: #8E8E93;
+}
 
-        /* Поля ввода */
-        html[data-theme="dark"] .settings-row input,
-        html[data-theme="dark"] .settings-row select {
-            background: #2C2C2E;
-            border-color: #3A3A3C;
-            color: #FFFFFF;
-        }
+/* Поля ввода */
+html[data-theme="dark"] .settings-row input,
+html[data-theme="dark"] .settings-row select {
+    background: #2C2C2E;
+    border-color: #3A3A3C;
+    color: #FFFFFF;
+}
 
-        html[data-theme="dark"] .settings-row input:focus {
-            border-color: #4DA3FF;
-        }
+html[data-theme="dark"] .settings-row input:focus {
+    border-color: #4DA3FF;
+}
 
-        /* Кнопки */
-        html[data-theme="dark"] .btn-add {
-            background: rgba(77, 163, 255, 0.15);
-            color: #4DA3FF;
-        }
+/* Кнопки */
+html[data-theme="dark"] .btn-add {
+    background: rgba(77, 163, 255, 0.15);
+    color: #4DA3FF;
+}
 
-        html[data-theme="dark"] .btn-save {
-            background: #4DA3FF;
-            color: #FFFFFF;
-        }
+html[data-theme="dark"] .btn-save {
+    background: #4DA3FF;
+    color: #FFFFFF;
+}
 
-        html[data-theme="dark"] .settings-modal-close {
-            background: #2C2C2E;
-            color: #FFFFFF;
-        }
+html[data-theme="dark"] .settings-modal-close {
+    background: #2C2C2E;
+    color: #FFFFFF;
+}
 
-        /* Чекбоксы и переключатели */
-        html[data-theme="dark"] .settings-row label {
-            color: #FFFFFF;
-        }
+/* Чекбоксы и переключатели */
+html[data-theme="dark"] .settings-row label {
+    color: #FFFFFF;
+}
 
-        /* Меню-разделитель */
-        html[data-theme="dark"] .settings-menu-divider {
-            border-color: #2C2C2E;
-        }
+/* Меню-разделитель */
+html[data-theme="dark"] .settings-menu-divider {
+    border-color: #2C2C2E;
+}
 
-        /* Опасные кнопки */
-        html[data-theme="dark"] .settings-menu-item.danger {
-            color: #FF6B6B;
-        }
+/* Опасные кнопки */
+html[data-theme="dark"] .settings-menu-item.danger {
+    color: #FF6B6B;
+}
 
-        html[data-theme="dark"] .settings-menu-item.danger:hover {
-            background: rgba(255, 107, 107, 0.12);
-        }
+html[data-theme="dark"] .settings-menu-item.danger:hover {
+    background: rgba(255, 107, 107, 0.12);
+}
 
-        html[data-theme="dark"] .settings-logout-btn {
-            background: #E53935;
-            color: #FFFFFF;
-        }
+html[data-theme="dark"] .settings-logout-btn {
+    background: #E53935;
+    color: #FFFFFF;
+}
 
-        html[data-theme="dark"] .settings-logout-btn:hover {
-            background: #C62828;
-        }
+html[data-theme="dark"] .settings-logout-btn:hover {
+    background: #C62828;
+}
 
-        /* Для полей ввода пароля и прочего */
-        html[data-theme="dark"] #passwordSection {
-            background: rgba(255, 160, 0, 0.12);
-            border-color: rgba(255, 160, 0, 0.3);
-        }
+/* Для полей ввода пароля и прочего */
+html[data-theme="dark"] #passwordSection {
+    background: rgba(255, 160, 0, 0.12);
+    border-color: rgba(255, 160, 0, 0.3);
+}
 
-        html[data-theme="dark"] #passwordSection .password-hint {
-            color: #FFB84D;
-        }
+html[data-theme="dark"] #passwordSection .password-hint {
+    color: #FFB84D;
+}
 
-        html[data-theme="dark"] #passwordSection .password-email {
-            color: #8E8E93;
-        }
+html[data-theme="dark"] #passwordSection .password-email {
+    color: #8E8E93;
+}
 
-        /* Статус в настройках */
-        html[data-theme="dark"] #scamCheckStatus,
-        html[data-theme="dark"] #transcribeStatus {
-            color: #8E8E93;
-        }
+/* Статус в настройках */
+html[data-theme="dark"] #scamCheckStatus,
+html[data-theme="dark"] #transcribeStatus {
+    color: #8E8E93;
+}
 
         .input-group button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
         }
-
         /* ===== ДЕБАГ-КОНСОЛЬ ПОВЕРХ ВСЕГО ===== */
 
-        /* Сама консоль уже имеет z-index: 999999, но для надёжности */
-        #debugConsole {
-            z-index: 9999999 !important;
-            /* Выше всех модалок */
-        }
+/* Сама консоль уже имеет z-index: 999999, но для надёжности */
+#debugConsole {
+    z-index: 9999999 !important; /* Выше всех модалок */
+}
 
-        /* Кнопка-жук */
-        #debugConsoleToggle {
-            z-index: 10000000 !important;
-            /* Ещё выше консоли */
-        }
+/* Кнопка-жук */
+#debugConsoleToggle {
+    z-index: 10000000 !important; /* Ещё выше консоли */
+}
 
-        /* Кнопки прокрутки */
-        #debugConsoleBtnTop,
-        #debugConsoleBtnBottom {
-            z-index: 10000001 !important;
-        }
+/* Кнопки прокрутки */
+#debugConsoleBtnTop,
+#debugConsoleBtnBottom {
+    z-index: 10000001 !important;
+}
 
-        /* Полоска-хваталка */
-        #debugConsoleHandle {
-            z-index: 10000002 !important;
-        }
+/* Полоска-хваталка */
+#debugConsoleHandle {
+    z-index: 10000002 !important;
+}
 
-        /* Убеждаемся, что модалки НЕ перекрывают консоль */
-        .settings-modal-overlay,
-        .chat-profile-overlay,
-        .video-modal,
-        .media-viewer {
-            z-index: 1000000 !important;
-            /* Меньше, чем у консоли */
-        }
+/* Убеждаемся, что модалки НЕ перекрывают консоль */
+.settings-modal-overlay,
+.chat-profile-overlay,
+.video-modal,
+.media-viewer {
+    z-index: 1000000 !important; /* Меньше, чем у консоли */
+}
 
-        /* Мини-приложение тоже ниже дебаг-консоли */
-        .miniapp-overlay {
-            z-index: 999999 !important;
-        }
+/* Мини-приложение тоже ниже дебаг-консоли */
+.miniapp-overlay {
+    z-index: 999999 !important;
+}
 
-        /* Чтобы консоль не перекрывала саму себя */
-        #debugConsole * {
-            z-index: auto !important;
-        }
+/* Чтобы консоль не перекрывала саму себя */
+#debugConsole * {
+    z-index: auto !important;
+}
 
         .input-group button.success {
             background: #28a745;
@@ -2751,14 +2743,19 @@
             btnTop.onclick = function () { box.scrollTop = 0; };
             var btnBottom = document.createElement('button');
             btnBottom.textContent = '⬇';
-            btnBottom.style.cssText = btnStyle + 'bottom:6px;';
+            btnBottom.style.cssText = btnStyle;
             btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
 
             // Высота консоли определяет, где над ней висит кнопка-переключатель
-            // и кнопка прокрутки вверх — пересчитываем при каждом изменении высоты.
+            // и кнопки прокрутки — пересчитываем при каждом изменении высоты.
+            // Все три кнопки размещаются НАД консолью (bottom = consoleHeight + 8),
+            // в один ряд, чтобы консоль их не перекрывала.
             function layoutForHeight() {
                 box.style.height = consoleHeight + 'px';
-                btnTop.style.bottom = Math.max(6, consoleHeight - 40) + 'px';
+                btnTop.style.bottom = (consoleHeight + 8) + 'px';
+                btnTop.style.right = '52px';
+                btnBottom.style.bottom = (consoleHeight + 8) + 'px';
+                btnBottom.style.right = '96px';
                 if (!toggleHasCustomPos) {
                     toggle.style.left = 'auto';
                     toggle.style.top = 'auto';
@@ -2863,9 +2860,9 @@
                 toggle.addEventListener('pointerup', endToggleDrag);
                 toggle.addEventListener('pointercancel', endToggleDrag);
                 // В коде инициализации дебаг-консоли:
-                toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
-                    'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;' +
-                    'touch-action:none;cursor:pointer;';
+toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
+    'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;' +
+    'touch-action:none;cursor:pointer;';
             })();
 
             toggle.onclick = function () {

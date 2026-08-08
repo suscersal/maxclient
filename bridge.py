@@ -266,8 +266,7 @@ _transcribe_cache_lock = threading.Lock()
 
 
 TRANSCRIBE_ONDEVICE_ENGINES = ("vosk", "whisper")
-# ~40 МБ и быстрее — разумный дефолт;
-TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"
+TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"  # ~40 МБ и быстрее — разумный дефолт;
 # whisper (466 МБ, точнее) — осознанный выбор пользователя в настройках.
 
 
@@ -498,7 +497,8 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
     ловит это и уходит на fallback (внешний сервер, если настроен)."""
     from java.io import File, FileOutputStream
     from android.media import (MediaExtractor, MediaCodec, MediaFormat,
-                               MediaCodecList, MediaCodecInfo)
+                                MediaCodecList, MediaCodecInfo)
+    
 
     tmp_in = os.path.join(os.path.dirname(
         SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
@@ -612,10 +612,16 @@ def _install_whisper_model_from_file(src_path: str) -> bool:
     magic = head[:4]
     logger.debug(
         f"[transcribe][debug] first 64 bytes (repr): {head!r}")
-    if magic != b"ggml":
-        msg = "файл не похож на GGML-модель whisper.cpp (нет сигнатуры 'ggml' в начале)"
+    # ВАЖНО: магическое число GGML — это uint32 0x67676d6c, записанный в
+    # файл little-endian. На диске это даёт байты 6c 6d 67 67, т.е. текст
+    # "lmgg", а НЕ буквальное "ggml" — раньше здесь было неверное сравнение
+    # (сравнивали с "ggml" напрямую), из-за чего валидные GGML-модели
+    # ошибочно отбраковывались. Проверяем оба варианта на случай, если
+    # где-то встретится файл, где магия записана как обычная ASCII-строка.
+    if magic not in (b"lmgg", b"ggml"):
+        msg = "файл не похож на GGML-модель whisper.cpp (нет сигнатуры 'ggml'/'lmgg' в начале)"
         logger.warning(
-            f"[transcribe] {msg} | magic_got={magic!r} magic_expected=b'ggml'")
+            f"[transcribe] {msg} | magic_got={magic!r} magic_expected=b'lmgg' or b'ggml'")
         _whisper_model_state["error"] = msg
         # Кладём hex первых 64 байт в state, чтобы можно было посмотреть
         # содержимое скачанного файла прямо из debug-консоли UI, без
@@ -662,7 +668,7 @@ def ensure_whisper_model_cached():
                 _head = _f.read(4)
             logger.debug(
                 f"[transcribe][debug] found existing .part: size={_part_size} magic={_head!r}")
-            if _head != b"ggml":
+            if _head not in (b"lmgg", b"ggml"):
                 logger.warning(
                     "[transcribe] stale/corrupt .part file found (not GGML), removing before retry")
                 try:
@@ -1287,8 +1293,7 @@ def set_android_context(ctx):
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
 
 
 def _classloader_fix_before_request():
@@ -3134,8 +3139,7 @@ def set_transcribe_settings():
         # своём включении). Модель другого, ранее выбранного движка не
         # трогаем — можно свободно переключаться туда-обратно без повторных
         # скачиваний, если обе уже закешированы.
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
     return jsonify(_get_transcribe_settings())
 
 
@@ -3174,7 +3178,7 @@ def transcribe_model_download():
         return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
     engine = requested or _get_transcribe_settings()["onDeviceEngine"]
     threading.Thread(target=_ensure_ondevice_model_cached,
-                     args=(engine,), daemon=True).start()
+                      args=(engine,), daemon=True).start()
     return jsonify({"started": True, "engine": engine})
 
 
@@ -3318,6 +3322,7 @@ def transcribe_voice_message():
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
             "diag": ondevice_diag,
         }), 502
+
 
     return jsonify({"text": text, "cached": False})
 
