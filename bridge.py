@@ -264,7 +264,8 @@ _transcribe_cache_lock = threading.Lock()
 
 
 TRANSCRIBE_ONDEVICE_ENGINES = ("vosk", "whisper")
-TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"  # ~40 МБ и быстрее — разумный дефолт;
+# ~40 МБ и быстрее — разумный дефолт;
+TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"
 # whisper (466 МБ, точнее) — осознанный выбор пользователя в настройках.
 
 
@@ -495,8 +496,7 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
     ловит это и уходит на fallback (внешний сервер, если настроен)."""
     from java.io import File, FileOutputStream
     from android.media import (MediaExtractor, MediaCodec, MediaFormat,
-                                MediaCodecList, MediaCodecInfo)
-    
+                               MediaCodecList, MediaCodecInfo)
 
     tmp_in = os.path.join(os.path.dirname(
         SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
@@ -1280,7 +1280,8 @@ def set_android_context(ctx):
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached,
+                         daemon=True).start()
 
 
 def _classloader_fix_before_request():
@@ -3126,7 +3127,8 @@ def set_transcribe_settings():
         # своём включении). Модель другого, ранее выбранного движка не
         # трогаем — можно свободно переключаться туда-обратно без повторных
         # скачиваний, если обе уже закешированы.
-        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached,
+                         daemon=True).start()
     return jsonify(_get_transcribe_settings())
 
 
@@ -3165,7 +3167,7 @@ def transcribe_model_download():
         return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
     engine = requested or _get_transcribe_settings()["onDeviceEngine"]
     threading.Thread(target=_ensure_ondevice_model_cached,
-                      args=(engine,), daemon=True).start()
+                     args=(engine,), daemon=True).start()
     return jsonify({"started": True, "engine": engine})
 
 
@@ -3309,7 +3311,6 @@ def transcribe_voice_message():
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
             "diag": ondevice_diag,
         }), 502
-
 
     return jsonify({"text": text, "cached": False})
 
