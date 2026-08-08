@@ -901,6 +901,31 @@ _model_download_state = {
 }
 
 
+def _fix_thread_classloader():
+    """Chaquopy: динамический импорт произвольных Java-пакетов
+    (`from org.vosk import ...`, `from com.google.mediapipe... import ...`)
+    работает через java-рефлексию текущего потока, а она смотрит на
+    Thread.currentThread().getContextClassLoader(). У ГЛАВНОГО потока
+    приложения этот classloader настроен правильно и видит все зависимости
+    из build.gradle. Но у ЛЮБОГО другого потока — сырой Kotlin Thread{},
+    Python threading.Thread(...), воркер-поток Flask (threaded=True) —
+    он может быть не тем (или системным), и тогда ЛЮБОЙ импорт внешнего
+    Java-класса падает с обманчивым 'No module named com/org' (объект
+    существует, просто конкретный поток его не видит).
+    Лечится выставлением classloader вручную из Android Context, который
+    его точно видит. Вызывать в начале каждого потока/запроса, который
+    может делать `from <java.package> import ...`. Без Android (десктоп)
+    просто ничего не делает."""
+    if _android_context is None:
+        return
+    try:
+        from java.lang import Thread as _JThread
+        cl = _android_context.getClassLoader()
+        _JThread.currentThread().setContextClassLoader(cl)
+    except Exception as e:
+        logger.debug(f"[classloader-fix] skipped: {e}")
+
+
 def set_android_context(ctx):
     """Вызывается один раз из bridge_launcher.start_server() сразу после
     импорта модуля — Context нужен MediaPipe для инициализации модели.
@@ -908,12 +933,21 @@ def set_android_context(ctx):
     страшного, просто останется None и on-device движок не заработает."""
     global _android_context
     _android_context = ctx
+    _fix_thread_classloader()
     # Если проверка уже была включена в прошлый раз — начинаем качать модель
     # сразу в фоне, не дожидаясь первого сообщения.
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
         threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
+
+
+def _classloader_fix_before_request():
+    # Каждый HTTP-запрос в Flask (threaded=True) обслуживается СВОИМ
+    # потоком — без этого хука on-device вызовы (Vosk/MediaPipe) внутри
+    # обработчиков падали бы с тем же 'No module named org/com', даже
+    # если set_android_context уже отработал на старте.
+    _fix_thread_classloader()
 
 
 def ensure_gemma_model_cached(model_id=None):
@@ -2184,6 +2218,7 @@ logger.info(f"[static] Serving frontend files from: {STATIC_DIR}")
 
 app = Flask(__name__, static_folder=STATIC_DIR)
 sock = Sock(app)
+app.before_request(_classloader_fix_before_request)
 
 
 @app.errorhandler(Exception)
