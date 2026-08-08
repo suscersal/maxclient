@@ -118,12 +118,8 @@ chaquopy {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core-ktx:1.13.1'
-    // On-device ИИ для скам-проверки сообщений (bridge.py:get_on_device_llm,
-    // вызывается напрямую из Python через Chaquopy Java-интероп). API
-    // сейчас в режиме maintenance-only у Google (не deprecated, но новых
-    // фич не будет) — при желании со временем можно мигрировать на
-    // LiteRT-LM, сохранив тот же контракт bridge.py (generateResponse).
     implementation 'com.google.mediapipe:tasks-genai:0.10.27'
     implementation 'com.google.mediapipe:tasks-text:0.10.29'
-    implementation 'com.alphacephei:vosk-android:0.3.32'
+    implementation 'com.alphacephei:vosk-android:0.3.70'   // было 0.3.32 — древняя версия 2021 года
+    implementation 'net.java.dev.jna:jna:5.13.0@aar'        // недостающая зависимость vosk-android
 }
