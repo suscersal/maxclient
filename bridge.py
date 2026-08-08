@@ -264,8 +264,7 @@ _transcribe_cache_lock = threading.Lock()
 
 
 TRANSCRIBE_ONDEVICE_ENGINES = ("vosk", "whisper")
-# ~40 МБ и быстрее — разумный дефолт;
-TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"
+TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"  # ~40 МБ и быстрее — разумный дефолт;
 # whisper (466 МБ, точнее) — осознанный выбор пользователя в настройках.
 
 
@@ -496,7 +495,8 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
     ловит это и уходит на fallback (внешний сервер, если настроен)."""
     from java.io import File, FileOutputStream
     from android.media import (MediaExtractor, MediaCodec, MediaFormat,
-                               MediaCodecList, MediaCodecInfo)
+                                MediaCodecList, MediaCodecInfo)
+    
 
     tmp_in = os.path.join(os.path.dirname(
         SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
@@ -597,16 +597,23 @@ def _install_whisper_model_from_file(src_path: str) -> bool:
     сбрасывает закешированную в WhisperBridge (Kotlin) модель — иначе при
     импорте новой модели поверх старой WhisperBridge не заметит подмену
     файла по тому же пути и продолжит использовать старые веса из памяти."""
-    if not os.path.isfile(src_path) or os.path.getsize(src_path) < 1024 * 1024:
+    _size = os.path.getsize(src_path) if os.path.isfile(src_path) else -1
+    logger.debug(
+        f"[transcribe][debug] _install_whisper_model_from_file: src={src_path} size={_size} bytes")
+    if not os.path.isfile(src_path) or _size < 1024 * 1024:
         msg = "файл слишком маленький — это точно ggml-модель Whisper?"
         logger.warning(f"[transcribe] {msg}")
         _whisper_model_state["error"] = msg
         return False
     with open(src_path, "rb") as f:
-        magic = f.read(4)
+        head = f.read(64)
+    magic = head[:4]
+    logger.debug(
+        f"[transcribe][debug] first 64 bytes (repr): {head!r}")
     if magic != b"ggml":
         msg = "файл не похож на GGML-модель whisper.cpp (нет сигнатуры 'ggml' в начале)"
-        logger.warning(f"[transcribe] {msg}")
+        logger.warning(
+            f"[transcribe] {msg} | magic_got={magic!r} magic_expected=b'ggml'")
         _whisper_model_state["error"] = msg
         return False
     if src_path != WHISPER_MODEL_FILE:
@@ -643,8 +650,11 @@ def ensure_whisper_model_cached():
         # начало файла и докачает поверх мусора.
         _tmp_check = WHISPER_MODEL_FILE + ".part"
         if os.path.exists(_tmp_check):
+            _part_size = os.path.getsize(_tmp_check)
             with open(_tmp_check, "rb") as _f:
                 _head = _f.read(4)
+            logger.debug(
+                f"[transcribe][debug] found existing .part: size={_part_size} magic={_head!r}")
             if _head != b"ggml":
                 logger.warning(
                     "[transcribe] stale/corrupt .part file found (not GGML), removing before retry")
@@ -671,8 +681,16 @@ def ensure_whisper_model_cached():
             if resume:
                 headers["Range"] = f"bytes={downloaded_so_far}-"
             req = urllib.request.Request(WHISPER_DOWNLOAD_URL, headers=headers)
+            logger.debug(
+                f"[transcribe][debug] request attempt={attempt} resume={resume} "
+                f"downloaded_so_far={downloaded_so_far} headers={headers}")
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    logger.debug(
+                        f"[transcribe][debug] response status={resp.status} "
+                        f"content-type={resp.getheader('Content-Type')!r} "
+                        f"content-length={resp.getheader('Content-Length')!r} "
+                        f"final_url={resp.geturl()!r}")
                     if resume and resp.status != 206:
                         downloaded_so_far = 0
                         mode = "wb"
@@ -683,6 +701,12 @@ def ensure_whisper_model_cached():
                         total = downloaded_so_far + \
                             int(content_length) if (
                                 resume and resp.status == 206) else int(content_length)
+                    _content_type = resp.getheader("Content-Type") or ""
+                    if "html" in _content_type.lower() or "text" in _content_type.lower():
+                        logger.warning(
+                            f"[transcribe][debug] SUSPICIOUS content-type "
+                            f"({_content_type!r}) — сервер, вероятно, вернул "
+                            f"HTML-страницу (блокировка/редирект/логин) вместо .bin")
                     _whisper_model_state["totalBytes"] = total
                     downloaded = downloaded_so_far
                     _whisper_model_state["downloadedBytes"] = downloaded
@@ -706,6 +730,10 @@ def ensure_whisper_model_cached():
 
         # Простая проверка целостности — ggml-файлы весят сотни МБ, битый/
         # оборванный докачанный файл почти наверняка меньше ожидаемого total.
+        logger.debug(
+            f"[transcribe][debug] download loop finished: "
+            f"final_size={os.path.getsize(tmp_path) if os.path.exists(tmp_path) else -1} "
+            f"expected_total={total}")
         if total and os.path.getsize(tmp_path) < total:
             msg = "скачивание модели прервалось — попробуйте ещё раз"
             logger.warning(f"[transcribe] {msg}")
@@ -1252,8 +1280,7 @@ def set_android_context(ctx):
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
 
 
 def _classloader_fix_before_request():
@@ -3099,8 +3126,7 @@ def set_transcribe_settings():
         # своём включении). Модель другого, ранее выбранного движка не
         # трогаем — можно свободно переключаться туда-обратно без повторных
         # скачиваний, если обе уже закешированы.
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
     return jsonify(_get_transcribe_settings())
 
 
@@ -3139,7 +3165,7 @@ def transcribe_model_download():
         return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
     engine = requested or _get_transcribe_settings()["onDeviceEngine"]
     threading.Thread(target=_ensure_ondevice_model_cached,
-                     args=(engine,), daemon=True).start()
+                      args=(engine,), daemon=True).start()
     return jsonify({"started": True, "engine": engine})
 
 
@@ -3283,6 +3309,7 @@ def transcribe_voice_message():
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
             "diag": ondevice_diag,
         }), 502
+
 
     return jsonify({"text": text, "cached": False})
 
