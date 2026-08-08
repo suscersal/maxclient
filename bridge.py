@@ -926,6 +926,48 @@ def _fix_thread_classloader():
         logger.debug(f"[classloader-fix] skipped: {e}")
 
 
+def _java_import_diagnostics() -> dict:
+    """Диагностика для дебаг-консоли: показывает, ЧТО именно недоступно.
+    android.os.Build — встроен в саму систему Android и обязан
+    импортироваться ВСЕГДА, если Chaquopy вообще видит хоть какие-то Java-
+    классы. org.vosk / com.google.mediapipe — из наших зависимостей в
+    build.gradle. Если системный класс тоже не виден — дело в
+    classloader/потоке. Если системный виден, а зависимость нет — она
+    физически не попала в APK (не тот groupId/version, R8 её выпилил,
+    старая сборка на устройстве и т.п.)."""
+    result = {
+        "androidContextSet": _android_context is not None,
+        "threadName": None,
+        "contextClassLoader": None,
+    }
+    try:
+        from java.lang import Thread as _JThread
+        t = _JThread.currentThread()
+        result["threadName"] = str(t.getName())
+        cl = t.getContextClassLoader()
+        result["contextClassLoader"] = str(cl) if cl is not None else None
+    except Exception as e:
+        result["threadInfoError"] = str(e)
+
+    def _try(label, fn):
+        try:
+            fn()
+            result[label] = "OK"
+        except Exception as e:
+            result[label] = f"FAIL: {type(e).__name__}: {e}"
+
+    _try("system_android_os_Build", lambda: __import__(
+        "android.os", fromlist=["Build"]))
+    _try("dep_org_vosk", lambda: __import__(
+        "org.vosk", fromlist=["Model"]))
+    _try("dep_mediapipe_genai", lambda: __import__(
+        "com.google.mediapipe.tasks.genai.llminference", fromlist=["LlmInference"]))
+
+    logger.warning(f"[java-diag] {json.dumps(result, ensure_ascii=False)}")
+    print(f"[java-diag] {json.dumps(result, ensure_ascii=False)}")
+    return result
+
+
 def set_android_context(ctx):
     """Вызывается один раз из bridge_launcher.start_server() сразу после
     импорта модуля — Context нужен MediaPipe для инициализации модели.
@@ -2782,6 +2824,14 @@ def set_transcribe_settings():
     return jsonify(_get_transcribe_settings())
 
 
+@app.route("/api/debug/java-diag", methods=["GET"])
+def debug_java_diag():
+    """Дёрнуть вручную (curl/браузер на телефоне: http://127.0.0.1:<port>/api/debug/java-diag)
+    или посмотреть в logcat/debug-консоли по тегу [java-diag] — результат
+    туда пишется в любом случае."""
+    return jsonify(_java_import_diagnostics())
+
+
 @app.route("/api/transcribe/model-status", methods=["GET"])
 def transcribe_model_status():
     return jsonify({**_asr_model_state, "onDeviceSupported": _android_context is not None})
@@ -2840,6 +2890,7 @@ def transcribe_voice_message():
         except Exception as e:
             ondevice_error = e
             logger.warning(f"[transcribe] on-device failed: {e}\n{traceback.format_exc()}")
+            _java_import_diagnostics()
 
     if not text and cfg.get("url"):
         try:
