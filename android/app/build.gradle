@@ -7,6 +7,11 @@ plugins {
 android {
     namespace 'com.suscersal.maxclient'
     compileSdk 34
+    // Закреплено явно — иначе на разных раннерах CI Gradle может подобрать
+    // разную версию NDK, что ломает воспроизводимость сборки whisper_jni.so
+    // (см. android/app/src/main/cpp). Актуальный список версий:
+    // https://github.com/android/ndk/wiki/Unsupported-Downloads
+    ndkVersion "27.0.12077973"
 
     defaultConfig {
         applicationId "com.suscersal.maxclient"
@@ -37,6 +42,23 @@ android {
         python {
             // Python-версия внутри APK.
             version "3.11"
+        }
+
+        // Нативная сборка whisper.cpp (см. app/src/main/cpp) — собственный
+        // JNI-мост вместо платной AAR, поэтому квантованные модели
+        // (q4_0/q5_1/q8_0) работают без Pro-лицензии.
+        externalNativeBuild {
+            cmake {
+                cppFlags "-O3"
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
         }
     }
 
@@ -122,11 +144,7 @@ dependencies {
     implementation 'com.google.mediapipe:tasks-text:0.10.29'
     implementation 'com.alphacephei:vosk-android:0.3.70'   // было 0.3.32 — древняя версия 2021 года
     implementation 'net.java.dev.jna:jna:5.13.0@aar'        // недостающая зависимость vosk-android
-    // whisper.cpp AAR (free tier): file-based транскрипция, arm64-v8a,
-    // без квантованных моделей (q4_0/q5_1/q8_0 — только в платной Pro-сборке).
-    // Поэтому качаем ПОЛНУЮ (неквантованную) ggml-small.bin — 466 МБ, см. bridge.py.
-    implementation 'dev.ffmpegkit-maintained:whisper-android:1.0.0'
-    // Нужен для runBlocking в WhisperBridge.kt (Whisper.* — suspend-функции,
-    // а Chaquopy зовёт Kotlin только синхронно).
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    // Whisper — собственная JNI-обёртка над upstream whisper.cpp (MIT),
+    // см. app/src/main/cpp и WhisperBridge.kt. Не платный AAR: работает
+    // с любыми моделями, включая квантованные q4_0/q5_1/q8_0.
 }

@@ -4221,7 +4221,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
 
         const TRANSCRIBE_ENGINE_INFO = {
             vosk: { label: 'Vosk (лёгкая, ~40 МБ)', sizeLabel: '~40 МБ' },
-            whisper: { label: 'Whisper (точнее, 466 МБ)', sizeLabel: '466 МБ' },
+            whisper: { label: 'Whisper (точнее, 190 МБ)', sizeLabel: '190 МБ' },
         };
 
         function getSelectedTranscribeEngine() {
@@ -4409,7 +4409,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             </label>
             <label style="display:flex;align-items:center;gap:8px;">
                 <input type="radio" name="transcribeEngine" value="whisper" ${engine === 'whisper' ? 'checked' : ''} onchange="onTranscribeEngineChange()">
-                Whisper — точнее, 466 МБ, распознаёт медленнее
+                Whisper — точнее, 190 МБ (квантованная), распознаёт медленнее
             </label>
         </div>
         <div id="transcribeModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>

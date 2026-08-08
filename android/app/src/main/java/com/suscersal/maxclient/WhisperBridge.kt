@@ -1,66 +1,86 @@
 package com.suscersal.maxclient
 
-import android.content.Context
-import dev.ffmpegkit.whisper.Whisper
-import dev.ffmpegkit.whisper.WhisperConfig
-import dev.ffmpegkit.whisper.WhisperModel
-import kotlinx.coroutines.runBlocking
-
-// Тонкая синхронная обёртка над whisper-android (free-tier AAR, только
-// файловая транскрипция на arm64-v8a — см. build.gradle). Whisper.* — это
-// suspend-функции корутин; Chaquopy же зовёт Kotlin/Java строго синхронно
-// (как и с org.vosk.Recognizer в bridge.py), поэтому здесь используется
-// runBlocking, а не сам bridge.py, чтобы не тащить kotlinx.coroutines в
-// Python-слой.
+// Тонкая синхронная обёртка над собственной JNI-сборкой upstream
+// whisper.cpp (см. app/src/main/cpp) — замена платной
+// dev.ffmpegkit-maintained:whisper-android. В отличие от неё работает с
+// ЛЮБЫМИ ggml-моделями, включая квантованные (q4_0/q5_1/q8_0) — эти веса
+// в разы легче полноточных при небольшой потере качества.
 //
 // Модель грузится лениво и держится в памяти между вызовами (аналогично
-// _get_vosk_model в bridge.py) — WhisperModel.loadModel не бесплатна:
-// это чтение ~466 МБ весов ggml-small.bin с диска.
+// _get_vosk_model в bridge.py и как было в предыдущей версии этого файла) —
+// whisper_init_from_file_with_params не бесплатна: это чтение сотен МБ
+// весов с диска и их распаковка в память.
 object WhisperBridge {
 
+    init {
+        System.loadLibrary("whisper_jni")
+    }
+
+    // === JNI (реализация в app/src/main/cpp/whisper_jni.cpp) ===
+    @JvmStatic
+    private external fun nativeInitContext(modelPath: String): Long
+
+    @JvmStatic
+    private external fun nativeFreeContext(ctxPtr: Long)
+
+    @JvmStatic
+    private external fun nativeTranscribe(ctxPtr: Long, pcm16: ByteArray, language: String): String
+
+    @JvmStatic
+    private external fun nativeGetSystemInfo(): String
+
     @Volatile
-    private var loadedModel: WhisperModel? = null
+    private var ctxPtr: Long = 0
 
     @Volatile
     private var loadedModelPath: String? = null
 
     private val lock = Any()
 
-    // Вызывается из Python: WhisperBridge.transcribe(context, modelPath, audioPath, language)
-    // audioPath — WAV/MP3/FLAC (whisper.cpp сам ресемплирует в 16kHz mono,
-    // ffmpeg не нужен). PCM16 из _decode_audio_to_pcm16 в bridge.py нужно
-    // сперва завернуть в WAV-контейнер — см. _pcm16_to_wav_bytes на
-    // Python-стороне.
+    // Вызывается из Python: WhisperBridge.transcribe(modelPath, pcm16Bytes, language)
+    // pcm16 — сырые PCM16LE mono сэмплы на 16kHz (bridge.py собирает их из
+    // _decode_audio_to_pcm16 и передаёт как jarray(jbyte), тот же формат,
+    // что уходит и в Vosk). language — код языка ("ru", "en", ...) или
+    // "auto" для автоопределения.
     @JvmStatic
-    fun transcribe(context: Context, modelPath: String, audioPath: String, language: String): String =
-        runBlocking {
-            val model = getOrLoadModel(context, modelPath)
-            val result = Whisper.transcribe(model, audioPath, WhisperConfig(language = language))
-            result.text.trim()
-        }
+    fun transcribe(modelPath: String, pcm16: ByteArray, language: String): String {
+        val ctx = getOrLoadContext(modelPath)
+        if (ctx == 0L) return ""
+        return nativeTranscribe(ctx, pcm16, language.ifBlank { "auto" }).trim()
+    }
 
-    private fun getOrLoadModel(context: Context, modelPath: String): WhisperModel = synchronized(lock) {
-        val current = loadedModel
-        if (current != null && loadedModelPath == modelPath) {
-            return current
+    private fun getOrLoadContext(modelPath: String): Long = synchronized(lock) {
+        if (ctxPtr != 0L && loadedModelPath == modelPath) {
+            return ctxPtr
         }
-        // Путь к модели сменился (или это первый вызов) — старую выгружаем.
-        current?.let { Whisper.releaseModel(it) }
-        val fresh = runBlocking { Whisper.loadModel(context, modelPath) }
-        loadedModel = fresh
-        loadedModelPath = modelPath
+        // Путь к модели сменился (или это первый вызов) — старый контекст
+        // выгружаем перед загрузкой нового.
+        if (ctxPtr != 0L) {
+            nativeFreeContext(ctxPtr)
+            ctxPtr = 0
+            loadedModelPath = null
+        }
+        val fresh = nativeInitContext(modelPath)
+        if (fresh != 0L) {
+            ctxPtr = fresh
+            loadedModelPath = modelPath
+        }
         return fresh
     }
 
-    // Вызывается из Python при удалении модели (см. delete_asr_model /
-    // аналог для Whisper), чтобы освободить память сразу, а не ждать GC.
+    // Вызывается из Python при удалении/замене модели (см.
+    // delete_whisper_model / _install_whisper_model_from_file в bridge.py),
+    // чтобы освободить память сразу и не работать со старыми весами после
+    // подмены файла на диске по тому же пути.
     @JvmStatic
     fun releaseModel() = synchronized(lock) {
-        loadedModel?.let { Whisper.releaseModel(it) }
-        loadedModel = null
-        loadedModelPath = null
+        if (ctxPtr != 0L) {
+            nativeFreeContext(ctxPtr)
+            ctxPtr = 0
+            loadedModelPath = null
+        }
     }
 
     @JvmStatic
-    fun getSystemInfo(): String = Whisper.getSystemInfo()
+    fun getSystemInfo(): String = nativeGetSystemInfo()
 }

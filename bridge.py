@@ -28,7 +28,6 @@ import base64
 import hashlib
 import csv
 import io
-import wave
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -175,14 +174,17 @@ ASR_MODEL_EXTRACTED_DIR = os.path.join(
     os.path.dirname(SESSION_FILE), "vosk-model-ru-small")
 ASR_DOWNLOAD_URL = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"  # ~40 МБ
 
-# --- Whisper (whisper.cpp через dev.ffmpegkit-maintained:whisper-android,
-# free-tier AAR) — альтернатива Vosk, точнее, но значительно тяжелее.
-# Free-tier не даёт квантованных весов (q4_0/q5_1/q8_0 — только в платной
-# Pro-сборке), поэтому качаем ПОЛНУЮ ggml-small.bin — 466 МБ, без q5_1.
-# В отличие от Vosk-zip это просто .bin — распаковывать не нужно.
+# --- Whisper (whisper.cpp, собственная JNI-сборка — см.
+# android/app/src/main/cpp) — альтернатива Vosk, точнее, но тяжелее.
+# Дефолт — квантованная small-q5_1 (190 МБ): в отличие от прежней
+# gated-AAR (dev.ffmpegkit-maintained), собственная сборка не имеет
+# ограничений на квантование, так что нет смысла тянуть полные 466 МБ
+# ggml-small.bin ради того же результата. Как и раньше, файл просто .bin —
+# распаковывать не нужно. Кто хочет точность повыше — импортирует свою
+# модель (см. /api/transcribe/model/import), вплоть до large-v3-turbo.
 WHISPER_MODEL_FILE = os.path.join(
-    os.path.dirname(SESSION_FILE), "ggml-small.bin")
-WHISPER_DOWNLOAD_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+    os.path.dirname(SESSION_FILE), "ggml-small-q5_1.bin")
+WHISPER_DOWNLOAD_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
 
 _whisper_model_state = {
     "downloading": False,
@@ -727,50 +729,29 @@ def delete_whisper_model():
             {"ready": False, "error": None, "downloadedBytes": 0, "totalBytes": 0})
 
 
-def _pcm16_to_wav_bytes(pcm: bytes, sample_rate: int = 16000) -> bytes:
-    """whisper-android принимает путь к WAV/MP3/FLAC-файлу (не сырой PCM),
-    поэтому оборачиваем PCM16 mono из _decode_audio_to_pcm16 в минимальный
-    WAV-контейнер средствами stdlib (без ffmpeg/сторонних либ)."""
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)  # PCM16
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm)
-    return buf.getvalue()
-
-
 def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -> str:
     """Офлайн-путь через Whisper: decode (MediaCodec, тот же helper, что и
-    для Vosk) -> WAV -> WhisperBridge.transcribe (Kotlin, whisper-android).
-    Даёт заметно более точный результат, чем Vosk, но модель тяжелее (466 МБ
-    против ~40 МБ) и инференс медленнее. Бросает исключение, если модель ещё
-    не скачана или декод/распознавание не удались — вызывающий код сам
-    решает про fallback (напр. на Vosk или внешний сервер)."""
+    для Vosk) -> сырой PCM16 напрямую в JNI (WhisperBridge, собственная
+    сборка whisper.cpp — см. android/app/src/main/cpp). В отличие от
+    прежней AAR-обёртки не нужен ни Android Context, ни промежуточный WAV-
+    файл — whisper_full принимает float32 PCM, в который JNI-код сам
+    конвертирует наши PCM16LE-байты. Даёт заметно более точный результат,
+    чем Vosk, но модель тяжелее и инференс медленнее. Бросает исключение,
+    если модель ещё не скачана/не импортирована или декод/распознавание не
+    удались — вызывающий код сам решает про fallback (напр. на Vosk или
+    внешний сервер)."""
     if not _whisper_model_state.get("ready"):
         raise RuntimeError("модель ещё не скачана")
-    if _android_context is None:
-        raise RuntimeError("нет Android-контекста (десктоп?)")
     from com.suscersal.maxclient import WhisperBridge
+    from java import jarray, jbyte
 
     pcm = _decode_audio_to_pcm16(audio_bytes)
     if not pcm:
         raise RuntimeError("не удалось декодировать аудио")
 
-    wav_bytes = _pcm16_to_wav_bytes(pcm)
-    tmp_wav = os.path.join(os.path.dirname(
-        SESSION_FILE), f"_whisper_in_{uuid.uuid4().hex}.wav")
-    try:
-        with open(tmp_wav, "wb") as f:
-            f.write(wav_bytes)
-        text = WhisperBridge.transcribe(
-            _android_context, WHISPER_MODEL_FILE, tmp_wav, language)
-        return (text or "").strip()
-    finally:
-        try:
-            os.remove(tmp_wav)
-        except Exception:
-            pass
+    text = WhisperBridge.transcribe(
+        WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language)
+    return (text or "").strip()
 
 
 def _load_transcribe_cache():
@@ -1234,6 +1215,8 @@ def _java_import_diagnostics() -> dict:
         "org.vosk", fromlist=["Model"]))
     _try("dep_mediapipe_genai", lambda: __import__(
         "com.google.mediapipe.tasks.genai.llminference", fromlist=["LlmInference"]))
+    _try("dep_whisper_bridge", lambda: __import__(
+        "com.suscersal.maxclient", fromlist=["WhisperBridge"]))
 
     logger.warning(f"[java-diag] {json.dumps(result, ensure_ascii=False)}")
     print(f"[java-diag] {json.dumps(result, ensure_ascii=False)}")

@@ -108,6 +108,11 @@ jobs:
       ANDROID_VERSION_CODE: ${{ needs.resolve-tag.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # whisper.cpp подключён как git submodule (android/app/src/main/cpp/whisper.cpp) —
+          # без этого флага чекаут даёт пустую папку, и CMake-сборка whisper_jni
+          # падает с "whisper.cpp submodule не найден" (см. cpp/CMakeLists.txt).
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -117,6 +122,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install NDK + CMake
+        # Версия NDK должна совпадать с android.ndkVersion в app/build.gradle —
+        # иначе Gradle попытается докачать другую версию сам во время сборки,
+        # что на раннерах GitHub иногда падает по таймауту сети.
+        run: sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
