@@ -2884,13 +2884,14 @@ def transcribe_voice_message():
 
     text = None
     ondevice_error = None
+    ondevice_diag = None
     if _asr_model_state.get("ready"):
         try:
             text = _run_transcribe_ondevice(audio_bytes)
         except Exception as e:
             ondevice_error = e
             logger.warning(f"[transcribe] on-device failed: {e}\n{traceback.format_exc()}")
-            _java_import_diagnostics()
+            ondevice_diag = _java_import_diagnostics()
 
     if not text and cfg.get("url"):
         try:
@@ -2898,7 +2899,10 @@ def transcribe_voice_message():
         except Exception as e:
             logger.warning(f"[transcribe] fallback server failed: {e}")
             if ondevice_error is not None:
-                return jsonify({"error": f"Локально: {ondevice_error}; сервер: {e}"}), 502
+                return jsonify({
+                    "error": f"Локально: {ondevice_error}; сервер: {e}",
+                    "diag": ondevice_diag,
+                }), 502
             return jsonify({"error": "Локальный сервер распознавания недоступен. "
                             "Проверьте, что он запущен, и адрес в настройках верный."}), 502
 
@@ -2906,7 +2910,11 @@ def transcribe_voice_message():
         if not _asr_model_state.get("ready") and not cfg.get("url"):
             return jsonify({"error": "Модель ещё не скачана — откройте настройки "
                             "«Расшифровка аудио» и дождитесь загрузки"}), 400
-        return jsonify({"error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}"}), 502
+        return jsonify({
+            "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
+            "diag": ondevice_diag,
+        }), 502
+
 
     return jsonify({"text": text, "cached": False})
 
