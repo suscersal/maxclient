@@ -492,9 +492,9 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
                 # Chaquopy: java.nio.ByteBuffer.get(byte[]) читает буфер в
                 # Java-массив, который затем прозрачно конвертируется в
                 # Python bytes.
-                arr = jarray.zeros(info.size, 'b')
+                arr = bytearray(info.size)
                 out_buf.get(arr)
-                pcm_chunks.append(bytes(bytearray(arr)))
+                pcm_chunks.append(bytes(arr))
                 codec.releaseOutputBuffer(out_idx, False)
                 if info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM:
                     output_done = True
