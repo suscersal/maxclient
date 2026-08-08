@@ -28,6 +28,7 @@ import base64
 import hashlib
 import csv
 import io
+import wave
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -174,6 +175,24 @@ ASR_MODEL_EXTRACTED_DIR = os.path.join(
     os.path.dirname(SESSION_FILE), "vosk-model-ru-small")
 ASR_DOWNLOAD_URL = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"  # ~40 МБ
 
+# --- Whisper (whisper.cpp через dev.ffmpegkit-maintained:whisper-android,
+# free-tier AAR) — альтернатива Vosk, точнее, но значительно тяжелее.
+# Free-tier не даёт квантованных весов (q4_0/q5_1/q8_0 — только в платной
+# Pro-сборке), поэтому качаем ПОЛНУЮ ggml-small.bin — 466 МБ, без q5_1.
+# В отличие от Vosk-zip это просто .bin — распаковывать не нужно.
+WHISPER_MODEL_FILE = os.path.join(
+    os.path.dirname(SESSION_FILE), "ggml-small.bin")
+WHISPER_DOWNLOAD_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+
+_whisper_model_state = {
+    "downloading": False,
+    "ready": False,
+    "error": None,
+    "downloadedBytes": 0,
+    "totalBytes": 0,
+}
+_whisper_model_lock = threading.Lock()
+
 _asr_model_state = {
     "downloading": False,
     "ready": False,
@@ -242,9 +261,17 @@ TRANSCRIBE_CACHE_LIMIT = 500  # сколько расшифровок храни
 _transcribe_cache_lock = threading.Lock()
 
 
+TRANSCRIBE_ONDEVICE_ENGINES = ("vosk", "whisper")
+TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"  # ~40 МБ и быстрее — разумный дефолт;
+# whisper (466 МБ, точнее) — осознанный выбор пользователя в настройках.
+
+
 def _get_transcribe_settings():
     sess = load_session()
     cfg = sess.get("transcribe", {})
+    engine = cfg.get("onDeviceEngine") or TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE
+    if engine not in TRANSCRIBE_ONDEVICE_ENGINES:
+        engine = TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE
     return {
         "enabled": bool(cfg.get("enabled", False)),
         "url": cfg.get("url") or TRANSCRIBE_DEFAULT_URL,
@@ -253,6 +280,10 @@ def _get_transcribe_settings():
         # Автоматически расшифровывать входящие голосовые при открытии чата,
         # а не только по нажатию кнопки на конкретном сообщении.
         "autoTranscribeIncoming": bool(cfg.get("autoTranscribeIncoming", False)),
+        # Какой on-device движок использовать — "vosk" (лёгкий, ~40 МБ) или
+        # "whisper" (точнее, 466 МБ). Внешний Whisper-сервер (url/model выше)
+        # — отдельный fallback-путь, не зависит от этого выбора.
+        "onDeviceEngine": engine,
     }
 
 
@@ -531,6 +562,160 @@ def _run_transcribe_ondevice(audio_bytes: bytes) -> str:
     return (result.get("text") or "").strip()
 
 
+def ensure_whisper_model_cached():
+    """Качает ggml-small.bin один раз, с прогрессом в _whisper_model_state
+    (см. /api/transcribe/model-status). Не блокирует остальной бридж —
+    вызывается в фоновом потоке. В отличие от ensure_asr_model_cached (Vosk)
+    файл ничего не распаковывает — .bin используется как есть."""
+    if os.path.isfile(WHISPER_MODEL_FILE) and os.path.getsize(WHISPER_MODEL_FILE) > 0:
+        _whisper_model_state["ready"] = True
+        return True
+    with _whisper_model_lock:
+        if os.path.isfile(WHISPER_MODEL_FILE) and os.path.getsize(WHISPER_MODEL_FILE) > 0:
+            _whisper_model_state["ready"] = True
+            return True
+        if _whisper_model_state["downloading"]:
+            return False
+        _ensure_asr_download_dir()  # та же директория, что и у Vosk-модели
+        _whisper_model_state.update(
+            {"downloading": True, "error": None, "downloadedBytes": 0, "totalBytes": 0})
+
+    tmp_path = WHISPER_MODEL_FILE + ".part"
+    timeout = int(os.getenv("ASR_MODEL_DOWNLOAD_TIMEOUT", "60"))
+    max_retries = int(os.getenv("ASR_MODEL_DOWNLOAD_RETRIES", "5"))
+    try:
+        logger.info(
+            f"[transcribe] downloading Whisper model from {WHISPER_DOWNLOAD_URL} (~466MB, one-time)…")
+        total = 0
+        attempt = 0
+        while True:
+            downloaded_so_far = os.path.getsize(
+                tmp_path) if os.path.exists(tmp_path) else 0
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resume = downloaded_so_far > 0
+            if resume:
+                headers["Range"] = f"bytes={downloaded_so_far}-"
+            req = urllib.request.Request(WHISPER_DOWNLOAD_URL, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    if resume and resp.status != 206:
+                        downloaded_so_far = 0
+                        mode = "wb"
+                    else:
+                        mode = "ab" if resume else "wb"
+                    content_length = resp.getheader("Content-Length")
+                    if content_length:
+                        total = downloaded_so_far + \
+                            int(content_length) if (
+                                resume and resp.status == 206) else int(content_length)
+                    _whisper_model_state["totalBytes"] = total
+                    downloaded = downloaded_so_far
+                    _whisper_model_state["downloadedBytes"] = downloaded
+                    with open(tmp_path, mode) as f:
+                        while True:
+                            chunk = resp.read(1024 * 256)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            _whisper_model_state["downloadedBytes"] = downloaded
+                break
+            except (socket.timeout, TimeoutError, ConnectionError, urllib.error.URLError) as e:
+                attempt += 1
+                if attempt > max_retries:
+                    raise
+                logger.warning(
+                    f"[transcribe] transient network error ({e}), retry {attempt}/{max_retries}…")
+                time.sleep(min(2 ** attempt, 30))
+                continue
+
+        # Простая проверка целостности — ggml-файлы весят сотни МБ, битый/
+        # оборванный докачанный файл почти наверняка меньше ожидаемого total.
+        if total and os.path.getsize(tmp_path) < total:
+            msg = "скачивание модели прервалось — попробуйте ещё раз"
+            logger.warning(f"[transcribe] {msg}")
+            _whisper_model_state["error"] = msg
+            return False
+
+        os.replace(tmp_path, WHISPER_MODEL_FILE)
+        logger.info("[transcribe] Whisper model ready")
+        _whisper_model_state["ready"] = True
+        return True
+    except Exception as e:
+        logger.warning(f"[transcribe] Whisper model download failed: {e}")
+        _whisper_model_state["error"] = str(e)
+        return False
+    finally:
+        if os.path.exists(tmp_path) and not _whisper_model_state.get("ready"):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+        _whisper_model_state["downloading"] = False
+
+
+def delete_whisper_model():
+    with _whisper_model_lock:
+        try:
+            from com.suscersal.maxclient import WhisperBridge
+            WhisperBridge.releaseModel()
+        except Exception:
+            pass  # десктоп / модель не грузилась — нечего освобождать
+        if os.path.exists(WHISPER_MODEL_FILE):
+            try:
+                os.remove(WHISPER_MODEL_FILE)
+            except Exception:
+                pass
+        _whisper_model_state.update(
+            {"ready": False, "error": None, "downloadedBytes": 0, "totalBytes": 0})
+
+
+def _pcm16_to_wav_bytes(pcm: bytes, sample_rate: int = 16000) -> bytes:
+    """whisper-android принимает путь к WAV/MP3/FLAC-файлу (не сырой PCM),
+    поэтому оборачиваем PCM16 mono из _decode_audio_to_pcm16 в минимальный
+    WAV-контейнер средствами stdlib (без ffmpeg/сторонних либ)."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # PCM16
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -> str:
+    """Офлайн-путь через Whisper: decode (MediaCodec, тот же helper, что и
+    для Vosk) -> WAV -> WhisperBridge.transcribe (Kotlin, whisper-android).
+    Даёт заметно более точный результат, чем Vosk, но модель тяжелее (466 МБ
+    против ~40 МБ) и инференс медленнее. Бросает исключение, если модель ещё
+    не скачана или декод/распознавание не удались — вызывающий код сам
+    решает про fallback (напр. на Vosk или внешний сервер)."""
+    if not _whisper_model_state.get("ready"):
+        raise RuntimeError("модель ещё не скачана")
+    if _android_context is None:
+        raise RuntimeError("нет Android-контекста (десктоп?)")
+    from com.suscersal.maxclient import WhisperBridge
+
+    pcm = _decode_audio_to_pcm16(audio_bytes)
+    if not pcm:
+        raise RuntimeError("не удалось декодировать аудио")
+
+    wav_bytes = _pcm16_to_wav_bytes(pcm)
+    tmp_wav = os.path.join(os.path.dirname(
+        SESSION_FILE), f"_whisper_in_{uuid.uuid4().hex}.wav")
+    try:
+        with open(tmp_wav, "wb") as f:
+            f.write(wav_bytes)
+        text = WhisperBridge.transcribe(
+            _android_context, WHISPER_MODEL_FILE, tmp_wav, language)
+        return (text or "").strip()
+    finally:
+        try:
+            os.remove(tmp_wav)
+        except Exception:
+            pass
+
+
 def _load_transcribe_cache():
     try:
         with open(TRANSCRIBE_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -580,6 +765,37 @@ def _download_audio_bytes(url: str) -> tuple:
         data = resp.read()
         content_type = resp.headers.get("Content-Type", "audio/ogg")
     return data, content_type
+
+
+def _ondevice_model_state(engine: str = None) -> dict:
+    """Состояние модели для выбранного (или текущего из настроек) движка —
+    единая точка, откуда роуты берут прогресс/готовность, вместо того чтобы
+    напрямую лезть в _asr_model_state/_whisper_model_state."""
+    engine = engine or _get_transcribe_settings()["onDeviceEngine"]
+    return _whisper_model_state if engine == "whisper" else _asr_model_state
+
+
+def _ensure_ondevice_model_cached(engine: str = None) -> bool:
+    engine = engine or _get_transcribe_settings()["onDeviceEngine"]
+    if engine == "whisper":
+        return ensure_whisper_model_cached()
+    return ensure_asr_model_cached()
+
+
+def _delete_ondevice_model(engine: str = None):
+    engine = engine or _get_transcribe_settings()["onDeviceEngine"]
+    if engine == "whisper":
+        delete_whisper_model()
+    else:
+        delete_asr_model()
+
+
+def _run_transcribe_ondevice_dispatch(audio_bytes: bytes, engine: str, language: str) -> str:
+    """Зовёт нужный on-device движок по имени — единая точка входа для
+    /api/transcribe, чтобы сам роут не знал деталей Vosk/Whisper."""
+    if engine == "whisper":
+        return _run_transcribe_ondevice_whisper(audio_bytes, language)
+    return _run_transcribe_ondevice(audio_bytes)
 
 
 def _run_transcribe(audio_bytes: bytes, content_type: str) -> str:
@@ -980,7 +1196,7 @@ def set_android_context(ctx):
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
 
 
 def _classloader_fix_before_request():
@@ -2809,17 +3025,24 @@ def get_transcribe_settings():
 @app.route("/api/transcribe/settings", methods=["POST"])
 def set_transcribe_settings():
     data = request.get_json(force=True) or {}
+    requested_engine = (data.get("onDeviceEngine") or "").strip() or None
+    if requested_engine and requested_engine not in TRANSCRIBE_ONDEVICE_ENGINES:
+        return jsonify({"error": f"onDeviceEngine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
     cfg = _save_transcribe_settings({
         "enabled": data.get("enabled"),
         "url": (data.get("url") or "").strip() or None,
         "model": (data.get("model") or "").strip() or None,
         "language": (data.get("language") or "").strip() or None,
         "autoTranscribeIncoming": data.get("autoTranscribeIncoming"),
+        "onDeviceEngine": requested_engine,
     })
     if cfg.get("enabled"):
-        # Включили — качаем модель сразу в фоне, не дожидаясь первого
-        # голосового сообщения (как и антискам делает при своём включении).
-        threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
+        # Включили (или сменили движок) — качаем модель сразу в фоне, не
+        # дожидаясь первого голосового сообщения (как и антискам делает при
+        # своём включении). Модель другого, ранее выбранного движка не
+        # трогаем — можно свободно переключаться туда-обратно без повторных
+        # скачиваний, если обе уже закешированы.
+        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
     return jsonify(_get_transcribe_settings())
 
 
@@ -2833,19 +3056,43 @@ def debug_java_diag():
 
 @app.route("/api/transcribe/model-status", methods=["GET"])
 def transcribe_model_status():
-    return jsonify({**_asr_model_state, "onDeviceSupported": _android_context is not None})
+    # ?engine=vosk|whisper — статус конкретного движка (напр. чтобы UI мог
+    # показать прогресс скачивания второго движка, пока активен первый).
+    # Без параметра — статус текущего выбранного в настройках движка, как и
+    # раньше, плюс сведения по обоим движкам под ключами vosk/whisper.
+    requested = request.args.get("engine")
+    if requested and requested not in TRANSCRIBE_ONDEVICE_ENGINES:
+        return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
+    current_engine = requested or _get_transcribe_settings()["onDeviceEngine"]
+    return jsonify({
+        **_ondevice_model_state(current_engine),
+        "engine": current_engine,
+        "onDeviceSupported": _android_context is not None,
+        "vosk": _asr_model_state,
+        "whisper": _whisper_model_state,
+    })
 
 
 @app.route("/api/transcribe/model/download", methods=["POST"])
 def transcribe_model_download():
-    threading.Thread(target=ensure_asr_model_cached, daemon=True).start()
-    return jsonify({"started": True})
+    data = request.get_json(silent=True) or {}
+    requested = data.get("engine") or request.args.get("engine")
+    if requested and requested not in TRANSCRIBE_ONDEVICE_ENGINES:
+        return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
+    engine = requested or _get_transcribe_settings()["onDeviceEngine"]
+    threading.Thread(target=_ensure_ondevice_model_cached,
+                      args=(engine,), daemon=True).start()
+    return jsonify({"started": True, "engine": engine})
 
 
 @app.route("/api/transcribe/model", methods=["DELETE"])
 def transcribe_model_delete():
-    delete_asr_model()
-    return jsonify({"ok": True})
+    requested = request.args.get("engine")
+    if requested and requested not in TRANSCRIBE_ONDEVICE_ENGINES:
+        return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
+    engine = requested or _get_transcribe_settings()["onDeviceEngine"]
+    _delete_ondevice_model(engine)
+    return jsonify({"ok": True, "engine": engine})
 
 
 @app.route("/api/transcribe", methods=["POST"])
@@ -2855,9 +3102,10 @@ def transcribe_voice_message():
     в /video?url=... для проигрывания). Результат кэшируется по messageId,
     повторный вызов для того же сообщения просто отдаёт кэш (если не
     передан force=true).
-    Сначала пробуем on-device Vosk (если модель скачана), и только если она
-    недоступна/не готова — fallback на внешний сервер из настроек (если
-    задан url)."""
+    Сначала пробуем выбранный в настройках on-device движок — Vosk (лёгкий,
+    ~40 МБ) или Whisper (точнее, 466 МБ) — если его модель скачана, и только
+    если он недоступен/не готов — fallback на внешний сервер из настроек
+    (если задан url)."""
     data = request.get_json(force=True) or {}
     message_id = data.get("messageId")
     url = data.get("url")
@@ -2875,6 +3123,9 @@ def transcribe_voice_message():
     if not cfg["enabled"]:
         return jsonify({"error": "Расшифровка аудио выключена в настройках"}), 400
 
+    engine = cfg["onDeviceEngine"]
+    ondevice_state = _ondevice_model_state(engine)
+
     try:
         audio_bytes, content_type = _download_audio_bytes(url)
     except Exception as e:
@@ -2884,12 +3135,14 @@ def transcribe_voice_message():
     text = None
     ondevice_error = None
     ondevice_diag = None
-    if _asr_model_state.get("ready"):
+    if ondevice_state.get("ready"):
         try:
-            text = _run_transcribe_ondevice(audio_bytes)
+            text = _run_transcribe_ondevice_dispatch(
+                audio_bytes, engine, cfg["language"])
         except Exception as e:
             ondevice_error = e
-            logger.warning(f"[transcribe] on-device failed: {e}\n{traceback.format_exc()}")
+            logger.warning(
+                f"[transcribe] on-device ({engine}) failed: {e}\n{traceback.format_exc()}")
             ondevice_diag = _java_import_diagnostics()
 
     if not text and cfg.get("url"):
@@ -2906,7 +3159,7 @@ def transcribe_voice_message():
                             "Проверьте, что он запущен, и адрес в настройках верный."}), 502
 
     if not text:
-        if not _asr_model_state.get("ready") and not cfg.get("url"):
+        if not ondevice_state.get("ready") and not cfg.get("url"):
             return jsonify({"error": "Модель ещё не скачана — откройте настройки "
                             "«Расшифровка аудио» и дождитесь загрузки"}), 400
         return jsonify({

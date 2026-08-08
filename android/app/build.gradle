@@ -122,4 +122,11 @@ dependencies {
     implementation 'com.google.mediapipe:tasks-text:0.10.29'
     implementation 'com.alphacephei:vosk-android:0.3.70'   // было 0.3.32 — древняя версия 2021 года
     implementation 'net.java.dev.jna:jna:5.13.0@aar'        // недостающая зависимость vosk-android
+    // whisper.cpp AAR (free tier): file-based транскрипция, arm64-v8a,
+    // без квантованных моделей (q4_0/q5_1/q8_0 — только в платной Pro-сборке).
+    // Поэтому качаем ПОЛНУЮ (неквантованную) ggml-small.bin — 466 МБ, см. bridge.py.
+    implementation 'dev.ffmpegkit-maintained:whisper-android:1.0.0'
+    // Нужен для runBlocking в WhisperBridge.kt (Whisper.* — suspend-функции,
+    // а Chaquopy зовёт Kotlin только синхронно).
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 }

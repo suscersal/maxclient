@@ -4219,12 +4219,22 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
 
         let transcribeSettingsCache = null;
 
+        const TRANSCRIBE_ENGINE_INFO = {
+            vosk: { label: 'Vosk (лёгкая, ~40 МБ)', sizeLabel: '~40 МБ' },
+            whisper: { label: 'Whisper (точнее, 466 МБ)', sizeLabel: '466 МБ' },
+        };
+
+        function getSelectedTranscribeEngine() {
+            const checked = document.querySelector('input[name="transcribeEngine"]:checked');
+            return checked?.value || transcribeSettingsCache?.onDeviceEngine || 'vosk';
+        }
+
         async function loadTranscribeSettings() {
             try {
                 const resp = await fetch('/api/transcribe/settings');
                 transcribeSettingsCache = await resp.json();
             } catch (e) {
-                transcribeSettingsCache = { enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false };
+                transcribeSettingsCache = { enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false, onDeviceEngine: 'vosk' };
             }
             return transcribeSettingsCache;
         }
@@ -4236,6 +4246,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 model: document.getElementById('transcribeModel')?.value.trim() || '',
                 language: document.getElementById('transcribeLanguage')?.value.trim() || 'ru',
                 autoTranscribeIncoming: document.getElementById('transcribeAutoIncoming')?.checked || false,
+                onDeviceEngine: getSelectedTranscribeEngine(),
             };
             const statusEl = document.getElementById('transcribeSaveStatus');
             try {
@@ -4250,6 +4261,13 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             }
         }
 
+        // Меняем движок (radio) без нажатия "Сохранить" — сразу показываем
+        // статус его модели, но настройку на бэкенде не трогаем, пока
+        // пользователь явно не сохранит (соответствует остальным полям формы).
+        function onTranscribeEngineChange() {
+            refreshTranscribeModelStatus();
+        }
+
         async function refreshTranscribeModelStatus() {
             const box = document.getElementById('transcribeModelStatus');
             const barWrap = document.getElementById('transcribeProgressWrap');
@@ -4257,8 +4275,10 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             const deleteBtn = document.getElementById('transcribeDeleteBtn');
             const retryBtn = document.getElementById('transcribeRetryBtn');
             if (!box) return;
+            const engine = getSelectedTranscribeEngine();
+            const sizeLabel = TRANSCRIBE_ENGINE_INFO[engine]?.sizeLabel || '';
             try {
-                const res = await fetch('/api/transcribe/model-status');
+                const res = await fetch('/api/transcribe/model-status?engine=' + encodeURIComponent(engine));
                 const st = await res.json();
                 if (barWrap) barWrap.style.display = 'none';
                 if (deleteBtn) deleteBtn.style.display = 'none';
@@ -4272,7 +4292,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 } else if (st.downloading) {
                     const pct = st.totalBytes ? Math.round(st.downloadedBytes / st.totalBytes * 100) : null;
                     box.textContent = pct != null
-                        ? `⏳ Скачивается модель (~40 МБ): ${pct}% (${formatBytes(st.downloadedBytes)} / ${formatBytes(st.totalBytes)})`
+                        ? `⏳ Скачивается модель (${sizeLabel}): ${pct}% (${formatBytes(st.downloadedBytes)} / ${formatBytes(st.totalBytes)})`
                         : `⏳ Скачивается модель: ${formatBytes(st.downloadedBytes)}…`;
                     if (barWrap && bar) {
                         barWrap.style.display = '';
@@ -4283,7 +4303,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                     box.textContent = '❌ Не удалось скачать модель: ' + st.error;
                     if (retryBtn) retryBtn.style.display = '';
                 } else {
-                    box.textContent = 'Модель ещё не скачана.';
+                    box.textContent = `Модель ещё не скачана (${sizeLabel}).`;
                     if (retryBtn) { retryBtn.style.display = ''; retryBtn.textContent = '⬇️ Скачать модель'; }
                 }
             } catch (e) {
@@ -4292,13 +4312,15 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
         }
 
         async function transcribeModelDownload() {
-            await fetch('/api/transcribe/model/download', { method: 'POST' });
+            const engine = getSelectedTranscribeEngine();
+            await fetch('/api/transcribe/model/download?engine=' + encodeURIComponent(engine), { method: 'POST' });
             refreshTranscribeModelStatus();
         }
 
         async function transcribeModelDelete() {
-            if (!confirm('Удалить скачанную модель распознавания речи?')) return;
-            await fetch('/api/transcribe/model', { method: 'DELETE' });
+            const engine = getSelectedTranscribeEngine();
+            if (!confirm('Удалить скачанную модель распознавания речи (' + (TRANSCRIBE_ENGINE_INFO[engine]?.label || engine) + ')?')) return;
+            await fetch('/api/transcribe/model?engine=' + encodeURIComponent(engine), { method: 'DELETE' });
             refreshTranscribeModelStatus();
         }
 
@@ -4322,14 +4344,14 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             }
             setTimeout(refreshTranscribeModelStatus, 0);
             const cfg = transcribeSettingsCache || {
-                enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false
+                enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false, onDeviceEngine: 'vosk'
             };
+            const engine = cfg.onDeviceEngine || 'vosk';
             return `
         <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
             Локальная расшифровка входящих голосовых сообщений — отдельная от
-            скам-проверки нейросеть (Vosk), работает прямо на устройстве, офлайн,
-            без сервера. Модель маленькая (~40 МБ) и тянет даже слабые телефоны.
-            Скачивается один раз при включении.
+            скам-проверки нейросеть, работает прямо на устройстве, офлайн,
+            без сервера. Скачивается один раз при включении.
         </div>
         <div class="settings-row">
             <label style="display:flex;align-items:center;gap:8px;">
@@ -4343,6 +4365,17 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 Автоматически расшифровывать входящие голосовые
             </label>
         </div>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;">
+            <div style="font-weight:600;">Модель распознавания</div>
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="radio" name="transcribeEngine" value="vosk" ${engine === 'vosk' ? 'checked' : ''} onchange="onTranscribeEngineChange()">
+                Vosk — быстрая, ~40 МБ, попроще с точностью
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="radio" name="transcribeEngine" value="whisper" ${engine === 'whisper' ? 'checked' : ''} onchange="onTranscribeEngineChange()">
+                Whisper — точнее, 466 МБ, распознаёт медленнее
+            </label>
+        </div>
         <div id="transcribeModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
         <div id="transcribeProgressWrap" style="display:none;height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:8px;">
             <div id="transcribeProgressBar" style="height:100%;width:0%;background:#4a9eff;transition:width .3s;"></div>
@@ -4352,7 +4385,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             <button type="button" id="transcribeDeleteBtn" style="display:none;" onclick="transcribeModelDelete()">🗑️ Удалить модель</button>
         </div>
         <div style="margin-bottom:10px;">
-            <button type="button" onclick="runTranscribeJavaDiag()">🔍 Проверить доступность Java-классов (Vosk)</button>
+            <button type="button" onclick="runTranscribeJavaDiag()">🔍 Проверить доступность Java-классов (Vosk/Whisper)</button>
             <pre id="transcribeDiagOut" style="font-size:11px;white-space:pre-wrap;background:#f5f5f5;padding:6px;border-radius:6px;margin-top:6px;display:block;"></pre>
         </div>
         <details style="margin-top:10px;">
