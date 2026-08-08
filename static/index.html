@@ -1278,6 +1278,63 @@ html[data-theme="dark"] #transcribeStatus {
             color: white;
         }
 
+        /* Всплывающая панель выбора реакции по двойному тапу на сообщение */
+        #reactionPickerPopup {
+            position: fixed;
+            z-index: 1000002;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+            padding: 8px;
+            display: none;
+            flex-wrap: wrap;
+            gap: 2px;
+            width: min(280px, 92vw);
+            max-height: min(260px, 60vh);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        #reactionPickerPopup.active {
+            display: flex;
+        }
+
+        #reactionPickerPopup .rp-emoji {
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            border-radius: 50%;
+            cursor: pointer;
+            flex: 0 0 auto;
+            transition: transform 0.1s ease, background 0.1s ease;
+        }
+
+        #reactionPickerPopup .rp-emoji img {
+            width: 22px;
+            height: 22px;
+            pointer-events: none;
+        }
+
+        #reactionPickerPopup .rp-emoji:active,
+        #reactionPickerPopup .rp-emoji:hover {
+            background: rgba(0, 0, 0, 0.06);
+            transform: scale(1.15);
+        }
+
+        #reactionPickerBackdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000001;
+            display: none;
+        }
+
+        #reactionPickerBackdrop.active {
+            display: block;
+        }
+
         .msg-status {
             font-size: 12px;
             margin-left: 3px;
@@ -7180,6 +7237,86 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             sendReaction(m, emoji);
         }
 
+        // ---- Панель выбора реакции по двойному тапу на сообщение ----
+        // Полный список — все эмодзи из EMOJI_CDN_URLS (тот же источник,
+        // что и уже стоящие на сообщениях бейджи реакций), картинками,
+        // а не системным эмодзи-шрифтом — на части устройств/шрифтов
+        // системные эмодзи рисуются мелко/чёрно-белым контуром, картинки
+        // выглядят одинаково везде. Панель скроллится, если список не
+        // помещается на экран.
+
+        let _reactionPickerEls = null;
+        function _ensureReactionPickerEls() {
+            if (_reactionPickerEls) return _reactionPickerEls;
+            const backdrop = document.createElement('div');
+            backdrop.id = 'reactionPickerBackdrop';
+            const popup = document.createElement('div');
+            popup.id = 'reactionPickerPopup';
+            document.body.appendChild(backdrop);
+            document.body.appendChild(popup);
+            backdrop.addEventListener('click', hideReactionPicker);
+            backdrop.addEventListener('touchstart', hideReactionPicker, { passive: true });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') hideReactionPicker();
+            });
+            _reactionPickerEls = { backdrop, popup };
+            return _reactionPickerEls;
+        }
+
+        function hideReactionPicker() {
+            if (!_reactionPickerEls) return;
+            _reactionPickerEls.backdrop.classList.remove('active');
+            _reactionPickerEls.popup.classList.remove('active');
+        }
+
+        function showReactionPicker(x, y, m) {
+            const { backdrop, popup } = _ensureReactionPickerEls();
+            popup.innerHTML = '';
+            Object.keys(EMOJI_CDN_URLS).forEach(emoji => {
+                const btn = document.createElement('div');
+                btn.className = 'rp-emoji';
+                const src = (typeof getEmojiSrc === 'function' ? getEmojiSrc(emoji) : null) || EMOJI_CDN_URLS[emoji];
+                if (src) {
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.alt = emoji;
+                    img.onerror = function () {
+                        btn.innerHTML = '';
+                        btn.textContent = emoji;
+                    };
+                    btn.appendChild(img);
+                } else {
+                    btn.textContent = emoji;
+                }
+                btn.onclick = () => {
+                    sendReaction(m, emoji);
+                    hideReactionPicker();
+                };
+                popup.appendChild(btn);
+            });
+
+            backdrop.classList.add('active');
+            popup.classList.add('active');
+
+            // Показываем сначала off-screen, чтобы измерить реальный размер
+            // панели и потом аккуратно вписать её в экран у точки тапа —
+            // иначе на узких мобильных экранах панель могла бы вылезать
+            // за правый/нижний край.
+            popup.style.left = '-9999px';
+            popup.style.top = '-9999px';
+            requestAnimationFrame(() => {
+                const rect = popup.getBoundingClientRect();
+                const margin = 8;
+                let left = x - rect.width / 2;
+                let top = y - rect.height - 12;
+                left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+                if (top < margin) top = y + 12; // не влезает сверху — показываем под пальцем
+                top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+                popup.style.left = left + 'px';
+                popup.style.top = top + 'px';
+            });
+        }
+
         // Кэш, чтобы не дёргать /lottie повторно для одного и того же стикера
         const lottieJsonCache = {};
         async function loadLottieSticker(holderId, lottieUrl) {
@@ -7244,6 +7381,27 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             el.dataset.msgId = m.id;
             el.dataset.msgTime = m.time || Date.now();
             el.addEventListener('dblclick', (e) => { e.preventDefault(); showReactionPicker(e.clientX, e.clientY, m); });
+            // dblclick не всегда надёжно ловится в мобильном WebView (там где
+            // это приложение и рендерится — MAX-клиент под Android) — там
+            // события двойного тапа глушатся встроенной логикой зума/скролла.
+            // Ловим двойной тап вручную по паре touchend в пределах 300мс и
+            // ~24px друг от друга, независимо от родного dblclick выше.
+            let _lastTap = 0, _lastTapX = 0, _lastTapY = 0;
+            el.addEventListener('touchend', (e) => {
+                const t = e.changedTouches && e.changedTouches[0];
+                if (!t) return;
+                const now = Date.now();
+                const dx = t.clientX - _lastTapX, dy = t.clientY - _lastTapY;
+                if (now - _lastTap < 300 && Math.abs(dx) < 24 && Math.abs(dy) < 24) {
+                    e.preventDefault();
+                    showReactionPicker(t.clientX, t.clientY, m);
+                    _lastTap = 0;
+                } else {
+                    _lastTap = now;
+                    _lastTapX = t.clientX;
+                    _lastTapY = t.clientY;
+                }
+            });
             let attachesHtml = '';
             let keyboardHtml = '';
             let encBadgeHtml = '';
