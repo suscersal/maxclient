@@ -318,6 +318,51 @@ def _ensure_asr_download_dir():
     os.makedirs(os.path.dirname(ASR_MODEL_CACHE_FILE), exist_ok=True)
 
 
+def _install_vosk_model_from_zip(zip_path: str) -> bool:
+    """Общая часть между скачиванием (ensure_asr_model_cached) и ручным
+    импортом (import_ondevice_model): проверяет, что файл — валидный zip, и
+    распаковывает его в ASR_MODEL_EXTRACTED_DIR атомарно (через .part).
+    Возвращает False (и пишет в _asr_model_state['error']) вместо исключения,
+    чтобы вызывающий код мог единообразно ответить клиенту."""
+    if not zipfile.is_zipfile(zip_path):
+        msg = "файл повреждён или не является zip-архивом Vosk-модели"
+        logger.warning(f"[transcribe] {msg}")
+        _asr_model_state["error"] = msg
+        return False
+
+    extract_tmp = ASR_MODEL_EXTRACTED_DIR + ".part"
+    if os.path.isdir(extract_tmp):
+        shutil.rmtree(extract_tmp, ignore_errors=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(os.path.dirname(ASR_MODEL_EXTRACTED_DIR))
+    # Архив Vosk распаковывается в папку с именем внутри zip
+    # (vosk-model-small-ru-0.22) — приводим её к ожидаемому пути.
+    extracted_name = None
+    with zipfile.ZipFile(zip_path) as zf:
+        top_level = {p.split("/")[0] for p in zf.namelist() if p}
+        if len(top_level) == 1:
+            extracted_name = top_level.pop()
+    actual_dir = os.path.join(os.path.dirname(
+        ASR_MODEL_EXTRACTED_DIR), extracted_name) if extracted_name else None
+    if actual_dir and os.path.isdir(actual_dir) and actual_dir != ASR_MODEL_EXTRACTED_DIR:
+        if os.path.isdir(ASR_MODEL_EXTRACTED_DIR):
+            shutil.rmtree(ASR_MODEL_EXTRACTED_DIR, ignore_errors=True)
+        os.replace(actual_dir, ASR_MODEL_EXTRACTED_DIR)
+
+    if not (os.path.isdir(ASR_MODEL_EXTRACTED_DIR) and os.listdir(ASR_MODEL_EXTRACTED_DIR)):
+        msg = "в архиве не нашлась папка модели — это точно Vosk-модель?"
+        logger.warning(f"[transcribe] {msg}")
+        _asr_model_state["error"] = msg
+        return False
+
+    global _vosk_model
+    with _asr_model_lock:
+        _vosk_model = None  # сбрасываем закешированную старую модель, если была
+    _asr_model_state["ready"] = True
+    _asr_model_state["error"] = None
+    return True
+
+
 def ensure_asr_model_cached():
     """Качает и распаковывает Vosk-модель один раз, с прогрессом в
     _asr_model_state (см. /api/transcribe/model-status). Не блокирует
@@ -391,31 +436,13 @@ def ensure_asr_model_cached():
             _asr_model_state["error"] = msg
             return False
 
-        # Модель распаковываем во временную папку и переименовываем в
-        # финальную одним атомарным шагом — чтобы наполовину распакованная
-        # директория никогда не воспринималась как готовая модель.
-        extract_tmp = ASR_MODEL_EXTRACTED_DIR + ".part"
-        if os.path.isdir(extract_tmp):
-            shutil.rmtree(extract_tmp, ignore_errors=True)
-        with zipfile.ZipFile(tmp_path) as zf:
-            zf.extractall(os.path.dirname(ASR_MODEL_EXTRACTED_DIR))
-        # Архив Vosk распаковывается в папку с именем внутри zip
-        # (vosk-model-small-ru-0.22) — приводим её к ожидаемому пути.
-        extracted_name = None
-        with zipfile.ZipFile(tmp_path) as zf:
-            top_level = {p.split("/")[0] for p in zf.namelist() if p}
-            if len(top_level) == 1:
-                extracted_name = top_level.pop()
-        actual_dir = os.path.join(os.path.dirname(
-            ASR_MODEL_EXTRACTED_DIR), extracted_name) if extracted_name else None
-        if actual_dir and os.path.isdir(actual_dir) and actual_dir != ASR_MODEL_EXTRACTED_DIR:
-            if os.path.isdir(ASR_MODEL_EXTRACTED_DIR):
-                shutil.rmtree(ASR_MODEL_EXTRACTED_DIR, ignore_errors=True)
-            os.replace(actual_dir, ASR_MODEL_EXTRACTED_DIR)
+        # Распаковка — общий код с ручным импортом, см. _install_vosk_model_from_zip.
+        if not _install_vosk_model_from_zip(tmp_path):
+            os.remove(tmp_path)
+            return False
 
         os.remove(tmp_path)
         logger.info("[transcribe] Vosk model ready")
-        _asr_model_state["ready"] = True
         return True
     except Exception as e:
         logger.warning(f"[transcribe] model download failed: {e}")
@@ -562,6 +589,36 @@ def _run_transcribe_ondevice(audio_bytes: bytes) -> str:
     return (result.get("text") or "").strip()
 
 
+def _install_whisper_model_from_file(src_path: str) -> bool:
+    """Общая часть между скачиванием (ensure_whisper_model_cached) и ручным
+    импортом (import_ondevice_model): переносит .bin на финальное место и
+    сбрасывает закешированную в WhisperBridge (Kotlin) модель — иначе при
+    импорте новой модели поверх старой WhisperBridge не заметит подмену
+    файла по тому же пути и продолжит использовать старые веса из памяти."""
+    if not os.path.isfile(src_path) or os.path.getsize(src_path) < 1024 * 1024:
+        msg = "файл слишком маленький — это точно ggml-модель Whisper?"
+        logger.warning(f"[transcribe] {msg}")
+        _whisper_model_state["error"] = msg
+        return False
+    with open(src_path, "rb") as f:
+        magic = f.read(4)
+    if magic != b"ggml":
+        msg = "файл не похож на GGML-модель whisper.cpp (нет сигнатуры 'ggml' в начале)"
+        logger.warning(f"[transcribe] {msg}")
+        _whisper_model_state["error"] = msg
+        return False
+    if src_path != WHISPER_MODEL_FILE:
+        os.replace(src_path, WHISPER_MODEL_FILE)
+    try:
+        from com.suscersal.maxclient import WhisperBridge
+        WhisperBridge.releaseModel()
+    except Exception:
+        pass  # десктоп / модель ещё не грузилась — нечего сбрасывать
+    _whisper_model_state["ready"] = True
+    _whisper_model_state["error"] = None
+    return True
+
+
 def ensure_whisper_model_cached():
     """Качает ggml-small.bin один раз, с прогрессом в _whisper_model_state
     (см. /api/transcribe/model-status). Не блокирует остальной бридж —
@@ -637,9 +694,9 @@ def ensure_whisper_model_cached():
             _whisper_model_state["error"] = msg
             return False
 
-        os.replace(tmp_path, WHISPER_MODEL_FILE)
+        if not _install_whisper_model_from_file(tmp_path):
+            return False
         logger.info("[transcribe] Whisper model ready")
-        _whisper_model_state["ready"] = True
         return True
     except Exception as e:
         logger.warning(f"[transcribe] Whisper model download failed: {e}")
@@ -3093,6 +3150,65 @@ def transcribe_model_delete():
     engine = requested or _get_transcribe_settings()["onDeviceEngine"]
     _delete_ondevice_model(engine)
     return jsonify({"ok": True, "engine": engine})
+
+
+@app.route("/api/transcribe/model/import", methods=["POST"])
+def transcribe_model_import():
+    """Ручной импорт модели вместо скачивания по фиксированному URL —
+    актуально, если авто-скачиваемая модель не устраивает по качеству:
+    для Whisper можно принести любой .bin whisper.cpp (например
+    ggml-large-v3-turbo.bin — точнее small, но и заметно тяжелее); для
+    Vosk — любой .zip с моделью с alphacephei.com/vosk/models (например
+    полную vosk-model-ru-0.42 вместо small).
+
+    Ожидает multipart/form-data с полем "file" и query-параметром
+    ?engine=vosk|whisper. Файл льётся на диск потоково через f.save() —
+    для моделей в сотни МБ–гигабайты важно не грузить их целиком в память
+    (в отличие от /api/upload-file, который читает f.read() для мелких
+    вложений)."""
+    requested = request.args.get("engine")
+    if requested and requested not in TRANSCRIBE_ONDEVICE_ENGINES:
+        return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
+    engine = requested or _get_transcribe_settings()["onDeviceEngine"]
+
+    f = request.files.get("file")
+    if f is None:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    state = _ondevice_model_state(engine)
+    with (_asr_model_lock if engine == "vosk" else _whisper_model_lock):
+        if state["downloading"]:
+            return jsonify({"error": "Уже идёт скачивание модели — дождитесь окончания или перезапустите приложение"}), 409
+        state.update({"downloading": True, "error": None,
+                     "downloadedBytes": 0, "totalBytes": 0})
+
+    _ensure_asr_download_dir()  # общая для обоих движков директория кеша
+    suffix = ".zip" if engine == "vosk" else ".bin"
+    tmp_path = os.path.join(os.path.dirname(
+        SESSION_FILE), f"_import_{engine}_{uuid.uuid4().hex}{suffix}")
+    try:
+        f.save(tmp_path)
+        if os.path.getsize(tmp_path) == 0:
+            state["error"] = "Пустой файл"
+            return jsonify({"error": "Пустой файл"}), 400
+
+        ok = _install_vosk_model_from_zip(
+            tmp_path) if engine == "vosk" else _install_whisper_model_from_file(tmp_path)
+        if not ok:
+            return jsonify({"error": state.get("error") or "Не удалось установить модель", "engine": engine}), 400
+        logger.info(f"[transcribe] {engine} model imported manually")
+        return jsonify({"ok": True, "engine": engine})
+    except Exception as e:
+        logger.warning(f"[transcribe] model import ({engine}) failed: {e}")
+        state["error"] = str(e)
+        return jsonify({"error": str(e)}), 500
+    finally:
+        state["downloading"] = False
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 
 @app.route("/api/transcribe", methods=["POST"])

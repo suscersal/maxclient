@@ -4324,6 +4324,42 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             refreshTranscribeModelStatus();
         }
 
+        function transcribeModelImportPick() {
+            document.getElementById('transcribeModelImportInput')?.click();
+        }
+
+        async function transcribeModelImportFile(input) {
+            const file = input.files && input.files[0];
+            input.value = ''; // чтобы повторный выбор того же файла снова триггерил change
+            if (!file) return;
+            const engine = getSelectedTranscribeEngine();
+            const box = document.getElementById('transcribeModelStatus');
+            const importBtn = document.getElementById('transcribeImportBtn');
+            const label = TRANSCRIBE_ENGINE_INFO[engine]?.label || engine;
+            if (engine === 'vosk' && !/\.zip$/i.test(file.name)) {
+                if (!confirm(`Файл «${file.name}» не похож на .zip — для Vosk обычно нужен архив модели с alphacephei.com. Всё равно попробовать?`)) return;
+            }
+            if (engine === 'whisper' && !/\.bin$/i.test(file.name)) {
+                if (!confirm(`Файл «${file.name}» не похож на .bin — для Whisper нужен ggml-файл whisper.cpp (например ggml-large-v3-turbo.bin). Всё равно попробовать?`)) return;
+            }
+            if (importBtn) importBtn.disabled = true;
+            if (box) box.textContent = `⏳ Импортируется «${file.name}» как модель ${label} — для больших файлов это может занять минуту-другую…`;
+            try {
+                const fd = new FormData();
+                fd.append('file', file, file.name);
+                const resp = await fetch('/api/transcribe/model/import?engine=' + encodeURIComponent(engine), {
+                    method: 'POST', body: fd
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'не удалось импортировать модель');
+            } catch (e) {
+                if (box) box.textContent = '❌ Импорт не удался: ' + (e.message || e);
+            } finally {
+                if (importBtn) importBtn.disabled = false;
+                refreshTranscribeModelStatus();
+            }
+        }
+
         async function runTranscribeJavaDiag() {
             const el = document.getElementById('transcribeDiagOut');
             if (el) el.textContent = 'Проверяю…';
@@ -4380,9 +4416,19 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
         <div id="transcribeProgressWrap" style="display:none;height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:8px;">
             <div id="transcribeProgressBar" style="height:100%;width:0%;background:#4a9eff;transition:width .3s;"></div>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
             <button type="button" id="transcribeRetryBtn" style="display:none;" onclick="transcribeModelDownload()">⬇️ Скачать модель</button>
             <button type="button" id="transcribeDeleteBtn" style="display:none;" onclick="transcribeModelDelete()">🗑️ Удалить модель</button>
+            <button type="button" id="transcribeImportBtn" onclick="transcribeModelImportPick()">📂 Импортировать свою модель</button>
+            <input type="file" id="transcribeModelImportInput" accept=".bin,.zip" style="display:none;" onchange="transcribeModelImportFile(this)">
+        </div>
+        <div style="font-size:12px;color:#888;margin:-4px 0 10px;line-height:1.4;">
+            Встроенные модели маленькие и не всегда точные. Если качество не устраивает —
+            можно вручную скачать модель побольше и подключить её здесь: для Whisper —
+            любой ggml-файл whisper.cpp (например ggml-large-v3-turbo.bin или ggml-medium.bin
+            с huggingface.co/ggerganov/whisper.cpp/tree/main), для Vosk — модель покрупнее
+            с alphacephei.com/vosk/models (например vosk-model-ru-0.42 вместо small).
+            Файл выбирается через обычный системный проводник телефона.
         </div>
         <div style="margin-bottom:10px;">
             <button type="button" onclick="runTranscribeJavaDiag()">🔍 Проверить доступность Java-классов (Vosk/Whisper)</button>
