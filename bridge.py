@@ -520,13 +520,13 @@ def _run_transcribe_ondevice(audio_bytes: bytes) -> str:
     if not _asr_model_state.get("ready"):
         raise RuntimeError("модель ещё не скачана")
     from org.vosk import Recognizer
-    from java import cast
+    from java import jarray, jbyte
     model = _get_vosk_model()
     pcm = _decode_audio_to_pcm16(audio_bytes)
     if not pcm:
         raise RuntimeError("не удалось декодировать аудио")
     rec = Recognizer(model, 16000.0)
-    rec.acceptWaveForm(cast('[B', pcm), len(pcm))
+    rec.acceptWaveForm(jarray(jbyte)(pcm), len(pcm))
     result = json.loads(rec.getFinalResult())
     return (result.get("text") or "").strip()
 
