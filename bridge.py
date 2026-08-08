@@ -271,9 +271,9 @@ def _save_transcribe_settings(patch: dict):
 # должно тянуть даже слабый телефон — поэтому тут не MediaPipe-LLM и не
 # внешний сервер, а Vosk: маленькая офлайн-модель (~40 МБ для ru-small),
 # работает на CPU в реальном времени даже на старых устройствах.
-# com.alphacephei:vosk-android уже подключена в build.gradle и импортирована
-# в bridge_launcher.py (from com.alphacephei import vosk) — здесь она
-# реально используется.
+# com.alphacephei:vosk-android уже подключена в build.gradle — Java-классы
+# внутри неё лежат в пакете org.vosk (НЕ com.alphacephei.vosk — это только
+# maven-координаты, groupId у них исторически не совпадает с пакетом).
 #
 # Vosk принимает только сырой PCM16 mono. Голосовые сообщения приходят в
 # OGG/Opus — решаем это средствами самого Android (android.media.
@@ -422,8 +422,8 @@ def _get_vosk_model():
         return _vosk_model
     with _asr_model_lock:
         if _vosk_model is None:
-            from com.alphacephei import vosk
-            _vosk_model = vosk.Model(ASR_MODEL_EXTRACTED_DIR)
+            from org.vosk import Model
+            _vosk_model = Model(ASR_MODEL_EXTRACTED_DIR)
         return _vosk_model
 
 
@@ -519,14 +519,16 @@ def _run_transcribe_ondevice(audio_bytes: bytes) -> str:
     код сам решает про fallback."""
     if not _asr_model_state.get("ready"):
         raise RuntimeError("модель ещё не скачана")
-    from com.alphacephei import vosk
+    from org.vosk import Recognizer
     model = _get_vosk_model()
     pcm = _decode_audio_to_pcm16(audio_bytes)
     if not pcm:
         raise RuntimeError("не удалось декодировать аудио")
-    rec = vosk.Recognizer(model, 16000.0)
-    rec.AcceptWaveform(pcm)
-    result = json.loads(rec.FinalResult())
+    rec = Recognizer(model, 16000.0)
+    # Java-API vosk-android — camelCase (acceptWaveForm/getFinalResult), это
+    # НЕ то же самое, что snake/Pascal-имена у python-пакета vosk на PyPI.
+    rec.acceptWaveForm(pcm, len(pcm))
+    result = json.loads(rec.getFinalResult())
     return (result.get("text") or "").strip()
 
 
