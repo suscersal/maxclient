@@ -3057,6 +3057,91 @@ def get_app_version():
     return jsonify(_get_own_app_version())
 
 
+# --- Hot-версия (OTA-патч без переустановки APK) — см. подробное описание
+# механизма в android/.../OtaUpdater.kt. Здесь дублируем часть его логики
+# на Python-стороне, чтобы показать в "О приложении" установленную и
+# последнюю опубликованную hot-версию, даже без похода в сам обновлятор. ---
+
+_HOTFIX_RELEASES_URL = "https://api.github.com/repos/suscersal/maxclient/releases?per_page=10"
+_latest_hotfix_cache = {"version": None, "checkedAt": 0.0}
+# Не дёргаем GitHub API при каждом заходе на страницу настроек — у него
+# довольно жёсткий rate-limit для анонимных (без токена) запросов.
+_LATEST_HOTFIX_CACHE_TTL = 300
+
+
+def _get_current_hotfix_version():
+    """Установленная hot-версия — читаем то же SharedPreferences
+    ("ota_prefs" / "hot_version"), что пишет OtaUpdater.kt при каждом
+    успешном hot-обновлении. На десктопе такого патчера нет — None."""
+    if _android_context is None:
+        return None
+    try:
+        # MODE_PRIVATE = 0
+        prefs = _android_context.getSharedPreferences("ota_prefs", 0)
+        return prefs.getString("hot_version", None)
+    except Exception as e:
+        logger.warning(
+            f"[hotfix] failed to read hot_version from SharedPreferences: {e}")
+        return None
+
+
+def _get_latest_hotfix_version():
+    """Та же логика, что и checkAndUpdate() в OtaUpdater.kt: смотрим
+    последние 10 релизов, среди них сами выбираем самый новый по
+    created_at (порядок /releases не гарантирован GitHub'ом), ищем в его
+    ассетах version.json и берём поле version. Кэшируем на 5 минут."""
+    now = time.time()
+    if (_latest_hotfix_cache["version"] is not None
+            and now - _latest_hotfix_cache["checkedAt"] < _LATEST_HOTFIX_CACHE_TTL):
+        return _latest_hotfix_cache["version"]
+    try:
+        req = urllib.request.Request(
+            _HOTFIX_RELEASES_URL,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            releases = json.loads(resp.read().decode("utf-8"))
+        if not releases:
+            return _latest_hotfix_cache["version"]
+        newest = max(releases, key=lambda r: r.get("created_at", ""))
+        version = None
+        for asset in newest.get("assets", []):
+            if asset.get("name") == "version.json":
+                vreq = urllib.request.Request(
+                    asset["browser_download_url"],
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                with urllib.request.urlopen(vreq, timeout=8) as vresp:
+                    manifest = json.loads(vresp.read().decode("utf-8"))
+                version = manifest.get("version")
+                break
+        if version is not None:
+            _latest_hotfix_cache["version"] = version
+            _latest_hotfix_cache["checkedAt"] = now
+        return version if version is not None else _latest_hotfix_cache["version"]
+    except Exception as e:
+        logger.warning(f"[hotfix] failed to check latest hotfix version: {e}")
+        return _latest_hotfix_cache["version"]
+
+
+@app.route("/api/hotfix-version", methods=["GET"])
+def get_hotfix_version():
+    """Установленная и последняя опубликованная hot-версия — для страницы
+    'О приложении'. Отдельный роут от /api/app-version, т.к. проверка
+    последней версии ходит в сеть (GitHub API) и не должна тормозить
+    обычную загрузку страницы настроек."""
+    current = _get_current_hotfix_version()
+    latest = _get_latest_hotfix_version()
+    logger.debug(
+        f"[hotfix][debug] current={current!r} latest={latest!r} "
+        f"up_to_date={current == latest if (current and latest) else None}")
+    return jsonify({
+        "current": current,
+        "latest": latest,
+        "upToDate": bool(current and latest and current == latest),
+    })
+
+
 @app.route("/api/device-settings", methods=["GET"])
 def get_device_settings():
     sess = load_session()

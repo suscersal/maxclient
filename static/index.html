@@ -5389,12 +5389,14 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
 
         function renderAboutPage() {
             setTimeout(loadAppVersion, 0);
+            setTimeout(loadHotfixVersion, 0);
             return `
         <div style="padding:4px 0;">
             <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0 18px;">
                 <div style="font-size:40px;">💬</div>
                 <div style="font-size:17px;font-weight:600;">MAX Client</div>
                 <div id="aboutVersionLabel" style="font-size:13px;color:#888;">Версия: загрузка…</div>
+                <div id="aboutHotfixLabel" style="font-size:12px;color:#888;">Hotfix: загрузка…</div>
             </div>
 
             <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px;">
@@ -5431,6 +5433,30 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             } catch (e) {
                 console.warn('[about] failed to load app version', e);
                 el.textContent = 'Версия: не удалось определить';
+            }
+        }
+
+        async function loadHotfixVersion() {
+            const el = document.getElementById('aboutHotfixLabel');
+            if (!el) return;
+            el.textContent = 'Hotfix: проверка…';
+            console.debug('[hotfix] запрос /api/hotfix-version…');
+            try {
+                const res = await fetch('/api/hotfix-version');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const v = await res.json();
+                console.debug('[hotfix] ответ /api/hotfix-version:', v);
+                const current = v.current || 'не установлен';
+                if (!v.latest) {
+                    el.textContent = `Hotfix: ${current} (не удалось проверить последнюю версию)`;
+                } else if (v.upToDate) {
+                    el.textContent = `Hotfix: ${current} ✅ актуальный`;
+                } else {
+                    el.textContent = `Hotfix: ${current} → доступен ${v.latest} ⚠️`;
+                }
+            } catch (e) {
+                console.error('[hotfix] failed to load hotfix version', e);
+                el.textContent = 'Hotfix: не удалось определить';
             }
         }
 
