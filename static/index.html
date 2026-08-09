@@ -2951,12 +2951,12 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                 } catch (e) { return String(a); }
             }
 
-            ['log', 'info', 'warn', 'error'].forEach(function (level) {
+            ['log', 'info', 'warn', 'error', 'debug'].forEach(function (level) {
                 var orig = console[level];
                 console[level] = function () {
                     var args = Array.prototype.slice.call(arguments).map(toText).join(' ');
                     var prefix = level === 'error' ? '❌ ' : (level === 'warn' ? '⚠️ ' : '');
-                    var color = level === 'error' ? '#f66' : (level === 'warn' ? '#fd6' : '#0f0');
+                    var color = level === 'error' ? '#f66' : (level === 'warn' ? '#fd6' : (level === 'debug' ? '#6cf' : '#0f0'));
                     addLine(prefix + args, color);
                     orig.apply(console, arguments);
                 };
