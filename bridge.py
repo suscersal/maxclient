@@ -18,6 +18,7 @@ import html
 import zipfile
 import shutil
 import msgpack
+import concurrent.futures
 from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
 from flask_sock import Sock
 import lz4.block
@@ -258,6 +259,12 @@ TRANSCRIBE_DEFAULT_MODEL = os.getenv(
     "TRANSCRIBE_DEFAULT_MODEL", "whisper-tiny")
 TRANSCRIBE_DEFAULT_LANGUAGE = os.getenv("TRANSCRIBE_DEFAULT_LANGUAGE", "ru")
 TRANSCRIBE_TIMEOUT = int(os.getenv("TRANSCRIBE_TIMEOUT", "60"))
+# Таймаут для on-device распознавания (Vosk/Whisper через JNI) — отдельный
+# от TRANSCRIBE_TIMEOUT выше (тот — для внешнего сервера по сети). На
+# слабых устройствах Whisper-инференс может идти долго даже в норме,
+# поэтому лимит заметно больше, но конечен — чтобы запрос не висел вечно.
+TRANSCRIBE_ONDEVICE_TIMEOUT = int(
+    os.getenv("TRANSCRIBE_ONDEVICE_TIMEOUT", "100"))
 TRANSCRIBE_CACHE_FILE = os.getenv("TRANSCRIBE_CACHE_FILE", os.path.join(
     os.path.dirname(SESSION_FILE), "transcribe_cache.json"))
 TRANSCRIBE_CACHE_LIMIT = 500  # сколько расшифровок хранить (по всем чатам)
@@ -3399,16 +3406,37 @@ def transcribe_voice_message():
         "language": cfg.get("language"),
     }
     if ondevice_state.get("ready"):
+        _t0 = time.time()
         try:
-            text = _run_transcribe_ondevice_dispatch(
-                audio_bytes, engine, cfg["language"])
+            # Раньше вызов мог зависнуть навсегда (JNI-вызов
+            # WhisperBridge.transcribe без встроенного таймаута — на слабом
+            # устройстве для длинного сообщения инференс маленькой модели
+            # всё равно может идти минутами, а если процесс где-то залип —
+            # то и бесконечно). Заворачиваем в отдельный поток с таймаутом,
+            # чтобы HTTP-запрос гарантированно получил ответ, а не висел
+            # молча — сам фоновый поток при этом всё равно может доработать
+            # позже (JNI-вызов извне не прервать), но пользователь хотя бы
+            # увидит понятную ошибку вместо вечного "Распознаю…".
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                _future = _pool.submit(
+                    _run_transcribe_ondevice_dispatch, audio_bytes, engine, cfg["language"])
+                try:
+                    text = _future.result(timeout=TRANSCRIBE_ONDEVICE_TIMEOUT)
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError(
+                        f"распознавание не уложилось в {TRANSCRIBE_ONDEVICE_TIMEOUT}с "
+                        f"(движок: {engine}) — вероятно, слишком длинное сообщение "
+                        f"или устройство не тянет модель")
             _base_diag["ondeviceResultLen"] = len(text or "")
+            _base_diag["ondeviceElapsedSec"] = round(time.time() - _t0, 1)
         except Exception as e:
             ondevice_error = e
             logger.warning(
-                f"[transcribe] on-device ({engine}) failed: {e}\n{traceback.format_exc()}")
+                f"[transcribe] on-device ({engine}) failed after "
+                f"{time.time() - _t0:.1f}s: {e}\n{traceback.format_exc()}")
             ondevice_diag = _java_import_diagnostics()
             ondevice_diag.update(_base_diag)
+            ondevice_diag["ondeviceElapsedSec"] = round(time.time() - _t0, 1)
             ondevice_diag["exception"] = str(e)
             ondevice_diag["traceback"] = traceback.format_exc()
 

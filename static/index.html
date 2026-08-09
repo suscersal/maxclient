@@ -3821,11 +3821,31 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             box.style.color = '#888';
             box.textContent = 'Распознаю…';
             console.debug('[transcribe] запрос распознавания:', { messageId, url: rawUrl, force: !!force });
+
+            // Раньше запрос мог висеть бесконечно (без ответа и без ошибки),
+            // если бэкенд завис — например, JNI-вызов WhisperBridge.transcribe
+            // без встроенного таймаута на слабом устройстве для длинного
+            // сообщения. Теперь: 1) периодически пишем в консоль, сколько уже
+            // прошло секунд, чтобы было видно "не тишина, а реально долго";
+            // 2) через TRANSCRIBE_TIMEOUT_MS обрываем запрос с понятной
+            // ошибкой вместо вечного "Распознаю…".
+            const TRANSCRIBE_TIMEOUT_MS = 120000; // 2 минуты
+            const startedAt = Date.now();
+            const heartbeat = setInterval(() => {
+                console.debug(`[transcribe] всё ещё ждём ответ сервера… прошло ${Math.round((Date.now() - startedAt) / 1000)}с`);
+            }, 5000);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.error(`[transcribe] таймаут ${TRANSCRIBE_TIMEOUT_MS / 1000}с — сервер не ответил, обрываю запрос`);
+                controller.abort();
+            }, TRANSCRIBE_TIMEOUT_MS);
+
             try {
                 const resp = await fetch('/api/transcribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageId, url: rawUrl, force: !!force })
+                    body: JSON.stringify({ messageId, url: rawUrl, force: !!force }),
+                    signal: controller.signal,
                 });
                 let data;
                 const rawText = await resp.text();
@@ -3837,7 +3857,7 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                     box.textContent = '⚠️ Сервер вернул не JSON (status ' + resp.status + ')';
                     return;
                 }
-                console.debug('[transcribe] ответ /api/transcribe:', { status: resp.status, ok: resp.ok, data });
+                console.debug('[transcribe] ответ /api/transcribe:', { status: resp.status, ok: resp.ok, data, elapsedMs: Date.now() - startedAt });
                 if (!resp.ok || data.error) {
                     console.error('[transcribe] ошибка распознавания:', data.error || ('HTTP ' + resp.status), 'полный ответ:', JSON.stringify(data));
                     box.style.color = '#c00';
@@ -3855,10 +3875,18 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
                     box.textContent = data.text;
                 }
             } catch (e) {
-                console.error('[transcribe] сетевая/JS ошибка при запросе распознавания:', e);
-                box.style.color = '#c00';
-                box.textContent = '⚠️ ' + e.message;
+                if (e.name === 'AbortError') {
+                    console.error(`[transcribe] запрос прерван по таймауту (${TRANSCRIBE_TIMEOUT_MS / 1000}с) — бэкенд не ответил. Скорее всего, завис сам процесс распознавания (WhisperBridge.transcribe) на устройстве.`);
+                    box.style.color = '#c00';
+                    box.textContent = `⚠️ Сервер не ответил за ${TRANSCRIBE_TIMEOUT_MS / 1000}с — похоже, распознавание зависло на устройстве`;
+                } else {
+                    console.error('[transcribe] сетевая/JS ошибка при запросе распознавания:', e);
+                    box.style.color = '#c00';
+                    box.textContent = '⚠️ ' + e.message;
+                }
             } finally {
+                clearInterval(heartbeat);
+                clearTimeout(timeoutId);
                 if (btn) { btn.disabled = false; btn.textContent = '📝'; }
             }
         }
