@@ -67,7 +67,19 @@ object WhisperBridge {
             ctxPtr = 0
             loadedModelPath = null
         }
+        // nativeInitContext (загрузка ~190МБ весов в память) сама по себе
+        // таймаута не имеет — только whisper_full() дальше. На медленном
+        // диске/при нехватке памяти зависание может быть уже тут, ещё до
+        // начала распознавания. android.util.Log виден через logcat/adb —
+        // если под рукой их нет, ориентир хотя бы по времени между этим
+        // сообщением и следующим вызовом в логах.
+        val t0 = System.currentTimeMillis()
+        android.util.Log.d("WhisperBridge", "nativeInitContext start: $modelPath")
         val fresh = nativeInitContext(modelPath)
+        android.util.Log.d(
+            "WhisperBridge",
+            "nativeInitContext done in ${System.currentTimeMillis() - t0}ms, ctx=$fresh"
+        )
         if (fresh != 0L) {
             ctxPtr = fresh
             loadedModelPath = modelPath

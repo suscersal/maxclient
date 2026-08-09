@@ -198,6 +198,33 @@ _whisper_model_state = {
 }
 _whisper_model_lock = threading.Lock()
 
+# Пошаговый прогресс ОДНОГО текущего запроса на распознавание — чтобы
+# видеть с фронта, на каком именно шаге всё стоит, ПОКА запрос ещё висит
+# (а не только постфактум через diag при ошибке/таймауте, которые при
+# настоящем зависании вообще не наступают). Каждый шаг пишем через
+# _set_transcribe_progress(...) — простая структура на одного клиента
+# (второй параллельный запрос перезапишет), этого достаточно для ручной
+# диагностики, отдельная очередь под конкурентные запросы не нужна.
+_transcribe_progress = {
+    "stage": None,       # "download" | "decode" | "model_load" | "inference" | "done" | "error"
+    "startedAt": None,
+    "updatedAt": None,
+    "detail": None,
+}
+_transcribe_progress_lock = threading.Lock()
+
+
+def _set_transcribe_progress(stage: str, detail: str = None):
+    now = time.time()
+    with _transcribe_progress_lock:
+        if stage == "download" or _transcribe_progress.get("startedAt") is None:
+            _transcribe_progress["startedAt"] = now
+        _transcribe_progress["stage"] = stage
+        _transcribe_progress["detail"] = detail
+        _transcribe_progress["updatedAt"] = now
+    logger.debug(f"[transcribe][progress] {stage}: {detail}")
+
+
 _asr_model_state = {
     "downloading": False,
     "ready": False,
@@ -822,22 +849,36 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     from com.suscersal.maxclient import WhisperBridge
     from java import jarray, jbyte
 
+    _set_transcribe_progress(
+        "decode", f"декодируем {len(audio_bytes)} байт аудио (MediaCodec)…")
     pcm = _decode_audio_to_pcm16(audio_bytes)
     logger.debug(
         f"[transcribe][debug] decoded PCM16: {len(pcm) if pcm else 0} bytes "
         f"(~{(len(pcm) / 2 / 16000):.1f}s at 16kHz mono, if that's the decoder's output rate)")
     if not pcm:
+        _set_transcribe_progress(
+            "error", "декодирование не дало данных (пустой PCM)")
         raise RuntimeError("не удалось декодировать аудио")
+    _set_transcribe_progress(
+        "decode", f"декодировано {len(pcm)} байт PCM (~{len(pcm)/2/16000:.1f}с)")
+
+    _set_transcribe_progress(
+        "model_load", "загружаем/переиспользуем контекст модели в JNI "
+        "(первый вызов может быть медленным — чтение ~190МБ с диска)…")
 
     # Оставляем небольшой запас (2с) до TRANSCRIBE_ONDEVICE_TIMEOUT, чтобы
     # native abort_callback успел сработать и вернуть исключение раньше,
     # чем внешний Python-таймаут (тот теперь просто подстраховка на случай
     # старой/непересобранной .so без abort_callback).
     _timeout_ms = max(1000, (TRANSCRIBE_ONDEVICE_TIMEOUT - 2) * 1000)
+    _set_transcribe_progress(
+        "inference", f"whisper_full() запущен, лимит {_timeout_ms}мс "
+        "(включает время на nativeInitContext, если модель ещё не в памяти)")
     text = WhisperBridge.transcribe(
         WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language, _timeout_ms)
     logger.debug(
         f"[transcribe][debug] WhisperBridge.transcribe raw result: {text!r}")
+    _set_transcribe_progress("done", f"результат: {len(text or '')} символов")
     return (text or "").strip()
 
 
@@ -3368,6 +3409,21 @@ def transcribe_model_import():
                 pass
 
 
+@app.route("/api/transcribe/progress", methods=["GET"])
+def get_transcribe_progress():
+    """Пошаговый прогресс ТЕКУЩЕГО (последнего) запроса на распознавание —
+    опрашивается фронтом каждые несколько секунд, ПОКА основной POST
+    /api/transcribe ещё висит без ответа. Позволяет увидеть, на каком
+    именно шаге застряло: скачивание аудио / декодирование / загрузка
+    модели в JNI / сам инференс whisper_full."""
+    with _transcribe_progress_lock:
+        p = dict(_transcribe_progress)
+    if p.get("startedAt"):
+        p["elapsedSec"] = round(time.time() - p["startedAt"], 1)
+        p["sinceLastUpdateSec"] = round(time.time() - p["updatedAt"], 1)
+    return jsonify(p)
+
+
 @app.route("/api/transcribe", methods=["POST"])
 def transcribe_voice_message():
     """Расшифровывает голосовое сообщение. Ожидает {messageId, url}, где
@@ -3399,10 +3455,14 @@ def transcribe_voice_message():
     engine = cfg["onDeviceEngine"]
     ondevice_state = _ondevice_model_state(engine)
 
+    _set_transcribe_progress("download", f"скачиваем аудио: {url[:80]}…")
     try:
         audio_bytes, content_type = _download_audio_bytes(url)
+        _set_transcribe_progress(
+            "download", f"скачано {len(audio_bytes)} байт, content-type={content_type}")
     except Exception as e:
         logger.warning(f"[transcribe] failed to download audio: {e}")
+        _set_transcribe_progress("error", f"скачивание аудио: {e}")
         return jsonify({"error": f"Не удалось скачать аудио: {e}"}), 502
 
     text = None
@@ -3445,6 +3505,7 @@ def transcribe_voice_message():
             _base_diag["ondeviceElapsedSec"] = round(time.time() - _t0, 1)
         except Exception as e:
             ondevice_error = e
+            _set_transcribe_progress("error", f"{e}")
             logger.warning(
                 f"[transcribe] on-device ({engine}) failed after "
                 f"{time.time() - _t0:.1f}s: {e}\n{traceback.format_exc()}")
