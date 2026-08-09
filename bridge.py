@@ -344,7 +344,14 @@ def _get_transcribe_settings():
         provider = TRANSCRIBE_DEFAULT_PROVIDER
     return {
         "enabled": bool(cfg.get("enabled", False)),
-        "url": cfg.get("url") or TRANSCRIBE_DEFAULT_URL,
+        # ВАЖНО: раньше здесь стоял "or TRANSCRIBE_DEFAULT_URL", из-за чего
+        # url всегда был "заполнен" (localhost:8090), даже если пользователь
+        # ничего не настраивал — и код, и поле в UI считали внешний провайдер
+        # настроенным, а на деле там никто не слушает (WinError 10061 /
+        # Connection refused). Теперь url пустой, пока пользователь сам его
+        # не впишет — TRANSCRIBE_DEFAULT_URL остаётся только подсказкой
+        # (placeholder) в UI, а не реальным значением.
+        "url": cfg.get("url") or "",
         "model": cfg.get("model") or TRANSCRIBE_DEFAULT_MODEL,
         "language": cfg.get("language") or TRANSCRIBE_DEFAULT_LANGUAGE,
         # Какой on-device движок использовать — "vosk" (лёгкий, ~40 МБ) или

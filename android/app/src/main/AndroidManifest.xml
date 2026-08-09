@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
     <!-- Нужно только на API 24-28: начиная с Android 10 (API 29) сохранение
          в галерею идёт через MediaStore без этого разрешения (scoped storage). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"

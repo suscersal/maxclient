@@ -4111,15 +4111,106 @@
             // грузить это как <img> нельзя (см. Komet: video_note_bubble.dart
             // тоже не показывает постер, только play-заглушку до резолва).
             return `
-          <div class="msg-video-note" id="${uid}"
-               data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
-               style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;position:relative;cursor:pointer;background:#000;"
-               onclick="playVideoNoteInline('${uid}')">
-            <div class="video-note-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:32px;">⏺️</div>
-            <div class="video-note-play-overlay"
-                 style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);color:#fff;font-size:28px;">▶</div>
-            ${durationLabel ? `<span style="position:absolute;bottom:6px;right:10px;color:#fff;font-size:11px;text-shadow:0 0 4px rgba(0,0,0,0.8);">${durationLabel}</span>` : ''}
+          <div style="display:inline-block;">
+            <div class="msg-video-note" id="${uid}"
+                 data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
+                 style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;position:relative;cursor:pointer;background:#000;"
+                 onclick="playVideoNoteInline('${uid}')">
+              <div class="video-note-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:32px;">⏺️</div>
+              <div class="video-note-play-overlay"
+                   style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);color:#fff;font-size:28px;">▶</div>
+              ${durationLabel ? `<span style="position:absolute;bottom:6px;right:10px;color:#fff;font-size:11px;text-shadow:0 0 4px rgba(0,0,0,0.8);">${durationLabel}</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-top:4px;">
+              <button type="button" id="${uid}_t_btn" title="Расшифровать"
+                      onclick="event.stopPropagation(); transcribeVideoNote('${uid}', '${messageId}', '${chatId}', ${videoId}, '${token.replace(/'/g, "\\'")}')"
+                      style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;">📝</button>
+            </div>
+            <div id="${uid}_transcript" style="display:none;max-width:${size}px;font-size:12px;margin-top:2px;white-space:pre-wrap;"></div>
           </div>`;
+        }
+
+        // Расшифровка аудиодорожки видео-кружка. Сначала пробуем штатный путь
+        // MAX (opcode 202) с mediaId = videoId — тот же самый эндпоинт, что и
+        // для голосовых, просто с другим ID медиа. Если сервер не смог (или
+        // фича не работает для видео на этом аккаунте) — fallback: получаем
+        // прямую ссылку на видео-файл (как для проигрывания, через
+        // /api/video-sources) и отдаём её на внешний провайдер через
+        // /api/transcribe, как и с обычными голосовыми — тот декодирует
+        // аудиодорожку сам, формат исходного файла ему не важен.
+        async function transcribeVideoNote(uid, messageId, chatId, videoId, token) {
+            console.debug('[transcribe][video-note] старт распознавания (нажата кнопка 📝):', { uid, messageId, chatId, videoId });
+
+            const confirmed = window.confirm(
+                'Аудиодорожка этого видео-кружка будет отправлена на сервер ' +
+                'для расшифровки (это не полностью локальная обработка). Продолжить?'
+            );
+            if (!confirmed) {
+                console.debug('[transcribe][video-note] отменено пользователем (диалог подтверждения)');
+                return;
+            }
+
+            const btn = document.getElementById(uid + '_t_btn');
+            const box = document.getElementById(uid + '_transcript');
+            if (!box) {
+                console.error('[transcribe][video-note] не найден элемент #' + uid + '_transcript — распознавание отменено');
+                return;
+            }
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            box.style.display = 'block';
+            box.style.color = '#888';
+            box.textContent = 'Распознаю…';
+
+            if (videoId) {
+                const MAX_NATIVE_ATTEMPTS = 5;
+                const MAX_NATIVE_POLL_MS = 2000;
+                for (let attempt = 0; attempt < MAX_NATIVE_ATTEMPTS; attempt++) {
+                    try {
+                        const text = await transcribeViaMaxNative(chatId, messageId, videoId);
+                        console.debug('[transcribe][video-note][max-native] успех:', text);
+                        box.style.color = text.trim() ? '' : '#888';
+                        box.textContent = text.trim() ? text : '(пусто — речь не распознана)';
+                        if (btn) { btn.disabled = false; btn.textContent = '📝'; }
+                        return;
+                    } catch (e) {
+                        const stillProcessing = /status=0/.test(e.message || '');
+                        console.warn(`[transcribe][video-note][max-native] попытка ${attempt + 1}/${MAX_NATIVE_ATTEMPTS} не удалась:`, e.message);
+                        if (!stillProcessing) break; // реальная ошибка — сразу на fallback
+                        await new Promise(r => setTimeout(r, MAX_NATIVE_POLL_MS));
+                    }
+                }
+                console.warn('[transcribe][video-note] max-native не удалось, пробуем внешний провайдер (если настроен)…');
+            }
+
+            box.textContent = 'Получаю ссылку на видео…';
+            try {
+                const res = await fetch('/api/video-sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId, chatId, token, videoId }),
+                });
+                const data = await res.json();
+                const sources = data.sources || {};
+                const best = sources['720p'] || sources['480p'] || Object.values(sources)[0];
+                if (!best) throw new Error('не удалось получить ссылку на видео' + (data.error ? ` (${data.error})` : ''));
+
+                box.textContent = 'Распознаю (внешний сервер)…';
+                const resp = await fetch('/api/transcribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId: String(messageId), url: best, force: false }),
+                });
+                const tdata = await resp.json();
+                if (!resp.ok || tdata.error) throw new Error(tdata.error || ('HTTP ' + resp.status));
+                box.style.color = (tdata.text || '').trim() ? '' : '#888';
+                box.textContent = (tdata.text || '').trim() ? tdata.text : '(пусто — речь не распознана)';
+            } catch (e) {
+                console.error('[transcribe][video-note] ошибка:', e);
+                box.style.color = '#e57373';
+                box.textContent = '⚠️ ' + (e.message || e);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '📝'; }
+            }
         }
 
         async function playVideoNoteInline(uid) {
@@ -4617,52 +4708,7 @@
             const cfg = transcribeSettingsCache || {
                 enabled: false, url: '', model: '', language: 'ru', onDeviceEngine: 'vosk'
             };
-            const engine = cfg.onDeviceEngine || 'vosk';
             return `
-        <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
-            Локальная расшифровка входящих голосовых сообщений — отдельная от
-            скам-проверки нейросеть, работает прямо на устройстве, офлайн,
-            без сервера. Скачивается один раз при включении.
-        </div>
-        <div class="settings-row">
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" id="transcribeEnabled" ${cfg.enabled ? 'checked' : ''}>
-                Включить расшифровку
-            </label>
-        </div>
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;">
-            <div style="font-weight:600;">Модель распознавания</div>
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="radio" name="transcribeEngine" value="vosk" ${engine === 'vosk' ? 'checked' : ''} onchange="onTranscribeEngineChange()">
-                Vosk — быстрая, ~40 МБ, попроще с точностью
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="radio" name="transcribeEngine" value="whisper" ${engine === 'whisper' ? 'checked' : ''} onchange="onTranscribeEngineChange()">
-                Whisper — точнее, 190 МБ (квантованная), распознаёт медленнее
-            </label>
-        </div>
-        <div id="transcribeModelStatus" style="font-size:12px;color:#888;margin:6px 0 4px;"></div>
-        <div id="transcribeProgressWrap" style="display:none;height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:8px;">
-            <div id="transcribeProgressBar" style="height:100%;width:0%;background:#4a9eff;transition:width .3s;"></div>
-        </div>
-        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-            <button type="button" id="transcribeRetryBtn" style="display:none;" onclick="transcribeModelDownload()">⬇️ Скачать модель</button>
-            <button type="button" id="transcribeDeleteBtn" style="display:none;" onclick="transcribeModelDelete()">🗑️ Удалить модель</button>
-            <button type="button" id="transcribeImportBtn" onclick="transcribeModelImportPick()">📂 Импортировать свою модель</button>
-            <input type="file" id="transcribeModelImportInput" accept=".bin,.zip" style="display:none;" onchange="transcribeModelImportFile(this)">
-        </div>
-        <div style="font-size:12px;color:#888;margin:-4px 0 10px;line-height:1.4;">
-            Встроенные модели маленькие и не всегда точные. Если качество не устраивает —
-            можно вручную скачать модель побольше и подключить её здесь: для Whisper —
-            любой ggml-файл whisper.cpp (например ggml-large-v3-turbo.bin или ggml-medium.bin
-            с huggingface.co/ggerganov/whisper.cpp/tree/main), для Vosk — модель покрупнее
-            с alphacephei.com/vosk/models (например vosk-model-ru-0.42 вместо small).
-            Файл выбирается через обычный системный проводник телефона.
-        </div>
-        <div style="margin-bottom:10px;">
-            <button type="button" onclick="runTranscribeJavaDiag()">🔍 Проверить доступность Java-классов (Vosk/Whisper)</button>
-            <pre id="transcribeDiagOut" style="font-size:11px;white-space:pre-wrap;background:#f5f5f5;padding:6px;border-radius:6px;margin-top:6px;display:block;"></pre>
-        </div>
         <details style="margin-top:10px;">
             <summary style="cursor:pointer;font-weight:600;">Дополнительно: внешний сервер (fallback)</summary>
             <div style="line-height:1.5;margin:8px 0;font-size:13px;color:#888;">
@@ -5781,7 +5827,7 @@
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
-            .addItem({ id: 'transcribe', icon: '📝', label: 'Расшифровка аудио (ИИ)', page: renderTranscribePage })
+
             .addItem({ id: 'about', icon: 'ℹ️', label: 'О приложении', page: renderAboutPage })
             .render();
 
