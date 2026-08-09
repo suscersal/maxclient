@@ -3809,9 +3809,13 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
         // шлёт исходный (не проксированный) URL аудио на бридж, который
         // сам скачивает файл и отправляет на локальный сервер распознавания.
         async function transcribeVoiceMessage(uid, messageId, rawUrl, force) {
+            console.debug('[transcribe] старт распознавания (нажата кнопка 📝):', { uid, messageId, url: rawUrl, force: !!force });
             const btn = document.getElementById(uid + '_t_btn');
             const box = document.getElementById(uid + '_transcript');
-            if (!box) return;
+            if (!box) {
+                console.error('[transcribe] не найден элемент #' + uid + '_transcript — распознавание отменено');
+                return;
+            }
             if (btn) { btn.disabled = true; btn.textContent = '…'; }
             box.style.display = 'block';
             box.style.color = '#888';
