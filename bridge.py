@@ -286,6 +286,34 @@ TRANSCRIBE_DEFAULT_MODEL = os.getenv(
     "TRANSCRIBE_DEFAULT_MODEL", "whisper-tiny")
 TRANSCRIBE_DEFAULT_LANGUAGE = os.getenv("TRANSCRIBE_DEFAULT_LANGUAGE", "ru")
 TRANSCRIBE_TIMEOUT = int(os.getenv("TRANSCRIBE_TIMEOUT", "60"))
+
+# --- Внешний провайдер "custom" vs "yandex" vs "groq" ---
+# "custom" — как и раньше, любой OpenAI-совместимый сервер по TRANSCRIBE_DEFAULT_URL.
+# "yandex" — Yandex SpeechKit (облако Яндекса, не сервер пользователя). В этом
+# режиме аудио отправляется на api.cloud.yandex.net, т.е. третьей стороне —
+# сами байты голосового сообщения и его текст после расшифровки становятся
+# доступны оператору (Яндексу) согласно его политике/условиям обработки данных.
+# "groq" — Groq API (облако Groq, США), Whisper large-v3-turbo на их железе.
+# Быстрее и точнее любого on-device варианта на слабом телефоне, бесплатный
+# тариф достаточно щедрый для голосовых сообщений в мессенджере. Как и с
+# Yandex — аудио уходит третьей стороне (Groq), это тоже стоит явно
+# показать в UI, а не прятать.
+TRANSCRIBE_PROVIDERS = ("custom", "yandex", "groq")
+TRANSCRIBE_DEFAULT_PROVIDER = os.getenv(
+    "TRANSCRIBE_DEFAULT_PROVIDER", "custom")
+TRANSCRIBE_YANDEX_API_KEY = os.getenv("TRANSCRIBE_YANDEX_API_KEY", "")
+TRANSCRIBE_YANDEX_FOLDER_ID = os.getenv("TRANSCRIBE_YANDEX_FOLDER_ID", "")
+TRANSCRIBE_YANDEX_URL = os.getenv(
+    "TRANSCRIBE_YANDEX_URL", "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize")
+# Yandex SpeechKit хочет lang в виде "ru-RU", а не просто "ru" — маппинг для
+# самых частых случаев, остальное прокидываем как есть.
+TRANSCRIBE_YANDEX_LANG_MAP = {"ru": "ru-RU", "en": "en-US"}
+
+TRANSCRIBE_GROQ_API_KEY = os.getenv("TRANSCRIBE_GROQ_API_KEY", "")
+TRANSCRIBE_GROQ_URL = os.getenv(
+    "TRANSCRIBE_GROQ_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
+TRANSCRIBE_GROQ_MODEL = os.getenv(
+    "TRANSCRIBE_GROQ_MODEL", "whisper-large-v3-turbo")
 # Таймаут для on-device распознавания (Vosk/Whisper через JNI) — отдельный
 # от TRANSCRIBE_TIMEOUT выше (тот — для внешнего сервера по сети). На
 # слабых устройствах Whisper-инференс может идти долго даже в норме,
@@ -311,6 +339,9 @@ def _get_transcribe_settings():
     engine = cfg.get("onDeviceEngine") or TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE
     if engine not in TRANSCRIBE_ONDEVICE_ENGINES:
         engine = TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE
+    provider = cfg.get("provider") or TRANSCRIBE_DEFAULT_PROVIDER
+    if provider not in TRANSCRIBE_PROVIDERS:
+        provider = TRANSCRIBE_DEFAULT_PROVIDER
     return {
         "enabled": bool(cfg.get("enabled", False)),
         "url": cfg.get("url") or TRANSCRIBE_DEFAULT_URL,
@@ -323,6 +354,13 @@ def _get_transcribe_settings():
         # "whisper" (точнее, 466 МБ). Внешний Whisper-сервер (url/model выше)
         # — отдельный fallback-путь, не зависит от этого выбора.
         "onDeviceEngine": engine,
+        # "custom" — свой/сторонний OpenAI-совместимый сервер по url выше;
+        # "yandex" — Yandex SpeechKit (облако Яндекса). При "yandex" аудио и
+        # текст расшифровки уходят на серверы Яндекса, а не остаются локально.
+        "provider": provider,
+        "yandexApiKey": cfg.get("yandexApiKey") or TRANSCRIBE_YANDEX_API_KEY,
+        "yandexFolderId": cfg.get("yandexFolderId") or TRANSCRIBE_YANDEX_FOLDER_ID,
+        "groqApiKey": cfg.get("groqApiKey") or TRANSCRIBE_GROQ_API_KEY,
     }
 
 
@@ -982,12 +1020,119 @@ def _run_transcribe_ondevice_dispatch(audio_bytes: bytes, engine: str, language:
     return _run_transcribe_ondevice(audio_bytes)
 
 
+def _run_transcribe_yandex(audio_bytes: bytes, content_type: str, cfg: dict) -> str:
+    """Отправляет аудио в Yandex SpeechKit (stt:recognize, короткое
+    аудио, синхронный REST). ВНИМАНИЕ: это сторонний облачный сервис —
+    сырые байты голосового сообщения уходят на серверы Яндекса, а не
+    остаются на устройстве/локальном сервере пользователя, как в режиме
+    "custom". Раскрывай это в UI (например рядом с переключателем
+    провайдера), не оставляй неявным."""
+    api_key = cfg.get("yandexApiKey")
+    if not api_key:
+        raise RuntimeError(
+            "Не задан TRANSCRIBE_YANDEX_API_KEY / yandexApiKey — нужен API-ключ Yandex Cloud (Api-Key)")
+
+    lang = cfg.get("language") or "ru"
+    lang = TRANSCRIBE_YANDEX_LANG_MAP.get(lang, lang)
+
+    params = {"lang": lang}
+    if cfg.get("yandexFolderId"):
+        params["folderId"] = cfg["yandexFolderId"]
+    # SpeedKit сам разбирается с ogg/opus (Telegram/WebRTC-голосовые обычно
+    # именно такие) и wav — mime можно не указывать явно, но передадим,
+    # если знаем контейнер, чтобы не гадал.
+    if content_type:
+        if "ogg" in content_type:
+            params["format"] = "oggopus"
+        elif "wav" in content_type:
+            params["format"] = "lpcm"
+            params["sampleRateHertz"] = "48000"
+
+    url = TRANSCRIBE_YANDEX_URL + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url,
+        data=audio_bytes,
+        headers={
+            "Authorization": f"Api-Key {api_key}",
+            "Content-Type": content_type or "application/octet-stream",
+        },
+        method="POST",
+    )
+    logger.info(
+        "[transcribe][yandex] отправка аудио на api.cloud.yandex.net "
+        "(сторонний сервис — не локальный/пользовательский сервер)")
+    with urllib.request.urlopen(req, timeout=TRANSCRIBE_TIMEOUT) as resp:
+        raw = resp.read().decode("utf-8")
+    parsed = json.loads(raw)
+    if parsed.get("error_code"):
+        raise RuntimeError(
+            f"Yandex SpeechKit: {parsed.get('error_code')} — {parsed.get('error_message')}")
+    return (parsed.get("result") or "").strip()
+
+
+def _run_transcribe_groq(audio_bytes: bytes, content_type: str, cfg: dict) -> str:
+    """Отправляет аудио в Groq API (OpenAI-совместимый эндпоинт,
+    whisper-large-v3-turbo на серверах Groq). ВНИМАНИЕ: сторонний облачный
+    сервис — аудио уходит на api.groq.com, а не остаётся на устройстве.
+    Быстрее и точнее on-device Whisper на слабом телефоне, есть бесплатный
+    тариф — но лимиты всё равно есть, и это не твой сервер."""
+    api_key = cfg.get("groqApiKey")
+    if not api_key:
+        raise RuntimeError(
+            "Не задан TRANSCRIBE_GROQ_API_KEY / groqApiKey — нужен бесплатный API-ключ с console.groq.com")
+
+    boundary = uuid.uuid4().hex
+    ext = "ogg" if "ogg" in (content_type or "") else "webm" if "webm" in (
+        content_type or "") else "wav" if "wav" in (content_type or "") else "bin"
+
+    def _field(name, value):
+        return (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+                f'{value}\r\n').encode("utf-8")
+
+    body = b""
+    body += _field("model", TRANSCRIBE_GROQ_MODEL)
+    if cfg.get("language"):
+        body += _field("language", cfg["language"])
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+             f'filename="voice.{ext}"\r\nContent-Type: {content_type or "audio/ogg"}\r\n\r\n'
+             ).encode("utf-8")
+    body += audio_bytes
+    body += f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    req = urllib.request.Request(
+        TRANSCRIBE_GROQ_URL,
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    logger.info(
+        "[transcribe][groq] отправка аудио на api.groq.com "
+        "(сторонний сервис — не локальный/пользовательский сервер)")
+    with urllib.request.urlopen(req, timeout=TRANSCRIBE_TIMEOUT) as resp:
+        raw = resp.read().decode("utf-8")
+    parsed = json.loads(raw)
+    if parsed.get("error"):
+        raise RuntimeError(f"Groq API: {parsed['error']}")
+    return (parsed.get("text") or "").strip()
+
+
 def _run_transcribe(audio_bytes: bytes, content_type: str) -> str:
-    """Отправляет аудио на локальный Whisper-совместимый сервер
-    (OpenAI /v1/audio/transcriptions, multipart/form-data) и возвращает
-    текст расшифровки. Бросает исключение при ошибке — вызывающий код сам
-    решает, как её показать пользователю."""
+    """Отправляет аудио либо на локальный/свой Whisper-совместимый сервер
+    (provider="custom", OpenAI /v1/audio/transcriptions, multipart/form-data),
+    либо в облако Yandex SpeechKit (provider="yandex"), либо в Groq API
+    (provider="groq") — оба последних сторонние сервисы, см.
+    _run_transcribe_yandex / _run_transcribe_groq. Возвращает текст
+    расшифровки. Бросает исключение при ошибке — вызывающий код сам решает,
+    как её показать пользователю."""
     cfg = _get_transcribe_settings()
+
+    if cfg.get("provider") == "yandex":
+        return _run_transcribe_yandex(audio_bytes, content_type, cfg)
+    if cfg.get("provider") == "groq":
+        return _run_transcribe_groq(audio_bytes, content_type, cfg)
 
     boundary = uuid.uuid4().hex
     ext = "ogg" if "ogg" in (content_type or "") else "webm" if "webm" in (
@@ -1381,9 +1526,8 @@ def set_android_context(ctx):
     # сразу в фоне, не дожидаясь первого сообщения.
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
-    if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+    # On-device распознавание отключено (расшифровка теперь только через
+    # внешний провайдер) — модель Vosk/Whisper при старте больше не качаем.
 
 
 def _classloader_fix_before_request():
@@ -3289,6 +3433,52 @@ def refresh_device_catalog():
     return jsonify({"ok": True, "refreshing": True})
 
 
+@app.route("/api/transcribe/max-native", methods=["POST"])
+def transcribe_via_max_native():
+    """Расшифровка через штатную серверную функцию самого MAX (opcode 202,
+    AUDIO_TRANSCRIPTION — см. протокол в Komet: lib/backend/modules/messages.dart
+    requestTranscription()). Это официальная фича сервиса для авторизованных
+    пользователей (есть тумблер приватности AUDIO_TRANSCRIPTION_ENABLED в
+    настройках аккаунта) — сервер MAX сам расшифровывает голосовое и
+    возвращает текст, ничего никуда стороннее не уходит, работает от твоей
+    же сессии. Не требует ни своего сервера, ни ключей Yandex/Groq.
+    Ожидает {chatId, messageId, mediaId}."""
+    data = request.get_json(force=True) or {}
+    chat_id = data.get("chatId")
+    message_id = data.get("messageId")
+    media_id = data.get("mediaId")
+    if chat_id is None or message_id is None or media_id is None:
+        return jsonify({"error": "chatId, messageId и mediaId обязательны"}), 400
+
+    payload = {
+        "chatId": int(chat_id),
+        "messageId": int(message_id),
+        "mediaId": int(media_id),
+    }
+    try:
+        packet = fetch_once(202, payload, wait_opcode=202, timeout=20)
+    except Exception as e:
+        logger.warning(f"[transcribe][max-native] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера MAX"}), 502
+
+    resp_payload = packet.get("payload") or {}
+    if not isinstance(resp_payload, dict):
+        return jsonify({"error": "Некорректный ответ сервера"}), 502
+
+    status = resp_payload.get("transcriptionStatus", -1)
+    if status != 1:
+        return jsonify({"error": f"Сервер не смог расшифровать (status={status})"}), 502
+
+    text = resp_payload.get("transcription") or ""
+    if not text:
+        return jsonify({"error": "Пустой результат распознавания"}), 502
+
+    return jsonify({"text": text, "cached": False, "provider": "max_native"})
+
+
 @app.route("/api/transcribe/settings", methods=["GET"])
 def get_transcribe_settings():
     return jsonify(_get_transcribe_settings())
@@ -3300,6 +3490,9 @@ def set_transcribe_settings():
     requested_engine = (data.get("onDeviceEngine") or "").strip() or None
     if requested_engine and requested_engine not in TRANSCRIBE_ONDEVICE_ENGINES:
         return jsonify({"error": f"onDeviceEngine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
+    requested_provider = (data.get("provider") or "").strip() or None
+    if requested_provider and requested_provider not in TRANSCRIBE_PROVIDERS:
+        return jsonify({"error": f"provider должен быть одним из {TRANSCRIBE_PROVIDERS}"}), 400
     cfg = _save_transcribe_settings({
         "enabled": data.get("enabled"),
         "url": (data.get("url") or "").strip() or None,
@@ -3307,15 +3500,18 @@ def set_transcribe_settings():
         "language": (data.get("language") or "").strip() or None,
         "autoTranscribeIncoming": data.get("autoTranscribeIncoming"),
         "onDeviceEngine": requested_engine,
+        # provider="yandex" — сторонний облачный сервис (Yandex SpeechKit),
+        # аудио уходит за пределы устройства/локального сервера на серверы
+        # Яндекса. Явно фиксируем это здесь же, рядом с сохранением ключа.
+        "provider": requested_provider,
+        "yandexApiKey": (data.get("yandexApiKey") or "").strip() or None,
+        "yandexFolderId": (data.get("yandexFolderId") or "").strip() or None,
+        "groqApiKey": (data.get("groqApiKey") or "").strip() or None,
     })
-    if cfg.get("enabled"):
-        # Включили (или сменили движок) — качаем модель сразу в фоне, не
-        # дожидаясь первого голосового сообщения (как и антискам делает при
-        # своём включении). Модель другого, ранее выбранного движка не
-        # трогаем — можно свободно переключаться туда-обратно без повторных
-        # скачиваний, если обе уже закешированы.
-        threading.Thread(target=_ensure_ondevice_model_cached,
-                         daemon=True).start()
+    # On-device отключён (см. transcribe_voice_message) — модели Vosk/Whisper
+    # больше не скачиваем автоматически при включении, чтобы не тратить
+    # память/трафик телефона впустую. Расшифровка идёт только через внешний
+    # провайдер (url/yandex/groq).
     return jsonify(_get_transcribe_settings())
 
 
@@ -3497,7 +3693,11 @@ def transcribe_voice_message():
         "audioContentType": content_type,
         "language": cfg.get("language"),
     }
-    if ondevice_state.get("ready"):
+    if False and ondevice_state.get("ready"):
+        # On-device (Vosk/Whisper) отключён по решению пользователя — жрал
+        # лимиты/ресурсы телефона. Распознавание теперь идёт только через
+        # внешний провайдер (см. ниже: cfg["url"] / provider custom|yandex|groq).
+        # Код оставлен нетронутым на случай, если понадобится вернуть.
         _t0 = time.time()
         try:
             # Раньше вызов мог зависнуть навсегда (JNI-вызов
@@ -3533,7 +3733,9 @@ def transcribe_voice_message():
             ondevice_diag["exception"] = str(e)
             ondevice_diag["traceback"] = traceback.format_exc()
 
-    if not text and cfg.get("url"):
+    _has_external = bool(cfg.get("url")) or cfg.get(
+        "provider") in ("yandex", "groq")
+    if not text and _has_external:
         try:
             text = _run_transcribe(audio_bytes, content_type)
         except Exception as e:
@@ -3543,14 +3745,14 @@ def transcribe_voice_message():
                     "error": f"Локально: {ondevice_error}; сервер: {e}",
                     "diag": ondevice_diag or _base_diag,
                 }), 502
-            return jsonify({"error": "Локальный сервер распознавания недоступен. "
-                            "Проверьте, что он запущен, и адрес в настройках верный.",
+            return jsonify({"error": "Внешний сервис распознавания недоступен. "
+                            "Проверьте адрес/ключ провайдера в настройках.",
                             "diag": _base_diag}), 502
 
     if not text:
-        if not ondevice_state.get("ready") and not cfg.get("url"):
-            return jsonify({"error": "Модель ещё не скачана — откройте настройки "
-                            "«Расшифровка аудио» и дождитесь загрузки"}), 400
+        if not ondevice_state.get("ready") and not _has_external:
+            return jsonify({"error": "Внешний провайдер расшифровки не настроен — "
+                            "укажите url (custom) или ключ (yandex/groq) в настройках"}), 400
         return jsonify({
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
             "diag": ondevice_diag or _base_diag,
