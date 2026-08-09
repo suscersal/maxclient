@@ -56,6 +56,24 @@ object WhisperBridge {
         return nativeTranscribe(ctx, pcm16, language.ifBlank { "auto" }, timeoutMs).trim()
     }
 
+    // Отдельный публичный метод, вызывается из Python ДО transcribe(), только
+    // ради диагностики: чтобы разделить два разных по природе шага, которые
+    // раньше были слиты в один HTTP-невидимый вызов transcribe() — (1)
+    // nativeInitContext (чтение модели с диска, без таймаута) и (2)
+    // nativeTranscribe/whisper_full (с abort_callback-таймаутом). Если
+    // зависание было в первом — modelIsReady() до и после вызова покажет
+    // разницу, а сам факт возврата из loadModel() уже будет означать, что
+    // модель успешно загрузилась и завершение visible на HTTP-стороне.
+    @JvmStatic
+    fun loadModel(modelPath: String): Boolean {
+        return getOrLoadContext(modelPath) != 0L
+    }
+
+    @JvmStatic
+    fun isModelLoaded(modelPath: String): Boolean = synchronized(lock) {
+        ctxPtr != 0L && loadedModelPath == modelPath
+    }
+
     private fun getOrLoadContext(modelPath: String): Long = synchronized(lock) {
         if (ctxPtr != 0L && loadedModelPath == modelPath) {
             return ctxPtr

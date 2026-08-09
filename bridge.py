@@ -865,6 +865,24 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     _set_transcribe_progress(
         "model_load", "загружаем/переиспользуем контекст модели в JNI "
         "(первый вызов может быть медленным — чтение ~190МБ с диска)…")
+    # Отдельный вызов ДО transcribe() — специально для диагностики: раньше
+    # "загрузка модели в память" (nativeInitContext, без таймаута) и "сам
+    # инференс" (whisper_full, с abort_callback) были слиты в один
+    # HTTP-невидимый вызов, и мы не могли понять, где именно зависание.
+    # Если код завис здесь — значит проблема в nativeInitContext, а не в
+    # whisper_full/abort_callback (и наш JNI-фикс тут ни при чём).
+    _model_t0 = time.time()
+    already_loaded = WhisperBridge.isModelLoaded(WHISPER_MODEL_FILE)
+    loaded_ok = WhisperBridge.loadModel(WHISPER_MODEL_FILE)
+    _model_load_sec = round(time.time() - _model_t0, 1)
+    _set_transcribe_progress(
+        "model_load",
+        f"loadModel() вернулся за {_model_load_sec}с "
+        f"(already_loaded_before={already_loaded}, ok={loaded_ok})")
+    if not loaded_ok:
+        raise RuntimeError(
+            f"WhisperBridge.loadModel вернул false после {_model_load_sec}с — "
+            f"nativeInitContext не смог загрузить модель")
 
     # Оставляем небольшой запас (2с) до TRANSCRIBE_ONDEVICE_TIMEOUT, чтобы
     # native abort_callback успел сработать и вернуть исключение раньше,
@@ -873,7 +891,7 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     _timeout_ms = max(1000, (TRANSCRIBE_ONDEVICE_TIMEOUT - 2) * 1000)
     _set_transcribe_progress(
         "inference", f"whisper_full() запущен, лимит {_timeout_ms}мс "
-        "(включает время на nativeInitContext, если модель ещё не в памяти)")
+        "(модель уже загружена — сюда попадает только сам инференс)")
     text = WhisperBridge.transcribe(
         WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language, _timeout_ms)
     logger.debug(
