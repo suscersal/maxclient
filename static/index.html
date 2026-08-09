@@ -3816,25 +3816,42 @@ toggle.style.cssText = 'position:fixed;right:8px;z-index:10000000;width:36px;' +
             box.style.display = 'block';
             box.style.color = '#888';
             box.textContent = 'Распознаю…';
+            console.debug('[transcribe] запрос распознавания:', { messageId, url: rawUrl, force: !!force });
             try {
                 const resp = await fetch('/api/transcribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ messageId, url: rawUrl, force: !!force })
                 });
-                const data = await resp.json();
+                let data;
+                const rawText = await resp.text();
+                try {
+                    data = JSON.parse(rawText);
+                } catch (parseErr) {
+                    console.error('[transcribe] ответ сервера не JSON, status=', resp.status, 'body=', rawText);
+                    box.style.color = '#c00';
+                    box.textContent = '⚠️ Сервер вернул не JSON (status ' + resp.status + ')';
+                    return;
+                }
+                console.debug('[transcribe] ответ /api/transcribe:', { status: resp.status, ok: resp.ok, data });
                 if (!resp.ok || data.error) {
+                    console.error('[transcribe] ошибка распознавания:', data.error || ('HTTP ' + resp.status), 'полный ответ:', JSON.stringify(data));
                     box.style.color = '#c00';
                     box.textContent = '⚠️ ' + (data.error || 'Ошибка распознавания');
                     if (data.diag) {
-                        console.warn('[transcribe diag]', JSON.stringify(data.diag));
+                        console.error('[transcribe diag]', JSON.stringify(data.diag));
                         box.textContent += '\n\n' + JSON.stringify(data.diag, null, 1);
                     }
+                } else if (!data.text || !data.text.trim()) {
+                    console.warn('[transcribe] распознавание вернуло пустой текст. Полный ответ:', JSON.stringify(data));
+                    box.style.color = '#888';
+                    box.textContent = '(пусто — речь не распознана)';
                 } else {
                     box.style.color = '';
                     box.textContent = data.text;
                 }
             } catch (e) {
+                console.error('[transcribe] сетевая/JS ошибка при запросе распознавания:', e);
                 box.style.color = '#c00';
                 box.textContent = '⚠️ ' + e.message;
             } finally {

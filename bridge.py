@@ -797,18 +797,29 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     если модель ещё не скачана/не импортирована или декод/распознавание не
     удались — вызывающий код сам решает про fallback (напр. на Vosk или
     внешний сервер)."""
+    logger.debug(
+        f"[transcribe][debug] whisper start: audio_bytes={len(audio_bytes)} "
+        f"language={language!r} model_ready={_whisper_model_state.get('ready')} "
+        f"model_file={WHISPER_MODEL_FILE} "
+        f"model_exists={os.path.exists(WHISPER_MODEL_FILE)}")
     if not _whisper_model_state.get("ready"):
         raise RuntimeError("модель ещё не скачана")
     from com.suscersal.maxclient import WhisperBridge
     from java import jarray, jbyte
 
     pcm = _decode_audio_to_pcm16(audio_bytes)
+    logger.debug(
+        f"[transcribe][debug] decoded PCM16: {len(pcm) if pcm else 0} bytes "
+        f"(~{(len(pcm) / 2 / 16000):.1f}s at 16kHz mono, if that's the decoder's output rate)")
     if not pcm:
         raise RuntimeError("не удалось декодировать аудио")
 
     text = WhisperBridge.transcribe(
         WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language)
+    logger.debug(
+        f"[transcribe][debug] WhisperBridge.transcribe raw result: {text!r}")
     return (text or "").strip()
+
 
 
 def _load_transcribe_cache():
@@ -3291,15 +3302,30 @@ def transcribe_voice_message():
     text = None
     ondevice_error = None
     ondevice_diag = None
+    # Базовая диагностика запроса — кладём всегда, независимо от результата,
+    # чтобы при пустом/неверном распознавании было видно во фронтовой
+    # debug-консоли, что вообще происходило на сервере (без доступа к
+    # логам самого процесса bridge.py, что на Android недоступно без adb).
+    _base_diag = {
+        "engine": engine,
+        "onDeviceReady": ondevice_state.get("ready"),
+        "audioBytesDownloaded": len(audio_bytes),
+        "audioContentType": content_type,
+        "language": cfg.get("language"),
+    }
     if ondevice_state.get("ready"):
         try:
             text = _run_transcribe_ondevice_dispatch(
                 audio_bytes, engine, cfg["language"])
+            _base_diag["ondeviceResultLen"] = len(text or "")
         except Exception as e:
             ondevice_error = e
             logger.warning(
                 f"[transcribe] on-device ({engine}) failed: {e}\n{traceback.format_exc()}")
             ondevice_diag = _java_import_diagnostics()
+            ondevice_diag.update(_base_diag)
+            ondevice_diag["exception"] = str(e)
+            ondevice_diag["traceback"] = traceback.format_exc()
 
     if not text and cfg.get("url"):
         try:
@@ -3309,10 +3335,11 @@ def transcribe_voice_message():
             if ondevice_error is not None:
                 return jsonify({
                     "error": f"Локально: {ondevice_error}; сервер: {e}",
-                    "diag": ondevice_diag,
+                    "diag": ondevice_diag or _base_diag,
                 }), 502
             return jsonify({"error": "Локальный сервер распознавания недоступен. "
-                            "Проверьте, что он запущен, и адрес в настройках верный."}), 502
+                            "Проверьте, что он запущен, и адрес в настройках верный.",
+                            "diag": _base_diag}), 502
 
     if not text:
         if not ondevice_state.get("ready") and not cfg.get("url"):
@@ -3320,7 +3347,7 @@ def transcribe_voice_message():
                             "«Расшифровка аудио» и дождитесь загрузки"}), 400
         return jsonify({
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
-            "diag": ondevice_diag,
+            "diag": ondevice_diag or _base_diag,
         }), 502
 
 
