@@ -24,7 +24,9 @@ object WhisperBridge {
     private external fun nativeFreeContext(ctxPtr: Long)
 
     @JvmStatic
-    private external fun nativeTranscribe(ctxPtr: Long, pcm16: ByteArray, language: String): String
+    private external fun nativeTranscribe(
+        ctxPtr: Long, pcm16: ByteArray, language: String, timeoutMs: Long
+    ): String
 
     @JvmStatic
     private external fun nativeGetSystemInfo(): String
@@ -37,16 +39,21 @@ object WhisperBridge {
 
     private val lock = Any()
 
-    // Вызывается из Python: WhisperBridge.transcribe(modelPath, pcm16Bytes, language)
+    // Вызывается из Python: WhisperBridge.transcribe(modelPath, pcm16Bytes, language, timeoutMs)
     // pcm16 — сырые PCM16LE mono сэмплы на 16kHz (bridge.py собирает их из
     // _decode_audio_to_pcm16 и передаёт как jarray(jbyte), тот же формат,
     // что уходит и в Vosk). language — код языка ("ru", "en", ...) или
-    // "auto" для автоопределения.
+    // "auto" для автоопределения. timeoutMs — жёсткий лимит на сам
+    // whisper_full() внутри JNI (через abort_callback, см.
+    // whisper_jni.cpp) — 0 или отрицательное значение означает "без
+    // лимита". Это единственный способ реально прервать зависшее
+    // распознавание: таймаут на стороне Python бессилен, пока этот вызов
+    // удерживает GIL.
     @JvmStatic
-    fun transcribe(modelPath: String, pcm16: ByteArray, language: String): String {
+    fun transcribe(modelPath: String, pcm16: ByteArray, language: String, timeoutMs: Long = 0L): String {
         val ctx = getOrLoadContext(modelPath)
         if (ctx == 0L) return ""
-        return nativeTranscribe(ctx, pcm16, language.ifBlank { "auto" }).trim()
+        return nativeTranscribe(ctx, pcm16, language.ifBlank { "auto" }, timeoutMs).trim()
     }
 
     private fun getOrLoadContext(modelPath: String): Long = synchronized(lock) {

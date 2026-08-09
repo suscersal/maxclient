@@ -273,7 +273,8 @@ _transcribe_cache_lock = threading.Lock()
 
 
 TRANSCRIBE_ONDEVICE_ENGINES = ("vosk", "whisper")
-TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"  # ~40 МБ и быстрее — разумный дефолт;
+# ~40 МБ и быстрее — разумный дефолт;
+TRANSCRIBE_DEFAULT_ONDEVICE_ENGINE = "vosk"
 # whisper (466 МБ, точнее) — осознанный выбор пользователя в настройках.
 
 
@@ -504,8 +505,7 @@ def _decode_audio_to_pcm16(audio_bytes: bytes) -> bytes:
     ловит это и уходит на fallback (внешний сервер, если настроен)."""
     from java.io import File, FileOutputStream
     from android.media import (MediaExtractor, MediaCodec, MediaFormat,
-                                MediaCodecList, MediaCodecInfo)
-    
+                               MediaCodecList, MediaCodecInfo)
 
     tmp_in = os.path.join(os.path.dirname(
         SESSION_FILE), f"_asr_in_{uuid.uuid4().hex}.ogg")
@@ -803,7 +803,15 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     чем Vosk, но модель тяжелее и инференс медленнее. Бросает исключение,
     если модель ещё не скачана/не импортирована или декод/распознавание не
     удались — вызывающий код сам решает про fallback (напр. на Vosk или
-    внешний сервер)."""
+    внешний сервер).
+
+    ВАЖНО про таймаут: он передаётся сюда третьим аргументом в
+    WhisperBridge.transcribe и реализован внутри whisper_jni.cpp через
+    штатный abort_callback whisper.cpp. Обёртка этой функции в
+    ThreadPoolExecutor(...).result(timeout=...) в /api/transcribe САМА ПО
+    СЕБЕ таймаут не гарантирует — пока идёт нативный whisper_full(), поток
+    держит GIL, и Python-таймер не может выполниться раньше, чем сам
+    вызов закончится. Реальный обрыв обеспечивает только native-часть."""
     logger.debug(
         f"[transcribe][debug] whisper start: audio_bytes={len(audio_bytes)} "
         f"language={language!r} model_ready={_whisper_model_state.get('ready')} "
@@ -821,12 +829,16 @@ def _run_transcribe_ondevice_whisper(audio_bytes: bytes, language: str = "ru") -
     if not pcm:
         raise RuntimeError("не удалось декодировать аудио")
 
+    # Оставляем небольшой запас (2с) до TRANSCRIBE_ONDEVICE_TIMEOUT, чтобы
+    # native abort_callback успел сработать и вернуть исключение раньше,
+    # чем внешний Python-таймаут (тот теперь просто подстраховка на случай
+    # старой/непересобранной .so без abort_callback).
+    _timeout_ms = max(1000, (TRANSCRIBE_ONDEVICE_TIMEOUT - 2) * 1000)
     text = WhisperBridge.transcribe(
-        WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language)
+        WHISPER_MODEL_FILE, jarray(jbyte)(pcm), language, _timeout_ms)
     logger.debug(
         f"[transcribe][debug] WhisperBridge.transcribe raw result: {text!r}")
     return (text or "").strip()
-
 
 
 def _load_transcribe_cache():
@@ -1311,7 +1323,8 @@ def set_android_context(ctx):
     if _get_scam_check_settings()["enabled"]:
         threading.Thread(target=ensure_gemma_model_cached, daemon=True).start()
     if _get_transcribe_settings()["enabled"]:
-        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached,
+                         daemon=True).start()
 
 
 def _classloader_fix_before_request():
@@ -3242,7 +3255,8 @@ def set_transcribe_settings():
         # своём включении). Модель другого, ранее выбранного движка не
         # трогаем — можно свободно переключаться туда-обратно без повторных
         # скачиваний, если обе уже закешированы.
-        threading.Thread(target=_ensure_ondevice_model_cached, daemon=True).start()
+        threading.Thread(target=_ensure_ondevice_model_cached,
+                         daemon=True).start()
     return jsonify(_get_transcribe_settings())
 
 
@@ -3281,7 +3295,7 @@ def transcribe_model_download():
         return jsonify({"error": f"engine должен быть одним из {TRANSCRIBE_ONDEVICE_ENGINES}"}), 400
     engine = requested or _get_transcribe_settings()["onDeviceEngine"]
     threading.Thread(target=_ensure_ondevice_model_cached,
-                      args=(engine,), daemon=True).start()
+                     args=(engine,), daemon=True).start()
     return jsonify({"started": True, "engine": engine})
 
 
@@ -3462,7 +3476,6 @@ def transcribe_voice_message():
             "error": f"Не удалось распознать речь: {ondevice_error or 'пустой результат'}",
             "diag": ondevice_diag or _base_diag,
         }), 502
-
 
     return jsonify({"text": text, "cached": False})
 

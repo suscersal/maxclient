@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <chrono>
 #include "whisper.h"
 
 extern "C" {
@@ -33,10 +34,35 @@ Java_com_suscersal_maxclient_WhisperBridge_nativeFreeContext(
     whisper_free(ctx);
 }
 
+// Контекст для abort_callback ниже — единственный надёжный способ прервать
+// уже идущий whisper_full(): таймаут на стороне Python (через
+// concurrent.futures/threading) бессилен, пока этот вызов удерживает GIL
+// внутри JNI-звонка (см. обсуждение в bridge.py у ONDEVICE_TIMEOUT) — сам
+// поток, который должен был бы засечь таймаут, не может выполниться, пока
+// GIL не освобождён, а он не освобождается, пока мы тут в native-коде.
+// abort_callback же дергается самим whisper.cpp периодически ИЗНУТРИ
+// вычисления (между шагами энкодера/декодера), поэтому реально может его
+// остановить.
+struct AbortCtx {
+    std::chrono::steady_clock::time_point deadline;
+    bool hasDeadline;
+    bool aborted;
+};
+
+static bool whisper_abort_check(void *user_data) {
+    auto *ctx = static_cast<AbortCtx *>(user_data);
+    if (!ctx->hasDeadline) return false;
+    if (std::chrono::steady_clock::now() >= ctx->deadline) {
+        ctx->aborted = true;
+        return true;
+    }
+    return false;
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_suscersal_maxclient_WhisperBridge_nativeTranscribe(
         JNIEnv *env, jclass /*clazz*/, jlong ctxPtr,
-        jbyteArray pcm16, jstring language) {
+        jbyteArray pcm16, jstring language, jlong timeoutMs) {
     if (ctxPtr == 0) {
         return env->NewStringUTF("");
     }
@@ -58,6 +84,14 @@ Java_com_suscersal_maxclient_WhisperBridge_nativeTranscribe(
     std::string lang(langChars);
     env->ReleaseStringUTFChars(language, langChars);
 
+    AbortCtx abortCtx{};
+    abortCtx.hasDeadline = timeoutMs > 0;
+    abortCtx.aborted = false;
+    if (abortCtx.hasDeadline) {
+        abortCtx.deadline = std::chrono::steady_clock::now() +
+                             std::chrono::milliseconds(timeoutMs);
+    }
+
     struct whisper_full_params wparams =
             whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     wparams.print_progress = false;
@@ -69,8 +103,24 @@ Java_com_suscersal_maxclient_WhisperBridge_nativeTranscribe(
     wparams.no_context = true;
     wparams.language = (lang == "auto") ? nullptr : lang.c_str();
     wparams.n_threads = 4;
+    wparams.abort_callback = whisper_abort_check;
+    wparams.abort_callback_user_data = &abortCtx;
 
     int rc = whisper_full(ctx, wparams, samples.data(), static_cast<int>(samples.size()));
+
+    if (abortCtx.aborted) {
+        // Бросаем исключение до Java/Kotlin — тот же паттерн, что и у
+        // остальных ошибок on-device распознавания в bridge.py
+        // (_run_transcribe_ondevice_whisper их сама ловит и решает про
+        // fallback). Chaquopy на Python-стороне превратит это в обычное
+        // Python-исключение.
+        jclass excCls = env->FindClass("java/lang/RuntimeException");
+        if (excCls != nullptr) {
+            env->ThrowNew(excCls, "whisper_full прерван по таймауту (abort_callback)");
+        }
+        return env->NewStringUTF("");
+    }
+
     if (rc != 0) {
         return env->NewStringUTF("");
     }
