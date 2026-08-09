@@ -347,9 +347,6 @@ def _get_transcribe_settings():
         "url": cfg.get("url") or TRANSCRIBE_DEFAULT_URL,
         "model": cfg.get("model") or TRANSCRIBE_DEFAULT_MODEL,
         "language": cfg.get("language") or TRANSCRIBE_DEFAULT_LANGUAGE,
-        # Автоматически расшифровывать входящие голосовые при открытии чата,
-        # а не только по нажатию кнопки на конкретном сообщении.
-        "autoTranscribeIncoming": bool(cfg.get("autoTranscribeIncoming", False)),
         # Какой on-device движок использовать — "vosk" (лёгкий, ~40 МБ) или
         # "whisper" (точнее, 466 МБ). Внешний Whisper-сервер (url/model выше)
         # — отдельный fallback-путь, не зависит от этого выбора.
@@ -3464,13 +3461,29 @@ def transcribe_via_max_native():
     if not packet:
         return jsonify({"error": "Нет ответа от сервера MAX"}), 502
 
+    # Если сервер ответил ошибкой (cmd=768), fetch_once всё равно вернёт этот
+    # пакет — но реальная причина лежит в payload.localizedMessage/errorCode,
+    # а не в transcriptionStatus. Раньше это ниже молча превращалось в
+    # неинформативное "status=-1", что и мешало понять настоящую ошибку.
+    if packet.get("cmd") == 768:
+        err_payload = packet.get("payload") or {}
+        logger.warning(
+            f"[transcribe][max-native] сервер вернул ошибку (cmd=768): {err_payload!r}")
+        msg = (err_payload.get("localizedMessage")
+               or err_payload.get("message")
+               or str(err_payload)
+               or "неизвестная ошибка сервера")
+        return jsonify({"error": f"MAX API error: {msg}", "raw": err_payload}), 502
+
     resp_payload = packet.get("payload") or {}
     if not isinstance(resp_payload, dict):
         return jsonify({"error": "Некорректный ответ сервера"}), 502
 
     status = resp_payload.get("transcriptionStatus", -1)
     if status != 1:
-        return jsonify({"error": f"Сервер не смог расшифровать (status={status})"}), 502
+        logger.warning(
+            f"[transcribe][max-native] неожиданный payload (opcode={packet.get('opcode')}, cmd={packet.get('cmd')}): {resp_payload!r}")
+        return jsonify({"error": f"Сервер не смог расшифровать (status={status})", "raw": resp_payload}), 502
 
     text = resp_payload.get("transcription") or ""
     if not text:
@@ -3498,7 +3511,6 @@ def set_transcribe_settings():
         "url": (data.get("url") or "").strip() or None,
         "model": (data.get("model") or "").strip() or None,
         "language": (data.get("language") or "").strip() or None,
-        "autoTranscribeIncoming": data.get("autoTranscribeIncoming"),
         "onDeviceEngine": requested_engine,
         # provider="yandex" — сторонний облачный сервис (Yandex SpeechKit),
         # аудио уходит за пределы устройства/локального сервера на серверы

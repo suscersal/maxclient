@@ -3819,10 +3819,19 @@
         // сработал — fallback на внешний провайдер (custom/yandex/groq),
         // настроенный в openTranscribeSettings, через /api/transcribe.
         async function transcribeViaMaxNative(chatId, messageId, audioId) {
+            // ВАЖНО: messageId у MAX — 18-значное число (например
+            // 117026493368903871), что больше Number.MAX_SAFE_INTEGER
+            // (9007199254740991). Number(messageId) молча теряет точность
+            // (последняя цифра меняется), из-за чего сервер получает чуть
+            // другой messageId и не находит нужное медиа (отсюда странные
+            // ответы вида "видео заблокировано или удалено" — это ошибка
+            // по СЛУЧАЙНОМУ другому сообщению/медиа). Поэтому messageId
+            // отправляем строкой как есть, без Number(); bridge.py разбирает
+            // строку через int() на своей стороне (в Python это безопасно).
             const resp = await fetch('/api/transcribe/max-native', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chatId: Number(chatId), messageId: Number(messageId), mediaId: audioId }),
+                body: JSON.stringify({ chatId: Number(chatId), messageId: String(messageId), mediaId: audioId }),
             });
             const data = await resp.json();
             if (!resp.ok || data.error) throw new Error(data.error || ('HTTP ' + resp.status));
@@ -3831,6 +3840,22 @@
 
         async function transcribeVoiceMessage(uid, messageId, chatId, audioId, rawUrl, force) {
             console.debug('[transcribe] старт распознавания (нажата кнопка 📝):', { uid, messageId, chatId, audioId, url: rawUrl, force: !!force });
+
+            // Расшифровка НЕ полностью локальная: штатный путь (opcode 202)
+            // шлёт запрос на сервер MAX, а fallback-путь — на внешний
+            // Whisper/Vosk-совместимый сервер (или облако Яндекса/Groq, если
+            // так настроено). В обоих случаях само аудио уходит за пределы
+            // устройства. Явно предупреждаем и просим подтверждение перед
+            // каждой отправкой — молчаливой автоматики быть не должно.
+            const confirmed = window.confirm(
+                'Аудио этого голосового сообщения будет отправлено на сервер ' +
+                'для расшифровки (это не полностью локальная обработка). Продолжить?'
+            );
+            if (!confirmed) {
+                console.debug('[transcribe] отменено пользователем (диалог подтверждения)');
+                return;
+            }
+
             const btn = document.getElementById(uid + '_t_btn');
             const box = document.getElementById(uid + '_transcript');
             if (!box) {
@@ -4425,7 +4450,7 @@
                 const resp = await fetch('/api/transcribe/settings');
                 transcribeSettingsCache = await resp.json();
             } catch (e) {
-                transcribeSettingsCache = { enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false, onDeviceEngine: 'vosk' };
+                transcribeSettingsCache = { enabled: false, url: '', model: '', language: 'ru', onDeviceEngine: 'vosk' };
             }
             return transcribeSettingsCache;
         }
@@ -4436,7 +4461,6 @@
                 url: document.getElementById('transcribeUrl')?.value.trim() || '',
                 model: document.getElementById('transcribeModel')?.value.trim() || '',
                 language: document.getElementById('transcribeLanguage')?.value.trim() || 'ru',
-                autoTranscribeIncoming: document.getElementById('transcribeAutoIncoming')?.checked || false,
                 onDeviceEngine: getSelectedTranscribeEngine(),
             };
             const statusEl = document.getElementById('transcribeSaveStatus');
@@ -4591,7 +4615,7 @@
             }
             setTimeout(refreshTranscribeModelStatus, 0);
             const cfg = transcribeSettingsCache || {
-                enabled: false, url: '', model: '', language: 'ru', autoTranscribeIncoming: false, onDeviceEngine: 'vosk'
+                enabled: false, url: '', model: '', language: 'ru', onDeviceEngine: 'vosk'
             };
             const engine = cfg.onDeviceEngine || 'vosk';
             return `
@@ -4604,12 +4628,6 @@
             <label style="display:flex;align-items:center;gap:8px;">
                 <input type="checkbox" id="transcribeEnabled" ${cfg.enabled ? 'checked' : ''}>
                 Включить расшифровку
-            </label>
-        </div>
-        <div class="settings-row">
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" id="transcribeAutoIncoming" ${cfg.autoTranscribeIncoming ? 'checked' : ''}>
-                Автоматически расшифровывать входящие голосовые
             </label>
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;">
@@ -4669,6 +4687,25 @@
         <div class="settings-content-footer">
             <button class="btn-save" onclick="saveTranscribeSettings()">💾 Сохранить</button>
         </div>`;
+        }
+
+        function renderDebugDumpPage() {
+            const enabled = getDebugDumpEnabled();
+            return `
+        <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
+            Выводить в debug-консоль (браузера, F12) полный JSON-дамп ответов
+            сервера при синхронизации — профиль, список чатов, контакты и
+            загружаемые сообщения. Полезно при отладке ошибок, но дамп большой
+            и содержит чувствительные данные, поэтому по умолчанию выключено.
+        </div>
+        <div class="settings-row">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="debugDumpEnabled" ${enabled ? 'checked' : ''}
+                       onchange="setDebugDumpEnabled(this.checked)">
+                Выводить полный дамп в консоль
+            </label>
+        </div>
+    `;
         }
 
         function renderScamCheckPage() {
@@ -5381,6 +5418,17 @@
             } catch (e) { return null; }
         }
 
+        // Настройка: выводить ли в debug-консоль полный дамп ответов сервера
+        // (opcode 19 — профиль/чаты/контакты, opcode 49 — сообщения).
+        // По умолчанию выключено, т.к. дамп большой и может содержать
+        // чувствительные данные (переписку, контакты и т.п.).
+        function getDebugDumpEnabled() {
+            try { return localStorage.getItem('maxclient_debug_dump_enabled') === '1'; } catch (e) { return false; }
+        }
+        function setDebugDumpEnabled(val) {
+            try { localStorage.setItem('maxclient_debug_dump_enabled', val ? '1' : '0'); } catch (e) { }
+        }
+
         function renderVarsPage() {
             const vars = loadSettingsVars();
             const entries = Object.entries(vars);
@@ -5726,6 +5774,7 @@
         settingsMenu
             .addItem({ id: 'theme', icon: '🎨', label: 'Тема', page: renderThemePage })
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
+            .addItem({ id: 'debugDump', icon: '🐞', label: 'Дебаг-дамп', page: renderDebugDumpPage })
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
             .addItem({ id: 'device', icon: '📱', label: 'Устройство', page: renderDevicePage })
@@ -8591,8 +8640,9 @@
                     }
                     if (data.opcode === 19 && data.cmd === 256) {
 
-
-                        console.log(JSON.stringify(data.payload, null, 2))
+                        if (getDebugDumpEnabled()) {
+                            console.log(JSON.stringify(data.payload, null, 2))
+                        }
 
                         if (data.payload?.profile?.contact) {
                             currentProfilePayload = data.payload.profile.contact;
@@ -8612,11 +8662,9 @@
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
 
-
-
-                        console.log(JSON.stringify(data.payload, null, 2))
-
-
+                        if (getDebugDumpEnabled()) {
+                            console.log(JSON.stringify(data.payload, null, 2))
+                        }
 
                         renderMessages(data.payload, isLoadingMore);
                         return;
