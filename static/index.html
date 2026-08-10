@@ -1429,6 +1429,318 @@
             display: block;
         }
 
+        /* ---- Панель по одному тапу на сообщение: эмодзи + Ответить/Удалить ---- */
+        #msgActionPanel {
+            position: fixed;
+            z-index: 1000002;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            width: min(260px, 92vw);
+        }
+
+        #msgActionPanel.active {
+            display: flex;
+        }
+
+        #msgActionPanel .map-emoji-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 2px 6px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        #msgActionPanel .map-emoji {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s ease, background 0.1s ease;
+        }
+
+        #msgActionPanel .map-emoji img {
+            width: 24px;
+            height: 24px;
+            pointer-events: none;
+        }
+
+        #msgActionPanel .map-emoji:hover,
+        #msgActionPanel .map-emoji:active {
+            background: rgba(0, 0, 0, 0.06);
+            transform: scale(1.15);
+        }
+
+        #msgActionPanel .map-more {
+            font-size: 18px;
+            color: var(--tg-text-secondary, #707579);
+        }
+
+        #msgActionPanel .map-action {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--tg-text, #17212b);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #msgActionPanel .map-action:hover,
+        #msgActionPanel .map-action:active {
+            background: rgba(0, 0, 0, 0.06);
+        }
+
+        #msgActionPanel .map-action.danger {
+            color: #e53935;
+        }
+
+        #msgActionPanelBackdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000001;
+            display: none;
+        }
+
+        #msgActionPanelBackdrop.active {
+            display: block;
+        }
+
+        /* ---- Кастомный диалог подтверждения удаления сообщения ---- */
+        #deleteConfirmBackdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000010;
+            background: rgba(0, 0, 0, 0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #deleteConfirmBackdrop.active {
+            display: flex;
+        }
+
+        #deleteConfirmDialog {
+            width: min(340px, 88vw);
+            background: #f2f9fc;
+            border-radius: 20px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+            padding: 24px 22px 20px;
+            box-sizing: border-box;
+        }
+
+        #deleteConfirmDialog .dcd-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1c1c1e;
+            margin: 0 0 14px;
+        }
+
+        #deleteConfirmDialog .dcd-text {
+            font-size: 15px;
+            color: #1c1c1e;
+            margin: 0 0 16px;
+            line-height: 1.4;
+        }
+
+        #deleteConfirmDialog .dcd-check-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 0 22px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #deleteConfirmDialog .dcd-checkbox {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid #b9c2c9;
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+
+        #deleteConfirmDialog .dcd-checkbox.checked {
+            background: #3390ec;
+            border-color: #3390ec;
+        }
+
+        #deleteConfirmDialog .dcd-checkbox svg {
+            width: 13px;
+            height: 13px;
+            display: none;
+        }
+
+        #deleteConfirmDialog .dcd-checkbox.checked svg {
+            display: block;
+        }
+
+        #deleteConfirmDialog .dcd-check-label {
+            font-size: 15px;
+            color: #1c1c1e;
+        }
+
+        #deleteConfirmDialog .dcd-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        #deleteConfirmDialog .dcd-btn {
+            flex: 1 1 0;
+            border: none;
+            padding: 13px 10px;
+            font-size: 15px;
+            font-weight: 700;
+            border-radius: 12px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        #deleteConfirmDialog .dcd-btn.danger {
+            background: #e2503f;
+            color: #fff;
+        }
+
+        #deleteConfirmDialog .dcd-btn.danger:hover,
+        #deleteConfirmDialog .dcd-btn.danger:active {
+            background: #cf4534;
+        }
+
+        #deleteConfirmDialog .dcd-btn.cancel {
+            background: #e3e6e8;
+            color: #1c1c1e;
+        }
+
+        #deleteConfirmDialog .dcd-btn.cancel:hover,
+        #deleteConfirmDialog .dcd-btn.cancel:active {
+            background: #d5d9db;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog {
+            background: #232e3c;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-title,
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-text,
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-check-label {
+            color: #fff;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel {
+            background: #2b3a4c;
+            color: #fff;
+        }
+
+        /* ---- Плашка «Ответ на сообщение» над полем ввода ---- */
+        .reply-preview-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 16px 6px;
+            padding: 6px 10px;
+            background: var(--tg-panel, #F4F5F6);
+            border-radius: 10px;
+        }
+
+        .reply-preview-bar.hidden {
+            display: none;
+        }
+
+        .reply-preview-line {
+            width: 3px;
+            align-self: stretch;
+            border-radius: 2px;
+            background: var(--tg-blue, #2E86F5);
+        }
+
+        .reply-preview-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .reply-preview-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--tg-blue, #2E86F5);
+        }
+
+        .reply-preview-text {
+            font-size: 13px;
+            color: var(--tg-text-secondary, #707579);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reply-preview-close {
+            flex: 0 0 auto;
+            background: none;
+            border: none;
+            font-size: 15px;
+            color: var(--tg-text-secondary, #707579);
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        /* ---- Цитата ответа внутри пузыря сообщения ---- */
+        .msg-reply-quote {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 4px;
+            padding: 2px 0 2px 8px;
+            border-left: 3px solid var(--tg-blue, #2E86F5);
+            cursor: pointer;
+        }
+
+        .msg-reply-quote-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--tg-blue, #2E86F5);
+        }
+
+        .msg-reply-quote-text {
+            font-size: 12px;
+            color: var(--tg-text-secondary, #707579);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 220px;
+        }
+
+        .msg-bubble.own .msg-reply-quote-text {
+            color: rgba(255, 255, 255, 0.75);
+        }
+
+        @keyframes msgHighlightFlash {
+            0% {
+                background-color: rgba(46, 134, 245, 0.25);
+            }
+
+            100% {
+                background-color: transparent;
+            }
+        }
+
+        .msg-highlight-flash {
+            animation: msgHighlightFlash 1.2s ease-out;
+        }
+
         .msg-status {
             font-size: 12px;
             margin-left: 3px;
@@ -3373,6 +3685,14 @@
             <span class="bot-webapp-icon">⊞</span>
             <span id="botWebAppBtnText">Открыть приложение</span>
         </button>
+        <div id="replyPreviewBar" class="reply-preview-bar hidden">
+            <div class="reply-preview-line"></div>
+            <div class="reply-preview-body">
+                <div class="reply-preview-title">Ответ</div>
+                <div id="replyPreviewText" class="reply-preview-text"></div>
+            </div>
+            <button type="button" class="reply-preview-close" onclick="cancelReply()">✕</button>
+        </div>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
             <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
@@ -7409,9 +7729,43 @@
         // можно было открыть чат и увидеть хотя бы недавнюю переписку.
         const MESSAGES_CACHE_LIMIT = 20;
 
+        // ID удалённых сообщений по чатам — отдельно от messagesByChatId,
+        // т.к. при обычном (не офлайн) открытии чата список сообщений всегда
+        // перезапрашивается заново с сервера (send(49, ...)), и сервер, разумеется,
+        // ничего не знает о нашей локальной пометке "удалено, но оставить видимым
+        // с плашкой" — он просто присылает сообщение как обычно. Раньше это
+        // приводило к тому, что удалённое сообщение при следующем открытии чата
+        // визуально "воскресало", как будто удаление не сохранилось. Теперь при
+        // открытии чата мы заранее подгружаем эти ID с диска (preloadDeletedIdsForChat)
+        // и переприменяем пометку к свежеполученным сообщениям в renderMessages.
+        const deletedIdsByChatId = {};
+
+        // Подгружает с диска ID сообщений, помеченных удалёнными для конкретного
+        // чата, и складывает их в deletedIdsByChatId — вызывается перед запросом
+        // истории чата у сервера, чтобы пометку можно было сразу переприменить.
+        async function preloadDeletedIdsForChat(chatId) {
+            try {
+                const res = await fetch('/api/messages-cache?chatId=' + encodeURIComponent(chatId));
+                const json = await res.json();
+                const set = new Set();
+                if (json.success && json.data && Array.isArray(json.data.messages)) {
+                    json.data.messages.forEach(m => {
+                        if (m && m.deleted) set.add(String(m.id));
+                    });
+                }
+                deletedIdsByChatId[chatId] = set;
+            } catch (e) {
+                // Не критично — просто не переприменим пометку в этот раз.
+                deletedIdsByChatId[chatId] = deletedIdsByChatId[chatId] || new Set();
+            }
+        }
+
         function markMessagesDeleted(chatId, messageIds) {
             if (!chatId || !messageIds || !messageIds.length) return;
             const idSet = new Set(messageIds.map(String));
+
+            const deletedSet = deletedIdsByChatId[chatId] || (deletedIdsByChatId[chatId] = new Set());
+            idSet.forEach(id => deletedSet.add(id));
 
             // Помечаем в кэше сообщений чата (используется и офлайн-кэшем).
             const arr = messagesByChatId[chatId];
@@ -7437,6 +7791,36 @@
                         badge.textContent = '🗑 Удалено';
                         timeEl.insertBefore(badge, timeEl.firstChild);
                     }
+                });
+            }
+        }
+
+        // Откатывает пометку "удалено", проставленную оптимистично в
+        // markMessagesDeleted, если сервер в итоге ответил ошибкой.
+        function unmarkMessagesDeleted(chatId, messageIds) {
+            if (!chatId || !messageIds || !messageIds.length) return;
+            const idSet = new Set(messageIds.map(String));
+
+            const deletedSet = deletedIdsByChatId[chatId];
+            if (deletedSet) idSet.forEach(id => deletedSet.delete(id));
+
+            const arr = messagesByChatId[chatId];
+            if (arr) {
+                arr.forEach(m => {
+                    if (idSet.has(String(m.id))) m.deleted = false;
+                });
+                if (!isOfflineCacheMode) cacheMessagesToDisk(chatId, arr);
+            }
+
+            if (chatId === currentChatId) {
+                idSet.forEach(id => {
+                    const bubble = document.querySelector(
+                        `#messagesList .msg-bubble[data-msg-id="${id}"]`
+                    );
+                    if (!bubble) return;
+                    bubble.classList.remove('deleted');
+                    const badge = bubble.querySelector('.msg-deleted-badge');
+                    if (badge) badge.remove();
                 });
             }
         }
@@ -7750,7 +8134,264 @@
             });
         }
 
-        // Кэш в памяти (на текущую сессию вкладки) + персистентный кеш
+        // ---- Панель по одиночному тапу: быстрые реакции + Ответить/Удалить ----
+        const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+
+        let _msgActionPanelEls = null;
+        function _ensureMsgActionPanelEls() {
+            if (_msgActionPanelEls) return _msgActionPanelEls;
+            const backdrop = document.createElement('div');
+            backdrop.id = 'msgActionPanelBackdrop';
+            const panel = document.createElement('div');
+            panel.id = 'msgActionPanel';
+            document.body.appendChild(backdrop);
+            document.body.appendChild(panel);
+            backdrop.addEventListener('click', hideMessageActionPanel);
+            backdrop.addEventListener('touchstart', hideMessageActionPanel, { passive: true });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') hideMessageActionPanel();
+            });
+            _msgActionPanelEls = { backdrop, panel };
+            return _msgActionPanelEls;
+        }
+
+        function hideMessageActionPanel() {
+            if (!_msgActionPanelEls) return;
+            _msgActionPanelEls.backdrop.classList.remove('active');
+            _msgActionPanelEls.panel.classList.remove('active');
+        }
+
+        function showMessageActionPanel(x, y, m, isOwn) {
+            const { backdrop, panel } = _ensureMsgActionPanelEls();
+            panel.innerHTML = '';
+
+            const emojiRow = document.createElement('div');
+            emojiRow.className = 'map-emoji-row';
+            QUICK_REACTION_EMOJIS.forEach(emoji => {
+                const btn = document.createElement('div');
+                btn.className = 'map-emoji';
+                const src = (typeof getEmojiSrc === 'function' ? getEmojiSrc(emoji) : null) || EMOJI_CDN_URLS[emoji];
+                if (src) {
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.alt = emoji;
+                    img.onerror = function () { btn.innerHTML = ''; btn.textContent = emoji; };
+                    btn.appendChild(img);
+                } else {
+                    btn.textContent = emoji;
+                }
+                btn.onclick = () => {
+                    sendReaction(m, emoji);
+                    hideMessageActionPanel();
+                };
+                emojiRow.appendChild(btn);
+            });
+            const moreBtn = document.createElement('div');
+            moreBtn.className = 'map-emoji map-more';
+            moreBtn.textContent = '➕';
+            moreBtn.title = 'Больше реакций';
+            moreBtn.onclick = () => {
+                hideMessageActionPanel();
+                showReactionPicker(x, y, m);
+            };
+            emojiRow.appendChild(moreBtn);
+            panel.appendChild(emojiRow);
+
+            const replyBtn = document.createElement('div');
+            replyBtn.className = 'map-action';
+            replyBtn.textContent = '↩️ Ответить';
+            replyBtn.onclick = () => {
+                hideMessageActionPanel();
+                replyToMessage(m);
+            };
+            panel.appendChild(replyBtn);
+
+            if (!m.deleted) {
+                const deleteBtn = document.createElement('div');
+                deleteBtn.className = 'map-action danger';
+                deleteBtn.textContent = '🗑 Удалить';
+                deleteBtn.onclick = () => {
+                    hideMessageActionPanel();
+                    deleteMessageAction(m, isOwn);
+                };
+                panel.appendChild(deleteBtn);
+            }
+
+            backdrop.classList.add('active');
+            panel.classList.add('active');
+
+            panel.style.left = '-9999px';
+            panel.style.top = '-9999px';
+            requestAnimationFrame(() => {
+                const rect = panel.getBoundingClientRect();
+                const margin = 8;
+                let left = x - rect.width / 2;
+                let top = y - rect.height - 12;
+                left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+                if (top < margin) top = y + 12;
+                top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+                panel.style.left = left + 'px';
+                panel.style.top = top + 'px';
+            });
+        }
+
+        // ---- Ответ на сообщение ----
+        let replyingToMessage = null;
+
+        function replyToMessage(m) {
+            replyingToMessage = m;
+            const bar = document.getElementById('replyPreviewBar');
+            const textEl = document.getElementById('replyPreviewText');
+            if (!bar || !textEl) return;
+            const sender = m.sender === selfId ? 'Вы' : (contactsById[m.sender]?.name || contactsById[m.sender]?.firstName || 'Собеседник');
+            textEl.textContent = (sender ? sender + ': ' : '') + (m.text ? m.text.replace(/<[^>]+>/g, '') : '📎 Вложение');
+            bar.classList.remove('hidden');
+            document.getElementById('messageText')?.focus();
+        }
+
+        function cancelReply() {
+            replyingToMessage = null;
+            document.getElementById('replyPreviewBar')?.classList.add('hidden');
+        }
+
+        // ---- Кастомный диалог подтверждения удаления сообщения ----
+        // Раньше тут использовался нативный confirm(), что и давало эффект
+        // "не работает" — на части WebView/мобильных обёрток нативный
+        // confirm() либо не показывается вовсе, либо блокирует WS-поток,
+        // из-за чего клик по "ОК" не долетал до отправки пакета. Теперь
+        // свой modal с двумя явными кнопками — не завязан на нативный
+        // диалог браузера и гарантированно шлёт правильный forMe/forEveryone.
+        let _deleteConfirmEls = null;
+        function _ensureDeleteConfirmEls() {
+            if (_deleteConfirmEls) return _deleteConfirmEls;
+            const backdrop = document.createElement('div');
+            backdrop.id = 'deleteConfirmBackdrop';
+            const dialog = document.createElement('div');
+            dialog.id = 'deleteConfirmDialog';
+            backdrop.appendChild(dialog);
+            document.body.appendChild(backdrop);
+            _deleteConfirmEls = { backdrop, dialog };
+            return _deleteConfirmEls;
+        }
+
+        // isOwn === true -> можно выбрать "удалить для всех" через чекбокс
+        // (по умолчанию отмечен, как в оригинале — Komet/Telegram).
+        // isOwn === false -> чекбокса нет, сообщение удаляется только у себя.
+        // Возвращает Promise<boolean|null>: true = forEveryone, false = только
+        // у себя, null = отмена/закрытие диалога.
+        function showDeleteConfirmDialog(isOwn, count = 1) {
+            const { backdrop, dialog } = _ensureDeleteConfirmEls();
+            return new Promise((resolve) => {
+                let settled = false;
+                let alsoForEveryone = isOwn; // чекбокс отмечен по умолчанию, как в Komet
+
+                const close = (result) => {
+                    if (settled) return;
+                    settled = true;
+                    backdrop.classList.remove('active');
+                    backdrop.removeEventListener('click', onBackdropClick);
+                    document.removeEventListener('keydown', onKeydown);
+                    resolve(result);
+                };
+                const onBackdropClick = (e) => {
+                    if (e.target === backdrop) close(null);
+                };
+                const onKeydown = (e) => {
+                    if (e.key === 'Escape') close(null);
+                };
+
+                dialog.innerHTML = '';
+
+                const title = document.createElement('p');
+                title.className = 'dcd-title';
+                title.textContent = 'Удалить сообщение';
+
+                const text = document.createElement('p');
+                text.className = 'dcd-text';
+                const noun = count === 1 ? 'сообщение' : 'сообщения';
+                text.textContent = `Вы уверены, что хотите удалить ${count} ${noun}`;
+
+                dialog.appendChild(title);
+                dialog.appendChild(text);
+
+                let checkboxEl = null;
+                if (isOwn) {
+                    const checkRow = document.createElement('div');
+                    checkRow.className = 'dcd-check-row';
+                    checkboxEl = document.createElement('div');
+                    checkboxEl.className = 'dcd-checkbox checked';
+                    checkboxEl.innerHTML =
+                        '<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 11.5L13 4.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+                    const label = document.createElement('span');
+                    label.className = 'dcd-check-label';
+                    label.textContent = 'Удалить для всех?';
+                    checkRow.appendChild(checkboxEl);
+                    checkRow.appendChild(label);
+                    checkRow.onclick = () => {
+                        alsoForEveryone = !alsoForEveryone;
+                        checkboxEl.classList.toggle('checked', alsoForEveryone);
+                    };
+                    dialog.appendChild(checkRow);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'dcd-actions';
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.type = 'button';
+                deleteBtn.className = 'dcd-btn danger';
+                deleteBtn.textContent = 'Удалить';
+                deleteBtn.onclick = () => close(isOwn && alsoForEveryone);
+                actions.appendChild(deleteBtn);
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'dcd-btn cancel';
+                cancelBtn.textContent = 'Отменить';
+                cancelBtn.onclick = () => close(null);
+                actions.appendChild(cancelBtn);
+
+                dialog.appendChild(actions);
+
+                backdrop.classList.add('active');
+                backdrop.addEventListener('click', onBackdropClick);
+                document.addEventListener('keydown', onKeydown);
+            });
+        }
+
+        // ---- Удаление сообщения ----
+        // Последняя отправленная попытка удаления — нужна, чтобы откатить
+        // оптимистичную пометку "удалено", если сервер ответит ошибкой
+        // (см. обработку opcode 66/cmd 768 в ws.onmessage).
+        let lastDeleteAttempt = null;
+
+        async function deleteMessageAction(m, isOwn) {
+            if (!currentChatId) return;
+            const forEveryone = await showDeleteConfirmDialog(isOwn, 1);
+            if (forEveryone === null) return; // отмена
+            const chatId = currentChatId;
+            const messageIds = [String(m.id)];
+            lastDeleteAttempt = { chatId, messageIds };
+            // ВАЖНО: id сообщений в MAX — большие 64-битные числа, зачастую
+            // превышающие Number.MAX_SAFE_INTEGER. Раньше здесь было
+            // `Number(m.id) || m.id` — Number() на такой строке не даёт 0,
+            // а даёт округлённое (уже неверное) число, поэтому `||` никогда
+            // не срабатывал и на сервер уходил испорченный id: сервер такое
+            // сообщение просто не находил, и удаление молча ничего не делало.
+            // Отправляем id как есть (строкой) — bridge.py сам разворачивает
+            // его обратно в точный int через numify_big_int_strings, точно
+            // так же, как уже сделано для read-mark (см. sendReadMark).
+            send(66, {
+                chatId,
+                messageIds: [m.id],
+                forMe: !forEveryone,
+                itemType: 'REGULAR',
+            });
+            // Оптимистично помечаем как удалённое сразу, не дожидаясь пуша.
+            // При ошибке от сервера это откатывается через lastDeleteAttempt.
+            markMessagesDeleted(chatId, messageIds);
+        }
+
         // (Cache Storage, переживает перезагрузку) — чтобы не дёргать
         // /lottie повторно для одного и того же стикера.
         const lottieJsonCache = {};
@@ -7821,27 +8462,12 @@
             el.className = 'msg-bubble' + (isOwn ? ' own' : '') + (m.deleted ? ' deleted' : '');
             el.dataset.msgId = m.id;
             el.dataset.msgTime = m.time || Date.now();
-            el.addEventListener('dblclick', (e) => { e.preventDefault(); showReactionPicker(e.clientX, e.clientY, m); });
-            // dblclick не всегда надёжно ловится в мобильном WebView (там где
-            // это приложение и рендерится — MAX-клиент под Android) — там
-            // события двойного тапа глушатся встроенной логикой зума/скролла.
-            // Ловим двойной тап вручную по паре touchend в пределах 300мс и
-            // ~24px друг от друга, независимо от родного dblclick выше.
-            let _lastTap = 0, _lastTapX = 0, _lastTapY = 0;
-            el.addEventListener('touchend', (e) => {
-                const t = e.changedTouches && e.changedTouches[0];
-                if (!t) return;
-                const now = Date.now();
-                const dx = t.clientX - _lastTapX, dy = t.clientY - _lastTapY;
-                if (now - _lastTap < 300 && Math.abs(dx) < 24 && Math.abs(dy) < 24) {
-                    e.preventDefault();
-                    showReactionPicker(t.clientX, t.clientY, m);
-                    _lastTap = 0;
-                } else {
-                    _lastTap = now;
-                    _lastTapX = t.clientX;
-                    _lastTapY = t.clientY;
-                }
+            // Одиночный тап/клик сразу открывает панель быстрых реакций +
+            // Ответить/Удалить — без ожидания возможного двойного тапа
+            // (раньше тут была задержка в 250мс и отдельная логика
+            // двойного тапа/клика, которая ставила ❤️ — убрано).
+            el.addEventListener('click', (e) => {
+                showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
             });
             let attachesHtml = '';
             let keyboardHtml = '';
@@ -8025,6 +8651,42 @@
             if (m.text && !(isTranslationKey && hasControlAttach)) {
                 textHtml = `<div class="msg-text">${buildMessageTextHtml(m)}</div>`;
             }
+            // Цитата сообщения, на которое отвечают (payload.link, type: REPLY).
+            // Сервер MAX присылает её прямо в теле сообщения — раньше это поле
+            // нигде не читалось, из-за чего ответы отправлялись, но никогда не
+            // отображались (см. Komet ReplyInfo.fromPayload для формата поля).
+            let replyQuoteHtml = '';
+            if (m.link && String(m.link.type || '').toUpperCase() === 'REPLY') {
+                const linkMsg = m.link.message;
+                const replyMsgId = m.link.messageId ?? linkMsg?.id;
+                const quoteSenderId = linkMsg ? linkMsg.sender : null;
+                let quoteName;
+                if (quoteSenderId === selfId) {
+                    quoteName = 'Вы';
+                } else if (quoteSenderId != null) {
+                    quoteName = contactsById[quoteSenderId]?.name || contactsById[quoteSenderId]?.firstName || 'Собеседник';
+                } else {
+                    quoteName = 'Сообщение';
+                }
+                let quoteText;
+                if (linkMsg) {
+                    if (linkMsg.text) {
+                        quoteText = stripHtml(buildMessageTextHtml(linkMsg));
+                    } else if (Array.isArray(linkMsg.attaches) && linkMsg.attaches.length) {
+                        quoteText = '📎 Вложение';
+                    } else {
+                        quoteText = '';
+                    }
+                } else {
+                    quoteText = 'Сообщение недоступно';
+                }
+                replyQuoteHtml = `<div class="msg-reply-quote" data-reply-msg-id="${escapeHtml(String(replyMsgId ?? ''))}" onclick="event.stopPropagation();scrollToRepliedMessage('${escapeHtml(String(replyMsgId ?? ''))}')">
+                    <div style="display:flex;flex-direction:column;min-width:0;overflow:hidden;">
+                        <div class="msg-reply-quote-title">${escapeHtml(quoteName)}</div>
+                        <div class="msg-reply-quote-text">${escapeHtml(quoteText)}</div>
+                    </div>
+                </div>`;
+            }
             const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             const chat = chatsById[currentChatId];
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
@@ -8033,8 +8695,19 @@
                 : '';
             const timeHtml = `<div class="msg-time">${deletedBadgeHtml}${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            el.innerHTML = replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
+        }
+
+        // Клик по цитате ответа — скроллит к оригинальному сообщению, если оно
+        // ещё загружено в текущем списке (как в обычных мессенджерах).
+        function scrollToRepliedMessage(msgId) {
+            if (!msgId) return;
+            const target = document.querySelector(`#messagesList .msg-bubble[data-msg-id="${CSS.escape(String(msgId))}"]`);
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('msg-highlight-flash');
+            setTimeout(() => target.classList.remove('msg-highlight-flash'), 1200);
         }
 
         // ========================================
@@ -8499,6 +9172,7 @@
             const chat = chatsById[chatId];
             if (!chat) return;
             currentChatId = chatId;
+            cancelReply();
             document.getElementById('chatsSection').classList.add('hidden');
             document.getElementById('chatDetailSection').classList.remove('hidden');
             hideBottomNav();
@@ -8544,7 +9218,12 @@
             if (isOfflineCacheMode || !isConnected) {
                 loadCachedMessagesForChat(chatId);
             } else {
-                send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+                // Подгружаем с диска ID удалённых сообщений ДО того, как придёт
+                // ответ сервера — так renderMessages сможет сразу переприменить
+                // пометку "удалено" к свежей истории (см. deletedIdsByChatId).
+                preloadDeletedIdsForChat(chatId).then(() => {
+                    send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+                });
             }
         }
 
@@ -8675,6 +9354,16 @@
                 existingIds.add(el.dataset.msgId);
             });
             const messages = (payload.messages || []).slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+            // Переприменяем локальную пометку "удалено" к сообщениям, только что
+            // пришедшим от сервера — сервер про неё ничего не знает (см.
+            // deletedIdsByChatId), поэтому без этого шага удалённые сообщения
+            // "воскресали" бы каждый раз при повторном открытии чата.
+            const deletedSet = deletedIdsByChatId[currentChatId];
+            if (deletedSet && deletedSet.size) {
+                messages.forEach(m => {
+                    if (deletedSet.has(String(m.id))) m.deleted = true;
+                });
+            }
             const newMessages = messages.filter(m => !existingIds.has(String(m.id)));
 
             if (newMessages.length === 0) {
@@ -8841,6 +9530,33 @@
                     }
                     if ((data.opcode === 46 || data.opcode === 60 || data.opcode === 89) && data.cmd === 768) {
                         handleSearchOrLinkError(data.opcode, data.payload);
+                        return;
+                    }
+                    // opcode 66 = MSG_DELETE. Сообщение уже помечено удалённым
+                    // оптимистично (см. deleteMessageAction) до ответа сервера —
+                    // если сервер вернул ошибку, откатываем эту пометку обратно,
+                    // иначе сообщение так и останется зачёркнутым локально,
+                    // хотя на сервере оно никуда не делось (рассинхрон с другими
+                    // устройствами и выглядит как "удаление не работает"). Так как
+                    // relay не даёт сопоставить ответ сервера с конкретным
+                    // запросом, откатываем последнюю попытку удаления — этого
+                    // достаточно, т.к. UI блокирует повторное удаление того же
+                    // сообщения, пока не подтвердится/откатится предыдущее.
+                    if (data.opcode === 66 && data.cmd === 768) {
+                        const p = data.payload || {};
+                        const err = p.localizedMessage || p.error || 'Не удалось удалить сообщение';
+                        log(`❌ ${err}`, 'error');
+                        setStatus(`Ошибка удаления: ${err}`, 'error');
+                        if (lastDeleteAttempt) {
+                            unmarkMessagesDeleted(lastDeleteAttempt.chatId, lastDeleteAttempt.messageIds);
+                            lastDeleteAttempt = null;
+                        }
+                        return;
+                    }
+                    if (data.opcode === 66 && data.cmd === 256) {
+                        // Успех — оптимистичная пометка подтвердилась, просто
+                        // забываем последнюю попытку, откатывать больше нечего.
+                        lastDeleteAttempt = null;
                         return;
                     }
                     if (data.cmd === 768) {
@@ -9467,17 +10183,30 @@
                     return;
                 }
             }
+            const messagePayload = {
+                text: outText,
+                cid: Date.now(),
+                elements: [],
+                attaches: []
+            };
+            if (replyingToMessage) {
+                // См. deleteMessageAction/sendReadMark: id нельзя гнать через
+                // Number() — большие id (>2^53) при этом округляются, и на
+                // сервер уходит ссылка на несуществующее/чужое сообщение.
+                messagePayload.link = {
+                    type: 'REPLY',
+                    chatId: currentChatId,
+                    messageId: replyingToMessage.id,
+                };
+            }
             send(64, {
                 chatId: currentChatId,
-                message: {
-                    text: outText,
-                    cid: Date.now(),
-                    attaches: []
-                },
+                message: messagePayload,
                 notify: true
             });
             document.getElementById('messageText').value = '';
             saveDraft(currentChatId, '');
+            cancelReply();
         };
 
         document.getElementById('attachBtn').addEventListener('click', (e) => {
