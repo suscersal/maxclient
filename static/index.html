@@ -2478,6 +2478,59 @@
             background: #E53935;
         }
 
+        /* ---- Плашка соединения сверху экрана, как в Telegram ---- */
+        .tg-conn-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 7px 12px;
+            padding-top: calc(7px + env(safe-area-inset-top, 0px));
+            background: var(--tg-panel, #F4F5F6);
+            color: var(--tg-text-secondary, #707579);
+            font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 1px 3px rgba(23, 33, 43, 0.08);
+            transform: translateY(-100%);
+            opacity: 0;
+            transition: transform 0.25s ease, opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        .tg-conn-banner.visible {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .tg-conn-banner.error {
+            background: #FDEDED;
+            color: #E53935;
+        }
+
+        .tg-conn-spinner {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid rgba(0, 0, 0, 0.15);
+            border-top-color: currentColor;
+            animation: tg-conn-spin 0.8s linear infinite;
+        }
+
+        .tg-conn-banner.error .tg-conn-spinner {
+            display: none;
+        }
+
+        @keyframes tg-conn-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         /* ---- Список чатов ---- */
         .chat-item {
             gap: 12px;
@@ -2639,6 +2692,33 @@
 
         .msg-bubble.own .msg-enc-badge {
             color: #d8ffd8;
+        }
+
+        .msg-bubble.deleted {
+            background: rgba(229, 57, 53, 0.12) !important;
+        }
+
+        .msg-bubble.deleted.own {
+            background: rgba(229, 57, 53, 0.28) !important;
+            box-shadow: 0 1px 3px rgba(229, 57, 53, 0.25);
+        }
+
+        .msg-deleted-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            background: rgba(229, 57, 53, 0.18);
+            color: #e53935;
+            border-radius: 6px;
+            padding: 1px 5px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+        .msg-bubble.own .msg-deleted-badge {
+            background: rgba(255, 255, 255, 0.25);
+            color: #fff;
         }
 
         .msg-file a {
@@ -2838,6 +2918,10 @@
 </head>
 
 <body>
+    <div id="tgConnBanner" class="tg-conn-banner">
+        <span class="tg-conn-spinner"></span>
+        <span id="tgConnBannerText">Соединение...</span>
+    </div>
     <svg style="display:none" aria-hidden="true">
         <symbol id="icon_attachment" viewBox="0 0 24 24">
             <path fill="currentColor"
@@ -6242,6 +6326,21 @@
             el.className = `status ${type}`;
         }
 
+        // Плашка сверху экрана в стиле Telegram: появляется при
+        // подключении/переподключении/отсутствии сети, автоматически
+        // прячется, когда соединение установлено.
+        function showConnBanner(text, isError) {
+            const el = document.getElementById('tgConnBanner');
+            if (!el) return;
+            document.getElementById('tgConnBannerText').textContent = text;
+            el.classList.toggle('error', !!isError);
+            el.classList.add('visible');
+        }
+
+        function hideConnBanner() {
+            document.getElementById('tgConnBanner')?.classList.remove('visible');
+        }
+
         function hideLoadingOverlay() {
             document.getElementById('loadingOverlay')?.classList.add('hidden');
         }
@@ -7310,6 +7409,38 @@
         // можно было открыть чат и увидеть хотя бы недавнюю переписку.
         const MESSAGES_CACHE_LIMIT = 20;
 
+        function markMessagesDeleted(chatId, messageIds) {
+            if (!chatId || !messageIds || !messageIds.length) return;
+            const idSet = new Set(messageIds.map(String));
+
+            // Помечаем в кэше сообщений чата (используется и офлайн-кэшем).
+            const arr = messagesByChatId[chatId];
+            if (arr) {
+                arr.forEach(m => {
+                    if (idSet.has(String(m.id))) m.deleted = true;
+                });
+                if (!isOfflineCacheMode) cacheMessagesToDisk(chatId, arr);
+            }
+
+            // Обновляем уже отрисованные пузыри, если чат открыт сейчас.
+            if (chatId === currentChatId) {
+                idSet.forEach(id => {
+                    const bubble = document.querySelector(
+                        `#messagesList .msg-bubble[data-msg-id="${id}"]`
+                    );
+                    if (!bubble || bubble.classList.contains('deleted')) return;
+                    bubble.classList.add('deleted');
+                    const timeEl = bubble.querySelector('.msg-time');
+                    if (timeEl && !timeEl.querySelector('.msg-deleted-badge')) {
+                        const badge = document.createElement('span');
+                        badge.className = 'msg-deleted-badge';
+                        badge.textContent = '🗑 Удалено';
+                        timeEl.insertBefore(badge, timeEl.firstChild);
+                    }
+                });
+            }
+        }
+
         function updateMessagesCache(chatId, newMessages) {
             if (!chatId || !newMessages || !newMessages.length) return;
             const arr = messagesByChatId[chatId] || (messagesByChatId[chatId] = []);
@@ -7687,7 +7818,7 @@
         function createMessageElement(m, allMessages) {
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
-            el.className = 'msg-bubble' + (isOwn ? ' own' : '');
+            el.className = 'msg-bubble' + (isOwn ? ' own' : '') + (m.deleted ? ' deleted' : '');
             el.dataset.msgId = m.id;
             el.dataset.msgTime = m.time || Date.now();
             el.addEventListener('dblclick', (e) => { e.preventDefault(); showReactionPicker(e.clientX, e.clientY, m); });
@@ -7897,7 +8028,10 @@
             const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             const chat = chatsById[currentChatId];
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
-            const timeHtml = `<div class="msg-time">${time}${statusHtml}</div>`;
+            const deletedBadgeHtml = m.deleted
+                ? '<span class="msg-deleted-badge">🗑 Удалено</span>'
+                : '';
+            const timeHtml = `<div class="msg-time">${deletedBadgeHtml}${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
             el.innerHTML = attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
@@ -8619,6 +8753,7 @@
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                 log('❌ Достигнут лимит попыток переподключения', 'error');
                 setStatus('Connection lost', 'error');
+                showConnBanner('Нет соединения', true);
                 hideLoadingOverlay();
                 showOfflineCachedChats();
                 return;
@@ -8630,12 +8765,14 @@
             if ('onLine' in navigator && !navigator.onLine) {
                 log('📴 Устройство офлайн — подключение не выполняется', 'info');
                 setStatus('Нет интернета', 'error');
+                showConnBanner('Нет интернета', true);
                 hideLoadingOverlay();
                 showOfflineCachedChats();
                 return;
             }
             log('Подключение... (попытка ' + (reconnectAttempts + 1) + ')');
             setStatus('Подключение...', 'info');
+            showConnBanner(reconnectAttempts > 0 ? 'Переподключение...' : 'Соединение...', false);
             ws = new WebSocket(`ws://${window.location.host}/relay`);
             ws.onopen = () => {
                 isConnected = true;
@@ -8644,6 +8781,7 @@
                 isOfflineCacheMode = false;
                 offlineBannerShown = false;
                 removeOfflineBanner();
+                hideConnBanner();
                 setStatus('Подключено', 'success');
                 document.getElementById('connectionBadge').textContent = 'Online';
                 document.getElementById('connectionBadge').className = 'badge online';
@@ -8666,6 +8804,7 @@
                         explicitOfflineErrors++;
                         log(`🌐 Нет соединения с сервером MAX: ${data.details}`, 'error');
                         setStatus('Нет интернета', 'error');
+                        showConnBanner('Нет интернета', true);
                         if (explicitOfflineErrors >= 1) {
                             showOfflineCachedChats();
                         }
@@ -8980,6 +9119,21 @@
                         return;
 
                     }
+
+                    // notifMsgDelete — сообщение удалено (у себя или у всех).
+                    // Не убираем его из истории, а помечаем как удалённое,
+                    // чтобы оно осталось видно (красным, с плашкой «Удалено»),
+                    // как в клиентах с историей удалений.
+                    if ((data.opcode === 142 || data.opcode === 140) && data.payload) {
+                        const p = data.payload;
+                        const chatId = p.chatId ?? p.chat?.id;
+                        const ids = (p.messageIds || (p.messageId != null ? [p.messageId] : []))
+                            .map(id => String(id));
+                        if (chatId == null || !ids.length) return;
+
+                        markMessagesDeleted(chatId, ids);
+                        return;
+                    }
                 } catch (err) {
                     console.error('[ws error]', err);
                 }
@@ -8988,6 +9142,7 @@
                 isConnected = false;
                 if (pingInterval) clearInterval(pingInterval);
                 setStatus('Отключено', 'error');
+                showConnBanner('Переподключение...', false);
                 document.getElementById('connectionBadge').textContent = 'Offline';
                 document.getElementById('connectionBadge').className = 'badge offline';
                 log('🔌 Отключено', 'error');
