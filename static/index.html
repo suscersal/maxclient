@@ -3226,6 +3226,247 @@
         html[data-theme="dark"] [style*="border:1px solid #555"] {
             border-color: #3A3A3C !important;
         }
+
+        /* ================================================================
+           DARK THEME — ДОПОЛНИТЕЛЬНОЕ ПОКРЫТИЕ
+           Элементы ниже раньше оставались светлыми при переключении темы
+           (жёстко заданные светлые цвета вместо переменных --tg-*):
+           модалка настроек, профиль чата, диалог удаления, попап реакций,
+           панель действий над сообщением, код-блоки, баннер пароля,
+           мини-приложение, бейджи и т.п.
+           ================================================================ */
+
+        /* --- Лог, бейджи, статусы --- */
+        html[data-theme="dark"] .settings-menu::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.25) !important;
+        }
+
+        html[data-theme="dark"] .badge.auth-error,
+        html[data-theme="dark"] h1 .badge.auth-error {
+            background: #FFA000 !important;
+            color: #000 !important;
+        }
+
+        html[data-theme="dark"] .log-entry .time {
+            color: #6a6a6a !important;
+        }
+
+        /* --- Чат-лист --- */
+        html[data-theme="dark"] .chat-list-divider,
+        html[data-theme="dark"] #globalSearchResultsList .chat-item,
+        html[data-theme="dark"] .chat-item {
+            border-bottom-color: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .chat-preview {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .chat-header .chat-name-clickable:hover {
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        html[data-theme="dark"] .chat-header .chat-id-label {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .mention-link,
+        html[data-theme="dark"] .msg-keyboard-btn {
+            color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .msg-keyboard-btn {
+            border-color: #4DA3FF !important;
+            background: transparent !important;
+        }
+
+        html[data-theme="dark"] .msg-keyboard-btn:active {
+            background: rgba(77, 163, 255, 0.15) !important;
+        }
+
+        /* --- Бейджи сообщений (шифрование/скам) --- */
+        html[data-theme="dark"] .msg-scam-badge.msg-scam-badge-safe {
+            color: #8E8E93 !important;
+            background: rgba(255, 255, 255, 0.06) !important;
+            border-color: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        html[data-theme="dark"] .msg-scam-speed-chip {
+            color: #8E8E93 !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* --- Бот-мини-приложения --- */
+        html[data-theme="dark"] .bot-webapp-bar {
+            background: linear-gradient(180deg, #1c2a36 0%, #16222c 100%) !important;
+            color: #4DA3FF !important;
+            box-shadow: none !important;
+        }
+
+        html[data-theme="dark"] .bot-webapp-bar:active {
+            background: #16222c !important;
+        }
+
+        html[data-theme="dark"] .bot-badge {
+            background: rgba(77, 163, 255, 0.15) !important;
+            color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .miniapp-overlay {
+            background: #000 !important;
+        }
+
+        html[data-theme="dark"] .miniapp-top-alert {
+            background-color: #3a2f00 !important;
+            color: #FFD86B !important;
+            border-bottom-color: #4d3f00 !important;
+        }
+
+        html[data-theme="dark"] .miniapp-header {
+            background: #1C1C1E !important;
+            border-bottom-color: #2C2C2E !important;
+        }
+
+        /* --- Сообщения: код, время, статусы --- */
+        html[data-theme="dark"] .msg-inline-code {
+            background: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        html[data-theme="dark"] .msg-time,
+        html[data-theme="dark"] .msg-status.sent {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .reaction-badge {
+            background: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        /* --- Всплывающая панель реакций / действий над сообщением --- */
+        html[data-theme="dark"] #reactionPickerPopup,
+        html[data-theme="dark"] #msgActionPanel {
+            background: #2C2C2E !important;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+        }
+
+        html[data-theme="dark"] #reactionPickerPopup .rp-emoji:active,
+        html[data-theme="dark"] #reactionPickerPopup .rp-emoji:hover,
+        html[data-theme="dark"] #msgActionPanel .map-emoji:hover,
+        html[data-theme="dark"] #msgActionPanel .map-emoji:active,
+        html[data-theme="dark"] #msgActionPanel .map-action:hover,
+        html[data-theme="dark"] #msgActionPanel .map-action:active {
+            background: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        html[data-theme="dark"] #msgActionPanel .map-emoji-row {
+            border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        /* --- Диалог подтверждения удаления --- */
+        html[data-theme="dark"] #deleteConfirmDialog {
+            background: #1C1C1E !important;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-checkbox {
+            border-color: #5A5A5E !important;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel {
+            background: #2C2C2E !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel:hover,
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel:active {
+            background: #3A3A3C !important;
+        }
+
+        /* --- Плашка «Ответ на сообщение» --- */
+        html[data-theme="dark"] .reply-preview-bar {
+            background: #1C1C1E !important;
+            border-color: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .reply-preview-title {
+            color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .reply-preview-text {
+            color: #8E8E93 !important;
+        }
+
+        /* --- Модалка настроек --- */
+        html[data-theme="dark"] .settings-modal-overlay {
+            background: rgba(0, 0, 0, 0.7) !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-close {
+            background: #2C2C2E !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-close:hover {
+            background: #3A3A3C !important;
+        }
+
+        html[data-theme="dark"] .settings-menu-item .arrow {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .settings-content-footer,
+        html[data-theme="dark"] .chat-profile-divider {
+            border-top-color: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .settings-content-page .settings-row input {
+            background: #2C2C2E !important;
+            border-color: #3A3A3C !important;
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .settings-content-page .settings-row input:focus {
+            border-color: #4DA3FF !important;
+        }
+
+        html[data-theme="dark"] .settings-menu-badge {
+            background: #FF6B6B !important;
+            color: #fff !important;
+        }
+
+        /* --- Профиль чата (модалка) --- */
+        html[data-theme="dark"] .chat-profile-overlay {
+            background: rgba(0, 0, 0, 0.7) !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-modal {
+            background: #1C1C1E !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-header {
+            border-bottom-color: #2C2C2E !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-header h3,
+        html[data-theme="dark"] .chat-profile-avatar .name,
+        html[data-theme="dark"] .chat-profile-option {
+            color: #fff !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-avatar .sub {
+            color: #8E8E93 !important;
+        }
+
+        html[data-theme="dark"] .chat-profile-option:hover {
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* --- Toggle-переключатель --- */
+        html[data-theme="dark"] .toggle-switch {
+            background: #3A3A3C !important;
+        }
+
+        html[data-theme="dark"] .toggle-switch .toggle-knob {
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5) !important;
+        }
     </style>
 </head>
 
