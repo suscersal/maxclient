@@ -3493,9 +3493,11 @@ def transcribe_via_max_native():
         return jsonify({"error": f"Сервер не смог расшифровать (status={status})", "raw": resp_payload}), 502
 
     text = resp_payload.get("transcription") or ""
-    if not text:
-        return jsonify({"error": "Пустой результат распознавания"}), 502
-
+    # transcriptionStatus == 1 означает, что сервер УСПЕШНО обработал аудио —
+    # пустая строка тут легитимный результат (в ролике/кружке просто не было
+    # речи), а не ошибка. Раньше это отдавалось как 502, из-за чего фронт
+    # показывал "Пустой результат распознавания" красным, будто что-то
+    # сломалось, хотя расшифровка отработала штатно.
     return jsonify({"text": text, "cached": False, "provider": "max_native"})
 
 

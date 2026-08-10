@@ -16,6 +16,28 @@
         })();
     </script>
     <style>
+        /* Плавное раскрытие блока расшифровки — как AnimatedSize(200ms,
+           easeOut) у голосового в Komet (lib/frontend/widgets/attachment/
+           bubbles/voice_bubble.dart). Раньше здесь было display:none/block
+           напролом, без анимации — теперь высота/прозрачность едут плавно
+           через max-height, единый helper toggleTranscriptBox() ниже. */
+        .transcript-box {
+            display: block;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            margin-top: 0;
+            transition: max-height 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 200ms ease-out,
+                margin-top 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+
+        .transcript-box.expanded {
+            max-height: 400px;
+            opacity: 1;
+            margin-top: 4px;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -839,6 +861,70 @@
 
         .msg-img:hover {
             opacity: 0.85;
+        }
+
+        /* Плейсхолдер фото/превью видео до клика — вместо автозагрузки
+           (раньше <img loading="lazy"> тянул байты сам, как только попадал
+           во вьюпорт; теперь качаем только по явному тапу, см.
+           loadLazyPhoto()/inlineVideoTap() + cachedObjectUrl()). */
+        .lazy-media-placeholder {
+            width: 100%;
+            max-width: 350px;
+            min-height: 140px;
+            border-radius: 8px;
+            margin: 4px 0;
+            background: rgba(127, 127, 127, 0.12);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+
+        .lazy-media-placeholder:hover {
+            background: rgba(127, 127, 127, 0.2);
+        }
+
+        .lazy-media-placeholder.loading {
+            cursor: default;
+            opacity: 0.7;
+        }
+
+        .lazy-media-placeholder .lazy-media-icon {
+            font-size: 28px;
+        }
+
+        .lazy-media-placeholder .lazy-media-label {
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* Вариант с локальным блюр-превью (a.previewData) под плейсхолдером —
+           само превью уже приходит вместе с сообщением (без сети), поэтому
+           его можно показать сразу; полноразмерное фото/видео всё равно
+           грузится только по клику. */
+        .lazy-media-placeholder.has-preview {
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }
+
+        .lazy-media-placeholder.has-preview::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.35);
+        }
+
+        .lazy-media-placeholder.has-preview .lazy-media-icon,
+        .lazy-media-placeholder.has-preview .lazy-media-label {
+            position: relative;
+            z-index: 1;
+            color: #fff;
         }
 
         .msg-attach {
@@ -3803,7 +3889,84 @@
         // attach.baseUrl/attach.url через тот же бинарный прокси, что и
         // для видео (/video?url=...) — он поддерживает Range, нужный для
         // перемотки.
+        // --- Персистентный кеш медиа (стикеры/превью фото и видео) ---
+        // Cache Storage переживает перезагрузку страницы (в отличие от
+        // lottieJsonCache в памяти) — повторные открытия чата не должны
+        // заново качать одни и те же стикеры/картинки.
+        const MEDIA_CACHE_NAME = 'maxclient-media-v1';
+        async function getMediaCache() {
+            try {
+                if (!window.caches) return null;
+                return await caches.open(MEDIA_CACHE_NAME);
+            } catch (e) {
+                console.warn('[media-cache] недоступен:', e);
+                return null;
+            }
+        }
+
+        // Отдаёт объект-URL по адресу: сперва пробует персистентный кеш,
+        // и только при промахе — реальный сетевой запрос (с записью
+        // результата в кеш на будущее). Используется и для фото, и для
+        // превью видео — вызывается ТОЛЬКО по клику пользователя (не
+        // автоматически), чтобы не тянуть трафик без явного запроса.
+        async function cachedObjectUrl(url) {
+            const cache = await getMediaCache();
+            if (cache) {
+                const hit = await cache.match(url);
+                if (hit) return URL.createObjectURL(await hit.blob());
+            }
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            if (cache) {
+                try { await cache.put(url, resp.clone()); } catch (e) { /* переполнен/недоступен — не критично */ }
+            }
+            return URL.createObjectURL(await resp.blob());
+        }
+
+        // Загрузка фото по клику на плейсхолдер (вместо автозагрузки через
+        // loading="lazy"). После загрузки заменяет плейсхолдер на
+        // настоящий <img> и вешает открытие полноэкранного просмотрщика.
+        async function loadLazyPhoto(el) {
+            if (el.classList.contains('loading')) return;
+            const src = el.dataset.src;
+            const msgId = el.dataset.msgId || '';
+            const label = el.querySelector('.lazy-media-label');
+            el.classList.add('loading');
+            if (label) label.textContent = 'Загрузка…';
+            try {
+                const objUrl = await cachedObjectUrl(src);
+                const img = document.createElement('img');
+                img.className = 'msg-img';
+                img.alt = 'Фото';
+                img.src = objUrl;
+                img.onclick = () => openPhotoViewer(src, msgId);
+                el.replaceWith(img);
+            } catch (e) {
+                console.warn('[lazy-photo] ошибка загрузки:', e);
+                el.classList.remove('loading');
+                if (label) label.textContent = 'Ошибка — нажмите ещё раз';
+            }
+        }
+
         let audioPlayerSeq = 0;
+
+        // Плавно показать/скрыть блок расшифровки (голосовое или
+        // видео-кружок) — вместо мгновенного display:none/block раскрываем
+        // через CSS-класс .expanded (max-height/opacity), как AnimatedSize
+        // в Komet у голосовых сообщений.
+        function showTranscriptBox(box) {
+            box.classList.add('transcript-box');
+            // Двойной rAF, чтобы браузер успел применить max-height:0 перед
+            // включением .expanded — иначе переход не анимируется, если
+            // элемент только что получил display:block.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                box.classList.add('expanded');
+            }));
+        }
+
+        function hideTranscriptBox(box) {
+            box.classList.remove('expanded');
+        }
 
         function resolveMediaSrc(attach) {
             if (attach.__localBlobUrl) return attach.__localBlobUrl;
@@ -3839,14 +4002,13 @@
         }
 
         async function transcribeVoiceMessage(uid, messageId, chatId, audioId, rawUrl, force) {
-            console.debug('[transcribe] старт распознавания (нажата кнопка 📝):', { uid, messageId, chatId, audioId, url: rawUrl, force: !!force });
+            console.debug('[transcribe] старт распознавания (нажата кнопка 📝):', { uid, messageId, chatId, audioId, force: !!force });
 
-            // Расшифровка НЕ полностью локальная: штатный путь (opcode 202)
-            // шлёт запрос на сервер MAX, а fallback-путь — на внешний
-            // Whisper/Vosk-совместимый сервер (или облако Яндекса/Groq, если
-            // так настроено). В обоих случаях само аудио уходит за пределы
-            // устройства. Явно предупреждаем и просим подтверждение перед
-            // каждой отправкой — молчаливой автоматики быть не должно.
+            // Расшифровка не полностью локальная: запрос (opcode 202) уходит
+            // на сервер MAX от своей же авторизованной сессии — внешних
+            // провайдеров/своих серверов в этом клиенте больше нет (как и в
+            // Komet — там тоже только штатный путь, см.
+            // lib/backend/modules/messages.dart:requestTranscription).
             const confirmed = window.confirm(
                 'Аудио этого голосового сообщения будет отправлено на сервер ' +
                 'для расшифровки (это не полностью локальная обработка). Продолжить?'
@@ -3862,132 +4024,45 @@
                 console.error('[transcribe] не найден элемент #' + uid + '_transcript — распознавание отменено');
                 return;
             }
+            if (audioId == null) {
+                box.style.color = '#c00';
+                showTranscriptBox(box);
+                box.textContent = '⚠️ Нет audioId — расшифровка недоступна для этого сообщения';
+                return;
+            }
+
             if (btn) { btn.disabled = true; btn.textContent = '…'; }
-            box.style.display = 'block';
+            showTranscriptBox(box);
             box.style.color = '#888';
             box.textContent = 'Распознаю…';
 
-            // 1) Пробуем штатный путь MAX (opcode 202), если знаем audioId.
-            //    Сервер MAX иногда отвечает status=0 ("ещё обрабатывается") —
-            //    в этом случае недолго поллим сам эндпоинт, а не сразу падаем
-            //    на внешний провайдер.
-            if (audioId != null && !force) {
-                const MAX_NATIVE_ATTEMPTS = 5;
-                const MAX_NATIVE_POLL_MS = 2000;
-                for (let attempt = 0; attempt < MAX_NATIVE_ATTEMPTS; attempt++) {
-                    try {
-                        const text = await transcribeViaMaxNative(chatId, messageId, audioId);
-                        console.debug('[transcribe][max-native] успех:', text);
-                        box.style.color = text.trim() ? '' : '#888';
-                        box.textContent = text.trim() ? text : '(пусто — речь не распознана)';
+            // Сервер MAX иногда отвечает status=0 ("ещё обрабатывается") —
+            // в этом случае недолго поллим сам эндпоинт.
+            const MAX_NATIVE_ATTEMPTS = 5;
+            const MAX_NATIVE_POLL_MS = 2000;
+            for (let attempt = 0; attempt < MAX_NATIVE_ATTEMPTS; attempt++) {
+                try {
+                    const text = await transcribeViaMaxNative(chatId, messageId, audioId);
+                    console.debug('[transcribe][max-native] успех:', text);
+                    box.style.color = text.trim() ? '' : '#888';
+                    box.textContent = text.trim() ? text : '(пусто — речь не распознана)';
+                    if (btn) { btn.disabled = false; btn.textContent = '📝'; }
+                    return;
+                } catch (e) {
+                    const stillProcessing = /status=0/.test(e.message || '');
+                    console.warn(`[transcribe][max-native] попытка ${attempt + 1}/${MAX_NATIVE_ATTEMPTS} не удалась:`, e.message);
+                    if (!stillProcessing) {
+                        box.style.color = '#c00';
+                        box.textContent = '⚠️ ' + (e.message || 'Ошибка распознавания');
                         if (btn) { btn.disabled = false; btn.textContent = '📝'; }
                         return;
-                    } catch (e) {
-                        const stillProcessing = /status=0/.test(e.message || '');
-                        console.warn(`[transcribe][max-native] попытка ${attempt + 1}/${MAX_NATIVE_ATTEMPTS} не удалась:`, e.message);
-                        if (!stillProcessing) break; // реальная ошибка — сразу на fallback
-                        await new Promise(r => setTimeout(r, MAX_NATIVE_POLL_MS));
                     }
+                    await new Promise(r => setTimeout(r, MAX_NATIVE_POLL_MS));
                 }
-                console.warn('[transcribe][max-native] не удалось получить результат, пробуем внешний провайдер (если настроен)…');
             }
-
-            // 2) Fallback — старый путь через внешний провайдер (custom/yandex/groq).
-            if (!rawUrl) {
-                box.style.color = '#c00';
-                box.textContent = '⚠️ Не удалось расшифровать через MAX, а внешний провайдер не настроен (нет URL источника)';
-                if (btn) { btn.disabled = false; btn.textContent = '📝'; }
-                return;
-            }
-            console.debug('[transcribe] запрос распознавания (fallback-провайдер):', { messageId, url: rawUrl, force: !!force });
-
-            // Раньше запрос мог висеть бесконечно (без ответа и без ошибки),
-            // если бэкенд завис — например, JNI-вызов WhisperBridge.transcribe
-            // без встроенного таймаута на слабом устройстве для длинного
-            // сообщения. Теперь: 1) периодически пишем в консоль, сколько уже
-            // прошло секунд, чтобы было видно "не тишина, а реально долго";
-            // 2) через TRANSCRIBE_TIMEOUT_MS обрываем запрос с понятной
-            // ошибкой вместо вечного "Распознаю…".
-            const TRANSCRIBE_TIMEOUT_MS = 120000; // 2 минуты
-            const startedAt = Date.now();
-            const heartbeat = setInterval(() => {
-                console.debug(`[transcribe] всё ещё ждём ответ сервера… прошло ${Math.round((Date.now() - startedAt) / 1000)}с`);
-            }, 5000);
-            // Пока основной запрос висит, отдельно опрашиваем пошаговый
-            // прогресс на бэкенде — покажет, застряли ли на скачивании
-            // аудио, декодировании, загрузке модели в JNI или самом
-            // whisper_full(), а не просто "нет ответа уже N секунд".
-            let _lastProgressStage = null;
-            const progressPoll = setInterval(async () => {
-                try {
-                    const pr = await fetch('/api/transcribe/progress');
-                    const pj = await pr.json();
-                    if (pj.stage !== _lastProgressStage) {
-                        console.debug('[transcribe][progress] этап изменился:', pj);
-                        _lastProgressStage = pj.stage;
-                    } else {
-                        console.debug(`[transcribe][progress] всё ещё на этапе "${pj.stage}" (${pj.elapsedSec}с с начала, ${pj.sinceLastUpdateSec}с без изменений):`, pj.detail);
-                    }
-                } catch (e) {
-                    console.warn('[transcribe][progress] не удалось получить прогресс', e);
-                }
-            }, 3000);
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                console.error(`[transcribe] таймаут ${TRANSCRIBE_TIMEOUT_MS / 1000}с — сервер не ответил, обрываю запрос`);
-                controller.abort();
-            }, TRANSCRIBE_TIMEOUT_MS);
-
-            try {
-                const resp = await fetch('/api/transcribe', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageId, url: rawUrl, force: !!force }),
-                    signal: controller.signal,
-                });
-                let data;
-                const rawText = await resp.text();
-                try {
-                    data = JSON.parse(rawText);
-                } catch (parseErr) {
-                    console.error('[transcribe] ответ сервера не JSON, status=', resp.status, 'body=', rawText);
-                    box.style.color = '#c00';
-                    box.textContent = '⚠️ Сервер вернул не JSON (status ' + resp.status + ')';
-                    return;
-                }
-                console.debug('[transcribe] ответ /api/transcribe:', { status: resp.status, ok: resp.ok, data, elapsedMs: Date.now() - startedAt });
-                if (!resp.ok || data.error) {
-                    console.error('[transcribe] ошибка распознавания:', data.error || ('HTTP ' + resp.status), 'полный ответ:', JSON.stringify(data));
-                    box.style.color = '#c00';
-                    box.textContent = '⚠️ ' + (data.error || 'Ошибка распознавания');
-                    if (data.diag) {
-                        console.error('[transcribe diag]', JSON.stringify(data.diag));
-                        box.textContent += '\n\n' + JSON.stringify(data.diag, null, 1);
-                    }
-                } else if (!data.text || !data.text.trim()) {
-                    console.warn('[transcribe] распознавание вернуло пустой текст. Полный ответ:', JSON.stringify(data));
-                    box.style.color = '#888';
-                    box.textContent = '(пусто — речь не распознана)';
-                } else {
-                    box.style.color = '';
-                    box.textContent = data.text;
-                }
-            } catch (e) {
-                if (e.name === 'AbortError') {
-                    console.error(`[transcribe] запрос прерван по таймауту (${TRANSCRIBE_TIMEOUT_MS / 1000}с) — бэкенд не ответил. Скорее всего, завис сам процесс распознавания (WhisperBridge.transcribe) на устройстве.`);
-                    box.style.color = '#c00';
-                    box.textContent = `⚠️ Сервер не ответил за ${TRANSCRIBE_TIMEOUT_MS / 1000}с — похоже, распознавание зависло на устройстве`;
-                } else {
-                    console.error('[transcribe] сетевая/JS ошибка при запросе распознавания:', e);
-                    box.style.color = '#c00';
-                    box.textContent = '⚠️ ' + e.message;
-                }
-            } finally {
-                clearInterval(heartbeat);
-                clearInterval(progressPoll);
-                clearTimeout(timeoutId);
-                if (btn) { btn.disabled = false; btn.textContent = '📝'; }
-            }
+            box.style.color = '#c00';
+            box.textContent = '⚠️ Сервер MAX не ответил — попробуйте ещё раз позже';
+            if (btn) { btn.disabled = false; btn.textContent = '📝'; }
         }
 
         function createAudioPlayer(messageId, chatId, attach) {
@@ -4004,7 +4079,7 @@
             // прислал (старый чат/иная версия протокола) — используем fallback
             // на внешний провайдер (custom/yandex/groq) по rawUrl, как раньше.
             const audioId = attach.audioId ?? attach.mediaId ?? null;
-            const transcribeBtn = (rawUrl || audioId) ? `
+            const transcribeBtn = (audioId != null) ? `
             <button type="button" id="${uid}_t_btn" title="Расшифровать"
                     onclick="transcribeVoiceMessage('${uid}', '${messageId}', '${chatId}', ${audioId != null ? audioId : 'null'}, '${rawUrl.replace(/'/g, "\\'")}', false)"
                     style="flex:0 0 auto;border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;">📝</button>` : '';
@@ -4024,7 +4099,7 @@
             <span class="voice-time-label" style="flex:0 0 auto;font-size:11px;color:#888;min-width:32px;text-align:right;">${totalLabel || '0:00'}</span>
             ${transcribeBtn}
           </div>
-          <div id="${uid}_transcript" style="display:none;font-size:12.5px;line-height:1.4;padding:4px 2px 0;white-space:pre-wrap;"></div>
+          <div id="${uid}_transcript" class="transcript-box" style="font-size:12.5px;line-height:1.4;padding:0 2px;white-space:pre-wrap;"></div>
           </div>`;
         }
 
@@ -4105,40 +4180,47 @@
             if (!token || !videoId) {
                 return `<div class="msg-file" style="color:#888;">⏺️ Видео-кружок ${durationLabel ? '(' + durationLabel + ')' : ''} — недоступно</div>`;
             }
-            // Без постера: у кружочков "thumbnail" в реальном ответе сервера
-            // указывает на тот же видео-эндпоинт (v.oneme.ru/videoMsg?...),
-            // а не на статичную картинку — /img через него отдаёт не image,
-            // грузить это как <img> нельзя (см. Komet: video_note_bubble.dart
-            // тоже не показывает постер, только play-заглушку до резолва).
+            // "thumbnail" в реальном ответе сервера указывает на тот же
+            // видео-эндпоинт (v.oneme.ru/videoMsg?...), а не на статичную
+            // картинку — /img через него отдаёт не image, грузить это как
+            // <img> нельзя. Зато у сообщения обычно есть attach.previewData —
+            // маленькое локальное блюр-превью, оно приходит вместе с
+            // сообщением (без сети) и в Komet тоже показывается сразу
+            // (video_note_bubble.dart: Image.memory(preview)) — используем
+            // его как фон вместо голой иконки ⏺️.
+            const previewUrl = attach.previewData ? hexPreviewToDataUrl(attach.previewData) : null;
+            // Расшифровка: на момент прошлой версии этого файла в MAX её для
+            // видео-кружков не было (и в снапшоте Komet, который есть под
+            // рукой, её тоже нет — video_note_bubble.dart без кнопки). Но в
+            // мае 2026 MAX выкатил серверную расшифровку видеосообщений
+            // (тот же принцип, что у голосовых — просто позже добавили),
+            // поэтому кнопку возвращаем и дергаем тот же штатный путь
+            // (opcode 202, mediaId = videoId).
             return `
           <div style="display:inline-block;">
             <div class="msg-video-note" id="${uid}"
                  data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
                  style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;position:relative;cursor:pointer;background:#000;"
                  onclick="playVideoNoteInline('${uid}')">
-              <div class="video-note-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:32px;">⏺️</div>
+              <div class="video-note-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;${previewUrl ? `background-image:url('${previewUrl}');background-size:cover;background-position:center;` : 'background:#1a1a1a;'}color:#666;font-size:32px;">${previewUrl ? '' : '⏺️'}</div>
               <div class="video-note-play-overlay"
                    style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);color:#fff;font-size:28px;">▶</div>
               ${durationLabel ? `<span style="position:absolute;bottom:6px;right:10px;color:#fff;font-size:11px;text-shadow:0 0 4px rgba(0,0,0,0.8);">${durationLabel}</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:4px;margin-top:4px;">
               <button type="button" id="${uid}_t_btn" title="Расшифровать"
-                      onclick="event.stopPropagation(); transcribeVideoNote('${uid}', '${messageId}', '${chatId}', ${videoId}, '${token.replace(/'/g, "\\'")}')"
+                      onclick="event.stopPropagation(); transcribeVideoNote('${uid}', '${messageId}', '${chatId}', ${videoId})"
                       style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;">📝</button>
             </div>
-            <div id="${uid}_transcript" style="display:none;max-width:${size}px;font-size:12px;margin-top:2px;white-space:pre-wrap;"></div>
+            <div id="${uid}_transcript" class="transcript-box" style="max-width:${size}px;font-size:12px;white-space:pre-wrap;"></div>
           </div>`;
         }
 
-        // Расшифровка аудиодорожки видео-кружка. Сначала пробуем штатный путь
-        // MAX (opcode 202) с mediaId = videoId — тот же самый эндпоинт, что и
-        // для голосовых, просто с другим ID медиа. Если сервер не смог (или
-        // фича не работает для видео на этом аккаунте) — fallback: получаем
-        // прямую ссылку на видео-файл (как для проигрывания, через
-        // /api/video-sources) и отдаём её на внешний провайдер через
-        // /api/transcribe, как и с обычными голосовыми — тот декодирует
-        // аудиодорожку сам, формат исходного файла ему не важен.
-        async function transcribeVideoNote(uid, messageId, chatId, videoId, token) {
+        // Расшифровка видео-кружка — тот же штатный путь MAX (opcode 202),
+        // что и у голосовых (см. transcribeVoiceMessage/transcribeViaMaxNative
+        // выше), просто mediaId = videoId вместо audioId. Без внешнего
+        // провайдера — его в этом клиенте больше нет.
+        async function transcribeVideoNote(uid, messageId, chatId, videoId) {
             console.debug('[transcribe][video-note] старт распознавания (нажата кнопка 📝):', { uid, messageId, chatId, videoId });
 
             const confirmed = window.confirm(
@@ -4157,60 +4239,35 @@
                 return;
             }
             if (btn) { btn.disabled = true; btn.textContent = '…'; }
-            box.style.display = 'block';
+            showTranscriptBox(box);
             box.style.color = '#888';
             box.textContent = 'Распознаю…';
 
-            if (videoId) {
-                const MAX_NATIVE_ATTEMPTS = 5;
-                const MAX_NATIVE_POLL_MS = 2000;
-                for (let attempt = 0; attempt < MAX_NATIVE_ATTEMPTS; attempt++) {
-                    try {
-                        const text = await transcribeViaMaxNative(chatId, messageId, videoId);
-                        console.debug('[transcribe][video-note][max-native] успех:', text);
-                        box.style.color = text.trim() ? '' : '#888';
-                        box.textContent = text.trim() ? text : '(пусто — речь не распознана)';
+            const MAX_NATIVE_ATTEMPTS = 5;
+            const MAX_NATIVE_POLL_MS = 2000;
+            for (let attempt = 0; attempt < MAX_NATIVE_ATTEMPTS; attempt++) {
+                try {
+                    const text = await transcribeViaMaxNative(chatId, messageId, videoId);
+                    console.debug('[transcribe][video-note][max-native] успех:', text);
+                    box.style.color = text.trim() ? '' : '#888';
+                    box.textContent = text.trim() ? text : '(пусто — речь не распознана)';
+                    if (btn) { btn.disabled = false; btn.textContent = '📝'; }
+                    return;
+                } catch (e) {
+                    const stillProcessing = /status=0/.test(e.message || '');
+                    console.warn(`[transcribe][video-note][max-native] попытка ${attempt + 1}/${MAX_NATIVE_ATTEMPTS} не удалась:`, e.message);
+                    if (!stillProcessing) {
+                        box.style.color = '#c00';
+                        box.textContent = '⚠️ ' + (e.message || 'Ошибка распознавания');
                         if (btn) { btn.disabled = false; btn.textContent = '📝'; }
                         return;
-                    } catch (e) {
-                        const stillProcessing = /status=0/.test(e.message || '');
-                        console.warn(`[transcribe][video-note][max-native] попытка ${attempt + 1}/${MAX_NATIVE_ATTEMPTS} не удалась:`, e.message);
-                        if (!stillProcessing) break; // реальная ошибка — сразу на fallback
-                        await new Promise(r => setTimeout(r, MAX_NATIVE_POLL_MS));
                     }
+                    await new Promise(r => setTimeout(r, MAX_NATIVE_POLL_MS));
                 }
-                console.warn('[transcribe][video-note] max-native не удалось, пробуем внешний провайдер (если настроен)…');
             }
-
-            box.textContent = 'Получаю ссылку на видео…';
-            try {
-                const res = await fetch('/api/video-sources', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageId, chatId, token, videoId }),
-                });
-                const data = await res.json();
-                const sources = data.sources || {};
-                const best = sources['720p'] || sources['480p'] || Object.values(sources)[0];
-                if (!best) throw new Error('не удалось получить ссылку на видео' + (data.error ? ` (${data.error})` : ''));
-
-                box.textContent = 'Распознаю (внешний сервер)…';
-                const resp = await fetch('/api/transcribe', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messageId: String(messageId), url: best, force: false }),
-                });
-                const tdata = await resp.json();
-                if (!resp.ok || tdata.error) throw new Error(tdata.error || ('HTTP ' + resp.status));
-                box.style.color = (tdata.text || '').trim() ? '' : '#888';
-                box.textContent = (tdata.text || '').trim() ? tdata.text : '(пусто — речь не распознана)';
-            } catch (e) {
-                console.error('[transcribe][video-note] ошибка:', e);
-                box.style.color = '#e57373';
-                box.textContent = '⚠️ ' + (e.message || e);
-            } finally {
-                if (btn) { btn.disabled = false; btn.textContent = '📝'; }
-            }
+            box.style.color = '#c00';
+            box.textContent = '⚠️ Сервер MAX не ответил — попробуйте ещё раз позже';
+            if (btn) { btn.disabled = false; btn.textContent = '📝'; }
         }
 
         async function playVideoNoteInline(uid) {
@@ -4233,6 +4290,22 @@
             const token = container.dataset.token;
             const videoId = container.dataset.videoId;
             if (!token || !videoId) { log('❌ Нет данных для видео-кружка', 'error'); return; }
+            // Постер (если сервер его давал) грузим/кешируем только сейчас,
+            // по клику — не блокируя запуск самого видео. Если из кеша
+            // придёт раньше, чем видео начнёт играть, покажем его вместо
+            // голой иконки 🎬.
+            const posterUrl = container.dataset.poster;
+            if (posterUrl && !container.querySelector('.msg-video-poster img')) {
+                cachedObjectUrl(posterUrl).then(objUrl => {
+                    const posterBox = container.querySelector('.msg-video-poster');
+                    if (posterBox && !posterBox.querySelector('img') && !posterBox.querySelector('video')) {
+                        const img = document.createElement('img');
+                        img.src = objUrl;
+                        img.alt = 'Превью видео';
+                        posterBox.insertBefore(img, posterBox.firstChild);
+                    }
+                }).catch(e => console.warn('[video-poster] не удалось загрузить:', e));
+            }
             container.classList.add('loading');
             try {
                 const res = await fetch('/api/video-sources', {
@@ -4275,12 +4348,18 @@
             let html = `
             <div class="msg-video-container" id="${uid}"
                  data-msg-id="${messageId}" data-chat-id="${chatId}" data-token="${token}" data-video-id="${videoId}"
+                 ${attach.thumbnail ? `data-poster="${escapeHtml(poster)}"` : ''}
                  onclick="inlineVideoTap('${uid}')">
                 <div class="msg-video-poster">
         `;
-            if (poster) {
-                html += `<img src="${poster}" alt="Превью видео" loading="lazy" onerror="this.style.display='none'">`;
+            if (attach.previewData) {
+                // previewData — маленький локально декодируемый data:URL (без
+                // сети), его можно показать сразу, это не автозагрузка.
+                html += `<img src="${poster}" alt="Превью видео" onerror="this.style.display='none'">`;
             } else {
+                // Настоящий thumbnail с сервера теперь не тянем автоматически —
+                // качаем и кешируем (cachedObjectUrl) только по клику, см.
+                // inlineVideoTap().
                 html +=
                     `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">🎬</div>`;
             }
@@ -4705,34 +4784,7 @@
                 loadTranscribeSettings().then(() => refreshTranscribeModelStatus());
             }
             setTimeout(refreshTranscribeModelStatus, 0);
-            const cfg = transcribeSettingsCache || {
-                enabled: false, url: '', model: '', language: 'ru', onDeviceEngine: 'vosk'
-            };
-            return `
-        <details style="margin-top:10px;">
-            <summary style="cursor:pointer;font-weight:600;">Дополнительно: внешний сервер (fallback)</summary>
-            <div style="line-height:1.5;margin:8px 0;font-size:13px;color:#888;">
-                Если on-device модель недоступна или не справилась — можно указать
-                свой Whisper-совместимый сервер (эндпоинт /v1/audio/transcriptions).
-                Необязательно.
-            </div>
-            <div class="settings-row">
-                <input class="setting-key" id="transcribeUrl" placeholder="http://localhost:8090/v1/audio/transcriptions"
-                       value="${escapeHtml(cfg.url || '')}" style="flex:1;">
-            </div>
-            <div class="settings-row">
-                <input class="setting-value" id="transcribeModel" placeholder="Модель (например whisper-tiny)"
-                       value="${escapeHtml(cfg.model || '')}" style="flex:1;">
-            </div>
-            <div class="settings-row">
-                <input class="setting-value" id="transcribeLanguage" placeholder="Язык (ru, en, ...)"
-                       value="${escapeHtml(cfg.language || 'ru')}" style="flex:1;">
-            </div>
-        </details>
-        <div id="transcribeSaveStatus" style="font-size:12px;color:#888;margin:8px 0 0;"></div>
-        <div class="settings-content-footer">
-            <button class="btn-save" onclick="saveTranscribeSettings()">💾 Сохранить</button>
-        </div>`;
+            return ``;
         }
 
         function renderDebugDumpPage() {
@@ -7567,15 +7619,23 @@
             });
         }
 
-        // Кэш, чтобы не дёргать /lottie повторно для одного и того же стикера
+        // Кэш в памяти (на текущую сессию вкладки) + персистентный кеш
+        // (Cache Storage, переживает перезагрузку) — чтобы не дёргать
+        // /lottie повторно для одного и того же стикера.
         const lottieJsonCache = {};
         async function loadLottieSticker(holderId, lottieUrl) {
             try {
                 if (typeof lottie === 'undefined') return; // библиотека не подключилась — остаётся статичный fallback
                 let animData = lottieJsonCache[lottieUrl];
                 if (!animData) {
-                    const res = await fetch('/lottie?url=' + encodeURIComponent(lottieUrl));
-                    if (!res.ok) return;
+                    const reqUrl = '/lottie?url=' + encodeURIComponent(lottieUrl);
+                    const cache = await getMediaCache();
+                    let res = cache ? await cache.match(reqUrl) : null;
+                    if (!res) {
+                        res = await fetch(reqUrl);
+                        if (!res.ok) return;
+                        if (cache) { try { await cache.put(reqUrl, res.clone()); } catch (e) { /* переполнен — не критично */ } }
+                    }
                     animData = await res.json();
                     lottieJsonCache[lottieUrl] = animData;
                 }
@@ -7703,12 +7763,17 @@
                 if (a._type === 'PHOTO') {
                     let src = a.baseRawUrl || a.baseUrl;
                     if (src && !src.startsWith('data:')) src = '/img?url=' + encodeURIComponent(src);
-                    if (!src && a.previewData) {
-                        src = hexPreviewToDataUrl(a.previewData);
+                    const previewUrl = a.previewData ? hexPreviewToDataUrl(a.previewData) : null;
+                    if (!src && previewUrl) {
+                        // Реального URL нет вообще — единственное, что есть,
+                        // это маленькое локальное превью, показываем его как
+                        // финальную картинку (грузить больше нечего).
+                        src = previewUrl;
                     }
                     if (src) {
+                        const previewStyle = previewUrl ? ` style="background-image:url('${previewUrl}')"` : '';
                         attachesHtml +=
-                            `<div class="msg-attach"><img class="msg-img" src="${src}" alt="Фото" loading="lazy" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '${m.id}')"></div>`;
+                            `<div class="msg-attach"><div class="lazy-media-placeholder${previewUrl ? ' has-preview' : ''}" data-src="${src}" data-msg-id="${m.id}" onclick="loadLazyPhoto(this)"${previewStyle}><span class="lazy-media-icon">🖼️</span><span class="lazy-media-label">Нажмите, чтобы загрузить</span></div></div>`;
                     } else {
                         attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
                     }
