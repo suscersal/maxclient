@@ -8001,7 +8001,7 @@
             }
         }
 
-        function markMessagesDeleted(chatId, messageIds) {
+        async function markMessagesDeleted(chatId, messageIds) {
             if (!chatId || !messageIds || !messageIds.length) return;
             const idSet = new Set(messageIds.map(String));
 
@@ -8009,13 +8009,17 @@
             idSet.forEach(id => deletedSet.add(id));
 
             // Помечаем в кэше сообщений чата (используется и офлайн-кэшем).
-            const arr = messagesByChatId[chatId];
-            if (arr) {
-                arr.forEach(m => {
-                    if (idSet.has(String(m.id))) m.deleted = true;
-                });
-                if (!isOfflineCacheMode) cacheMessagesToDisk(chatId, arr);
-            }
+            // ВАЖНО: раньше запись на диск происходила только если
+            // messagesByChatId[chatId] уже существовал — если удаление
+            // случалось раньше первой updateMessagesCache() для этого чата,
+            // arr был undefined и пометка "удалено" не сохранялась на диск
+            // вообще, оставаясь только в памяти (deletedIdsByChatId) и
+            // пропадая после перезагрузки/переоткрытия чата.
+            const arr = messagesByChatId[chatId] || (messagesByChatId[chatId] = []);
+            arr.forEach(m => {
+                if (idSet.has(String(m.id))) m.deleted = true;
+            });
+            if (!isOfflineCacheMode) await cacheMessagesToDisk(chatId, arr);
 
             // Обновляем уже отрисованные пузыри, если чат открыт сейчас.
             if (chatId === currentChatId) {
@@ -8085,13 +8089,13 @@
             }
         }
 
-        function cacheMessagesToDisk(chatId, messages) {
+        async function cacheMessagesToDisk(chatId, messages) {
             try {
-                fetch('/api/messages-cache', {
+                await fetch('/api/messages-cache', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chatId, messages }),
-                }).catch(() => { });
+                });
             } catch (e) { /* сохранение кэша не критично — молча пропускаем */ }
         }
 
@@ -8630,7 +8634,7 @@
             });
             // Оптимистично помечаем как удалённое сразу, не дожидаясь пуша.
             // При ошибке от сервера это откатывается через lastDeleteAttempt.
-            markMessagesDeleted(chatId, messageIds);
+            await markMessagesDeleted(chatId, messageIds);
         }
 
         // (Cache Storage, переживает перезагрузку) — чтобы не дёргать
