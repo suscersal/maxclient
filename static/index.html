@@ -9463,11 +9463,23 @@
             if (isOfflineCacheMode || !isConnected) {
                 loadCachedMessagesForChat(chatId);
             } else {
-                // Подгружаем с диска ID удалённых сообщений ДО того, как придёт
-                // ответ сервера — так renderMessages сможет сразу переприменить
-                // пометку "удалено" к свежей истории (см. deletedIdsByChatId).
-                preloadDeletedIdsForChat(chatId).then(() => {
-                    send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+                // Сначала рисуем то, что уже есть в дисковом кэше — включая
+                // сообщения, удалённые локально ("у всех" или "только у
+                // меня"). Сервер после реального удаления больше НЕ присылает
+                // такие сообщения в истории чата вообще (не как "удалённые",
+                // а просто отсутствуют в ответе на send(49)) — поэтому без
+                // этого шага бабл с "🗑 Удалено" пропадал бесследно при
+                // повторном открытии чата, вместо того чтобы остаться видимым
+                // с плашкой. loadCachedMessagesForChat дозаписывает сообщения
+                // через renderMessages(..., false), который сам пропускает
+                // уже отрисованные id, так что дублей не будет.
+                loadCachedMessagesForChat(chatId).then(() => {
+                    // Подгружаем с диска ID удалённых сообщений ДО того, как придёт
+                    // ответ сервера — так renderMessages сможет сразу переприменить
+                    // пометку "удалено" к свежей истории (см. deletedIdsByChatId).
+                    preloadDeletedIdsForChat(chatId).then(() => {
+                        send(49, { chatId, from: Date.now() + 86400000, forward: 0, backward: 10, getMessages: true });
+                    });
                 });
             }
         }
