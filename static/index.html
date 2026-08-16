@@ -840,6 +840,45 @@
             align-self: flex-end;
         }
 
+        /* Аватар отправителя в групповых чатах — слева от текста сообщения,
+           кликабельный (открывает мини-профиль автора), как в Telegram. */
+        .msg-bubble.has-avatar {
+            padding-left: 46px;
+        }
+
+        .msg-avatar {
+            position: absolute;
+            left: 8px;
+            top: 8px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .msg-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .msg-sender-name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 3px;
+            cursor: pointer;
+            /* Цвет ника — как в Телеграме: стабильный оттенок на основе id
+               отправителя, чтобы разные люди в группе визуально отличались. */
+        }
+
         .msg-time {
             font-size: 10px;
             color: #999;
@@ -1376,7 +1415,7 @@
         #reactionPickerPopup {
             position: fixed;
             z-index: 1000002;
-            background: #fff;
+            background: var(--tg-panel, #fff);
             border-radius: 16px;
             box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
             padding: 8px;
@@ -1414,7 +1453,7 @@
 
         #reactionPickerPopup .rp-emoji:active,
         #reactionPickerPopup .rp-emoji:hover {
-            background: rgba(0, 0, 0, 0.06);
+            background: rgba(127, 127, 127, 0.14);
             transform: scale(1.15);
         }
 
@@ -1433,7 +1472,7 @@
         #msgActionPanel {
             position: fixed;
             z-index: 1000002;
-            background: #fff;
+            background: var(--tg-panel, #fff);
             border-radius: 16px;
             box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
             padding: 8px;
@@ -1451,7 +1490,7 @@
             display: flex;
             justify-content: space-between;
             padding: 2px 2px 6px;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            border-bottom: 1px solid var(--tg-border, rgba(0, 0, 0, 0.08));
         }
 
         #msgActionPanel .map-emoji {
@@ -1474,7 +1513,7 @@
 
         #msgActionPanel .map-emoji:hover,
         #msgActionPanel .map-emoji:active {
-            background: rgba(0, 0, 0, 0.06);
+            background: rgba(127, 127, 127, 0.14);
             transform: scale(1.15);
         }
 
@@ -1498,7 +1537,7 @@
 
         #msgActionPanel .map-action:hover,
         #msgActionPanel .map-action:active {
-            background: rgba(0, 0, 0, 0.06);
+            background: rgba(127, 127, 127, 0.14);
         }
 
         #msgActionPanel .map-action.danger {
@@ -1952,7 +1991,7 @@
         }
 
         .settings-modal {
-            background: #f5f5f5;
+            background: var(--tg-panel, #f5f5f5);
             width: 100%;
             max-width: 600px;
             max-height: 85vh;
@@ -1981,28 +2020,28 @@
             align-items: center;
             justify-content: space-between;
             padding-bottom: 16px;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid var(--tg-border, #e0e0e0);
             flex-shrink: 0;
         }
 
         .settings-modal-header h2 {
             font-size: 20px;
             font-weight: 600;
-            color: #222;
+            color: var(--tg-text, #222);
         }
 
         .settings-modal-close {
             width: 36px;
             height: 36px;
             border-radius: 50%;
-            background: #e8e8e8;
+            background: var(--tg-border, #e8e8e8);
             border: none;
             font-size: 18px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #555;
+            color: var(--tg-text-secondary, #555);
             transition: background 0.2s;
         }
 
@@ -2032,16 +2071,16 @@
             width: 100%;
             font-size: 15px;
             font-weight: 500;
-            color: #222;
+            color: var(--tg-text, #222);
             text-align: left;
         }
 
         .settings-menu-item:hover {
-            background: rgba(0, 0, 0, 0.05);
+            background: rgba(127, 127, 127, 0.1);
         }
 
         .settings-menu-item:active {
-            background: rgba(0, 0, 0, 0.08);
+            background: rgba(127, 127, 127, 0.16);
         }
 
         .settings-menu-item .icon {
@@ -2056,7 +2095,7 @@
         }
 
         .settings-menu-item .arrow {
-            color: #999;
+            color: var(--tg-text-secondary, #999);
             font-size: 16px;
         }
 
@@ -2074,7 +2113,7 @@
 
         .settings-menu-divider {
             border: none;
-            border-top: 1px solid #e8e8e8;
+            border-top: 1px solid var(--tg-border, #e8e8e8);
             margin: 6px 0;
         }
 
@@ -2103,19 +2142,20 @@
         .settings-content-page .settings-row input {
             flex: 1;
             padding: 10px 12px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--tg-border, #ddd);
             border-radius: 8px;
             font-size: 14px;
-            background: white;
+            background: var(--tg-panel, white);
+            color: var(--tg-text, #222);
             outline: none;
         }
 
         .settings-content-page .settings-row input:focus {
-            border-color: #007bff;
+            border-color: var(--tg-blue, #007bff);
         }
 
         .settings-empty {
-            color: #999;
+            color: var(--tg-text-secondary, #999);
             text-align: center;
             padding: 24px 0;
             font-size: 14px;
@@ -2231,7 +2271,8 @@
         }
 
         .chat-profile-modal {
-            background: #f5f5f5;
+            background: var(--tg-panel, #f5f5f5);
+            color: var(--tg-text, #222);
             width: 100%;
             max-width: 400px;
             border-radius: 20px;
@@ -2257,27 +2298,27 @@
             align-items: center;
             justify-content: space-between;
             padding-bottom: 16px;
-            border-bottom: 1px solid #e8e8e8;
+            border-bottom: 1px solid var(--tg-border, #e8e8e8);
         }
 
         .chat-profile-header h3 {
             font-size: 18px;
             font-weight: 600;
-            color: #222;
+            color: var(--tg-text, #222);
         }
 
         .chat-profile-close {
             width: 32px;
             height: 32px;
             border-radius: 50%;
-            background: #e8e8e8;
+            background: var(--tg-border, #e8e8e8);
             border: none;
             font-size: 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #555;
+            color: var(--tg-text-secondary, #555);
             transition: background 0.2s;
         }
 
@@ -2318,12 +2359,12 @@
             font-size: 18px;
             font-weight: 600;
             margin-top: 10px;
-            color: #222;
+            color: var(--tg-text, #222);
         }
 
         .chat-profile-avatar .sub {
             font-size: 13px;
-            color: #888;
+            color: var(--tg-text-secondary, #888);
         }
 
         .chat-profile-options {
@@ -2342,12 +2383,83 @@
             background: transparent;
             width: 100%;
             font-size: 15px;
-            color: #222;
+            color: var(--tg-text, #222);
             text-align: left;
         }
 
         .chat-profile-option:hover {
             background: rgba(0, 0, 0, 0.05);
+        }
+
+        .chat-profile-members-header {
+            padding: 10px 12px 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tg-text-secondary, #8A9199);
+        }
+
+        .member-row {
+            cursor: default;
+        }
+
+        .member-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .member-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .member-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .member-name {
+            font-size: 15px;
+            color: var(--tg-text, #17212B);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .member-status {
+            font-size: 12px;
+            color: var(--tg-text-secondary, #8A9199);
+        }
+
+        .member-role-badge {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 1px 7px;
+            border-radius: 8px;
+            vertical-align: middle;
+        }
+
+        .member-role-badge.owner {
+            background: rgba(255, 149, 0, 0.15);
+            color: #ff9500;
+        }
+
+        .member-role-badge.admin {
+            background: rgba(77, 163, 255, 0.15);
+            color: #4DA3FF;
         }
 
         .chat-profile-option .opt-icon {
@@ -2971,31 +3083,55 @@
             text-align: center;
         }
         /* Простая (Минимализм) */
-body.theme-simple {
-  --bg-color: #f5f7fa;
-  --text-color: #333333;
-  --accent-color: #007aff;
+html[data-theme="simple"] {
+  --tg-blue: #007aff;
+  --tg-blue-dark: #0066d6;
+  --tg-blue-deep: #0057b8;
+  --tg-bg: #f5f7fa;
+  --tg-panel: #ffffff;
+  --tg-text: #333333;
+  --tg-text-secondary: #7a7a7a;
+  --tg-border: #e2e5e9;
+  --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
+  --tg-incoming-bubble: #ffffff;
 }
 
 /* Неон (Энергия) */
-body.theme-neon {
-  --bg-color: #0d0e15;
-  --text-color: #00ffcc;
-  --accent-color: #ff007f;
+html[data-theme="neon"] {
+  --tg-blue: #ff007f;
+  --tg-blue-dark: #cc0066;
+  --tg-blue-deep: #a30052;
+  --tg-bg: #0d0e15;
+  --tg-panel: #15161f;
+  --tg-text: #00ffcc;
+  --tg-text-secondary: #7a90a0;
+  --tg-border: #232538;
+  --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
+  --tg-incoming-bubble: #15161f;
 }
 
 /* Летний лес (Умиротворение) */
-body.theme-forest {
-  --bg-color: #f0f4f1;
-  --text-color: #2c3e2b;
-  --accent-color: #4caf50;
+html[data-theme="forest"] {
+  --tg-blue: #4caf50;
+  --tg-blue-dark: #3d8b40;
+  --tg-blue-deep: #2e6b30;
+  --tg-bg: #f0f4f1;
+  --tg-panel: #ffffff;
+  --tg-text: #2c3e2b;
+  --tg-text-secondary: #6b8065;
+  --tg-border: #d7e3d4;
+  --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
+  --tg-incoming-bubble: #ffffff;
 }
 
-/* Космос / Москва */
-body.theme-space {
-  --bg-color: #0b0c10;
-  --text-color: #c5c6c7;
-  --accent-color: #66fcf1;
+html[data-theme="simple"] html,
+html[data-theme="simple"] body,
+html[data-theme="neon"] html,
+html[data-theme="neon"] body,
+html[data-theme="forest"] html,
+html[data-theme="forest"] body {
+    background: var(--tg-bg) !important;
+    color: var(--tg-text) !important;
 }
 
 
@@ -6369,6 +6505,9 @@ html[data-theme="sepia"] {
   ${opt('light', '☀️', 'Светлая')} 
   ${opt('space', '🚀', 'Космос')} 
   ${opt('sepia', '📜', 'Сепия')} 
+  ${opt('simple', '⬜', 'Простая')} 
+  ${opt('neon', '💡', 'Неон')} 
+  ${opt('forest', '🌲', 'Летний лес')} 
   <div style="font-size:12px;color:#888;margin-top:10px;"> 
     Выбор темы сохраняется на этом устройстве. 
   </div> 
@@ -6806,6 +6945,46 @@ html[data-theme="sepia"] {
             }
         }
 
+        // Профиль участника группы — открывается по клику на аватар рядом с
+        // его сообщением (как тап по аватарке отправителя в Телеграме).
+        // Использует ту же модалку, что и «Информация о чате», но без
+        // привязки к текущему открытому чату (chatProfileChatId = null),
+        // поэтому автоответ/ghost-read для неё не показываются — это не чат,
+        // а именно карточка человека.
+        function openMemberProfile(userId) {
+            if (userId == null) return;
+            chatProfileChatId = null;
+
+            const name = memberDisplayName(userId);
+            document.getElementById('chatProfileTitle').textContent = 'Профиль';
+            document.getElementById('chatProfileName').innerHTML = escapeHtml(name);
+
+            const avatarUrl = memberAvatarUrl(userId);
+            const avatarContainer = document.getElementById('chatProfileAvatar');
+            if (avatarUrl) {
+                avatarContainer.style.background = '';
+                avatarContainer.innerHTML =
+                    `<img src="${avatarUrl}" alt="" onerror="this.style.display='none';this.parentElement.textContent='?'">`;
+            } else {
+                avatarContainer.style.background = avatarGradient(userId);
+                avatarContainer.textContent = getInitials(name);
+            }
+
+            const isOnline = presenceById[userId]?.online;
+            document.getElementById('chatProfileSub').textContent = isOnline ? '🟢 в сети' : '⚪ не в сети';
+
+            const optionsContainer = document.getElementById('chatProfileOptions');
+            optionsContainer.innerHTML = `
+            <button class="chat-profile-option" onclick="closeChatProfile(); openOrCreateDialogWithContact(contactsById[${JSON.stringify(userId)}] || { id: ${JSON.stringify(userId)} });">
+                <span class="opt-icon">💬</span>
+                <span class="opt-label">Написать сообщение</span>
+            </button>
+        `;
+
+            document.getElementById('chatProfileModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
         function openChatProfile() {
             const chat = chatsById[currentChatId];
             if (!chat) return;
@@ -6836,6 +7015,15 @@ html[data-theme="sepia"] {
 
             const optionsContainer = document.getElementById('chatProfileOptions');
             optionsContainer.innerHTML = '';
+
+            // Участники группы (как список участников в Телеграме).
+            // Только для обычных групповых чатов (chat.type === 'CHAT') —
+            // у каналов сервер не присылает полный список подписчиков
+            // в chat.participants, поэтому для них блок не показываем.
+            if (chat.type === 'CHAT') {
+                optionsContainer.innerHTML += renderGroupMembersHtml(chat);
+                ensureGroupMembersLoaded(chat);
+            }
 
             // Автоответ
             const ars = getAutoreplySettings(chat.id);
@@ -7264,11 +7452,145 @@ html[data-theme="sepia"] {
             return `linear-gradient(135deg, hsl(${hue1},100%,${lightness1}%), hsl(${hue2},100%,${lightness2}%))`;
         }
 
+        // Цвет имени отправителя над сообщением в группах — стабильный на
+        // основе id (тот же hash, что и avatarGradient), но сплошной цвет,
+        // а не градиент, и с яркостью, читаемой на любом фоне бабла.
+        function senderNameColor(seed) {
+            const str = String(seed ?? '0');
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = (h * 31 + str.charCodeAt(i)) >>> 0;
+            }
+            const hue = h % 360;
+            return `hsl(${hue}, 70%, 50%)`;
+        }
+
         function getInitials(name) {
             const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
             if (!parts.length) return '?';
             if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
             return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+        }
+
+        // Имя участника группы по его id (аналог chatDisplayName, но для
+        // «сырого» userId из chat.participants, а не для целого chat/DIALOG).
+        function memberDisplayName(id) {
+            if (id === selfId) return 'Вы';
+            const meta = metadataOverride[id];
+            if (meta && meta.name) return meta.name;
+            const contact = contactsById[id];
+            if (contact) {
+                const custom = contact.names?.find(n => n.type === 'CUSTOM');
+                const oneme = contact.names?.find(n => n.type === 'ONEME');
+                const name = (custom || oneme)?.name;
+                if (name) return name;
+            }
+            return 'Контакт #' + id;
+        }
+
+        function memberAvatarUrl(id) {
+            const meta = metadataOverride[id];
+            if (meta && meta.avatar) {
+                return meta.avatar.startsWith('http') ? '/img?url=' + encodeURIComponent(meta.avatar) : meta.avatar;
+            }
+            const contact = contactsById[id];
+            if (contact?.baseUrl) return '/img?url=' + encodeURIComponent(contact.baseUrl);
+            return null;
+        }
+
+        // Список участников группы, отсортированный: сначала админы, затем
+        // остальные по времени вступления (как во «Участниках» в Телеграме).
+        function renderGroupMembersHtml(chat) {
+            if (!chat || !chat.participants) return '';
+            const adminIds = new Set(Object.keys(chat.adminParticipants || {}).map(Number));
+            const ownerId = chat.owner;
+            const ids = Object.keys(chat.participants).map(Number);
+            ids.sort((a, b) => {
+                const aRank = a === ownerId ? 0 : adminIds.has(a) ? 1 : 2;
+                const bRank = b === ownerId ? 0 : adminIds.has(b) ? 1 : 2;
+                if (aRank !== bRank) return aRank - bRank;
+                return (chat.participants[a] || 0) - (chat.participants[b] || 0);
+            });
+
+            const rows = ids.map(id => {
+                const name = escapeHtml(memberDisplayName(id));
+                const avatarUrl = memberAvatarUrl(id);
+                const isOnline = presenceById[id]?.online;
+                const roleBadge = id === ownerId
+                    ? '<span class="member-role-badge owner">владелец</span>'
+                    : adminIds.has(id)
+                        ? '<span class="member-role-badge admin">админ</span>'
+                        : '';
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${getInitials(memberDisplayName(id))}'">`
+                    : getInitials(memberDisplayName(id));
+                const avatarBg = avatarUrl ? '' : `style="background:${avatarGradient(id)}"`;
+                return `
+                <div class="chat-profile-option member-row">
+                    <div class="member-avatar" ${avatarBg}>${avatarHtml}</div>
+                    <div class="member-info">
+                        <div class="member-name">${name}${roleBadge}</div>
+                        ${isOnline ? '<div class="member-status">🟢 в сети</div>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+
+            return `
+            <div class="chat-profile-members-header">Участники (${ids.length})</div>
+            <div id="chatProfileMembersList">${rows}</div>
+            <hr class="chat-profile-divider">
+        `;
+        }
+
+        // Дозапрашивает профили участников, которых ещё нет в contactsById
+        // (аналог fetchMissingContactInfo, но по конкретному списку id группы).
+        function ensureGroupMembersLoaded(chat) {
+            if (!chat || !chat.participants) return;
+            const missing = Object.keys(chat.participants).map(Number)
+                .filter(id => id !== selfId && !contactsById[id] && !metadataOverride[id] && !requestedContactIds.has(id));
+            if (!missing.length) return;
+            missing.forEach(id => requestedContactIds.add(id));
+            send(32, { contactIds: missing });
+        }
+
+        // Перерисовывает список участников, если сейчас открыт профиль этой же группы
+        // (вызывается после того, как пришли недостающие профили с сервера).
+        // Обновляет имя и аватар отправителя у уже отрисованных сообщений в
+        // текущем списке — вызывается, когда с сервера приходят недостающие
+        // профили участников (opcode 32), чтобы «Контакт #id» заменился на
+        // настоящее MAX-имя без необходимости перезаходить в чат.
+        function refreshVisibleMessageSenders() {
+            const rows = document.querySelectorAll('#messagesList .msg-bubble[data-sender-id]');
+            rows.forEach(row => {
+                const id = Number(row.dataset.senderId);
+                const name = memberDisplayName(id);
+                const avatarUrl = memberAvatarUrl(id);
+                const nameEl = row.querySelector('.msg-sender-name');
+                if (nameEl) nameEl.textContent = name;
+                const avatarEl = row.querySelector('.msg-avatar');
+                if (avatarEl) {
+                    avatarEl.title = name;
+                    if (avatarUrl) {
+                        avatarEl.style.background = '';
+                        avatarEl.innerHTML = `<img src="${avatarUrl}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(getInitials(name))}'">`;
+                    } else {
+                        avatarEl.style.background = avatarGradient(id);
+                        avatarEl.textContent = getInitials(name);
+                    }
+                }
+            });
+        }
+
+        function refreshChatProfileMembersIfOpen() {
+            if (!document.getElementById('chatProfileModal').classList.contains('active')) return;
+            const chat = chatsById[chatProfileChatId];
+            if (!chat || chat.type !== 'CHAT') return;
+            const container = document.getElementById('chatProfileMembersList');
+            if (!container) return;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = renderGroupMembersHtml(chat);
+            const newList = wrapper.querySelector('#chatProfileMembersList');
+            if (newList) container.innerHTML = newList.innerHTML;
         }
 
         function chatAvatarUrl(chat) {
@@ -8798,6 +9120,24 @@ html[data-theme="sepia"] {
             el.className = 'msg-bubble' + (isOwn ? ' own' : '') + (m.deleted ? ' deleted' : '');
             el.dataset.msgId = m.id;
             el.dataset.msgTime = m.time || Date.now();
+            if (m.sender != null) el.dataset.senderId = m.sender;
+            // Аватар отправителя — только для чужих сообщений в групповых чатах
+            // (как в Телеграме). Клик по аватару открывает мини-профиль автора
+            // сообщения. Для DIALOG/CHANNEL и своих сообщений не показываем.
+            let avatarHtml = '';
+            let senderNameHtml = '';
+            const parentChat = chatsById[currentChatId];
+            if (!isOwn && parentChat && parentChat.type === 'CHAT' && m.sender != null) {
+                el.classList.add('has-avatar');
+                const memberName = memberDisplayName(m.sender);
+                const memberAvatar = memberAvatarUrl(m.sender);
+                const inner = memberAvatar
+                    ? `<img src="${memberAvatar}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(getInitials(memberName))}'">`
+                    : escapeHtml(getInitials(memberName));
+                const bg = memberAvatar ? '' : ` style="background:${avatarGradient(m.sender)}"`;
+                avatarHtml = `<div class="msg-avatar" title="${escapeHtml(memberName)}"${bg} onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${inner}</div>`;
+                senderNameHtml = `<div class="msg-sender-name" style="color:${senderNameColor(m.sender)}" onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${escapeHtml(memberName)}</div>`;
+            }
             // Одиночный тап/клик сразу открывает панель быстрых реакций +
             // Ответить/Удалить — без ожидания возможного двойного тапа
             // (раньше тут была задержка в 250мс и отдельная логика
@@ -9031,7 +9371,7 @@ html[data-theme="sepia"] {
                 : '';
             const timeHtml = `<div class="msg-time">${deletedBadgeHtml}${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            el.innerHTML = avatarHtml + senderNameHtml + replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
         }
 
@@ -9551,6 +9891,14 @@ html[data-theme="sepia"] {
             e2eSetUiStatus(chatId, 'none');
             e2eRestoreForChat(chatId).then(status => e2eSetUiStatus(chatId, status));
 
+            // Имена над сообщениями в группах должны быть настоящими MAX-именами
+            // отправителей (не «Контакт #id»), даже если они не сохранены в
+            // контактах — дозапрашиваем недостающие профили участников сразу,
+            // не дожидаясь открытия «Информации о чате».
+            if (chat.type === 'CHAT') {
+                ensureGroupMembersLoaded(chat);
+            }
+
             if (isOfflineCacheMode || !isConnected) {
                 loadCachedMessagesForChat(chatId);
             } else {
@@ -9990,6 +10338,8 @@ html[data-theme="sepia"] {
                                 if (c && typeof c.id === 'number') contactsById[c.id] = c;
                             });
                             renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                            refreshChatProfileMembersIfOpen();
+                            refreshVisibleMessageSenders();
                         }
                         return;
                     }
