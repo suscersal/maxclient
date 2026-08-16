@@ -514,16 +514,11 @@
             display: none;
         }
 
-        /* Раньше список чатов был "безрамочным" на всю ширину экрана
-           (background/border/shadow сбрасывались), из-за чего страница
-           выглядела не как окно чата/канала, а как голый список во всю
-           ширину. Теперь список чатов оформлен как отдельное окно — так
-           же, как открытый чат (#chatDetailSection): скруглённые углы,
-           фон и тень панели, отступы от края экрана. */
         #chatsSection {
-            padding: 6px !important;
-            border-radius: 16px;
-            overflow: hidden;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 6px !important;
         }
 
         .search-hint {
@@ -2280,7 +2275,7 @@
             color: var(--tg-text, #222);
             width: 100%;
             max-width: 400px;
-            max-height: 85vh;
+            max-height: 82vh;
             border-radius: 20px;
             padding: 24px 24px 20px;
             box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
@@ -2288,6 +2283,16 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+        }
+
+        .chat-profile-header,
+        .chat-profile-avatar {
+            flex-shrink: 0;
+        }
+
+        .chat-profile-options {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         @keyframes scaleIn {
@@ -2308,7 +2313,6 @@
             justify-content: space-between;
             padding-bottom: 16px;
             border-bottom: 1px solid var(--tg-border, #e8e8e8);
-            flex-shrink: 0;
         }
 
         .chat-profile-header h3 {
@@ -2341,7 +2345,6 @@
             flex-direction: column;
             align-items: center;
             padding: 16px 0 12px;
-            flex-shrink: 0;
         }
 
         .chat-profile-avatar .avatar {
@@ -2380,12 +2383,6 @@
 
         .chat-profile-options {
             padding: 8px 0 4px;
-            overflow-y: auto;
-            /* Не растягивать модалку на весь экран из-за длинного списка
-               участников — как в каналах: шапка/аватар/кнопки фиксированы
-               сверху, а список участников скроллится в оставшейся высоте. */
-            flex: 1 1 auto;
-            min-height: 0;
         }
 
         .chat-profile-option {
@@ -2413,6 +2410,14 @@
             font-size: 13px;
             font-weight: 600;
             color: var(--tg-text-secondary, #8A9199);
+        }
+
+        /* Список участников прокручивается сам, не раздувая всю модалку —
+           окно остаётся такого же компактного размера, как у чата/канала. */
+        #chatProfileMembersList {
+            max-height: 220px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .member-row {
@@ -2457,10 +2462,6 @@
         .member-status {
             font-size: 12px;
             color: var(--tg-text-secondary, #8A9199);
-        }
-
-        .member-status.online {
-            color: var(--tg-blue, #2AABEE);
         }
 
         .member-role-badge {
@@ -4213,7 +4214,7 @@ html[data-theme="sepia"] {
 
 
 
-    <div class="section" id="logPanelSection">
+    <div class="section">
         <h3>📋 Лог</h3>
         <div id="log"></div>
     </div>
@@ -4242,21 +4243,11 @@ html[data-theme="sepia"] {
                 return true;
             }
 
-            // Если это группа. ВАЖНО: сервер отдаёт групповые чаты с
-            // chat.type === 'CHAT' (не 'GROUP'/'SUPERGROUP' — их тут просто
-            // не бывает, см. другие проверки chat.type по всему файлу).
-            // Раньше проверка была на несуществующие типы, поэтому ветка
-            // никогда не срабатывала и код всегда проваливался в
-            // `return false` в конце — композер сообщений скрывался и
-            // блокировался в КАЖДОЙ группе.
-            if (chat.type === 'CHAT') {
-                // Проверяем именно наличие ключа, а не истинность значения:
-                // participants хранит отметки прочтения (readMark), и mark
-                // может легитимно быть 0 — `!participant` для 0 ошибочно
-                // считал бы пользователя не участником группы.
-                if (!chat.participants || !Object.prototype.hasOwnProperty.call(chat.participants, selfId)) {
-                    return false;
-                }
+            // Если это группа/супергруппа
+            if (chat.type === 'GROUP' || chat.type === 'SUPERGROUP') {
+                // Примерная логика: ищем участника по selfId
+                const participant = chat.participants?.[selfId];
+                if (!participant) return false;
 
                 // Здесь должны быть реальные биты прав (flags). 
                 // Обычно право на отправку текста имеет бит send_messages.
@@ -5687,24 +5678,6 @@ html[data-theme="sepia"] {
             return ``;
         }
 
-        function renderLogPanelPage() {
-            const enabled = getLogPanelEnabled();
-            return `
-        <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
-            Показывать на экране панель "📋 Лог" со служебными сообщениями
-            клиента (подключение, загрузка чатов и сообщений, ошибки и т.п.).
-            По умолчанию скрыта, чтобы не занимать место на экране.
-        </div>
-        <div class="settings-row">
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" id="logPanelEnabled" ${enabled ? 'checked' : ''}
-                       onchange="setLogPanelEnabled(this.checked)">
-                Показывать панель лога
-            </label>
-        </div>
-    `;
-        }
-
         function renderDebugDumpPage() {
             const enabled = getDebugDumpEnabled();
             return `
@@ -6445,22 +6418,6 @@ html[data-theme="sepia"] {
             try { localStorage.setItem('maxclient_debug_dump_enabled', val ? '1' : '0'); } catch (e) { }
         }
 
-        // Настройка: показывать ли панель "📋 Лог" на экране. Раньше она
-        // была видна всегда, занимая место внизу страницы — теперь по
-        // умолчанию скрыта и включается отдельным чекбоксом в настройках
-        // (по аналогии с "Дебаг-дамп").
-        function getLogPanelEnabled() {
-            try { return localStorage.getItem('maxclient_log_panel_enabled') === '1'; } catch (e) { return false; }
-        }
-        function setLogPanelEnabled(val) {
-            try { localStorage.setItem('maxclient_log_panel_enabled', val ? '1' : '0'); } catch (e) { }
-            applyLogPanelVisibility();
-        }
-        function applyLogPanelVisibility() {
-            const section = document.getElementById('logPanelSection');
-            if (section) section.classList.toggle('hidden', !getLogPanelEnabled());
-        }
-
         function renderVarsPage() {
             const vars = loadSettingsVars();
             const entries = Object.entries(vars);
@@ -6813,7 +6770,6 @@ html[data-theme="sepia"] {
             .addItem({ id: 'theme', icon: '🎨', label: 'Тема', page: renderThemePage })
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
             .addItem({ id: 'debugDump', icon: '🐞', label: 'Дебаг-дамп', page: renderDebugDumpPage })
-            .addItem({ id: 'logPanel', icon: '📋', label: 'Панель лога', page: renderLogPanelPage })
             .addDivider()
             .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
             .addItem({ id: 'device', icon: '📱', label: 'Устройство', page: renderDevicePage })
@@ -6846,6 +6802,7 @@ html[data-theme="sepia"] {
         // ========================================
 
         let chatProfileChatId = null;
+        let openMemberProfileId = null;
 
         // Проверка одного открытого чата (кнопка в профиле чата). Сначала
         // досылаем на бэкенд то, что реально сейчас загружено в память для
@@ -7036,10 +6993,9 @@ html[data-theme="sepia"] {
                 avatarContainer.textContent = getInitials(name);
             }
 
-            const status = formatPresenceStatus(userId);
-            const subEl = document.getElementById('chatProfileSub');
-            subEl.textContent = status.text === 'в сети' ? '🟢 в сети' : (status.text || '⚪ не в сети');
-            subEl.style.color = '';
+            const statusText = presenceStatusText(userId);
+            document.getElementById('chatProfileSub').textContent = statusText || '⚪ не в сети';
+            openMemberProfileId = userId;
 
             const optionsContainer = document.getElementById('chatProfileOptions');
             optionsContainer.innerHTML = `
@@ -7057,6 +7013,7 @@ html[data-theme="sepia"] {
             const chat = chatsById[currentChatId];
             if (!chat) return;
             chatProfileChatId = currentChatId;
+            openMemberProfileId = null;
 
             const name = chatDisplayName(chat);
             document.getElementById('chatProfileTitle').textContent = 'Информация';
@@ -7077,9 +7034,8 @@ html[data-theme="sepia"] {
             if (isBotChat(chat)) {
                 document.getElementById('chatProfileSub').textContent = '🤖 Бот';
             } else {
-                const status = formatPresenceStatus(otherId);
-                document.getElementById('chatProfileSub').textContent =
-                    status.text === 'в сети' ? '🟢 в сети' : (status.text || '⚪ не в сети');
+                const isOnline = otherId != null && presenceById[otherId]?.online;
+                document.getElementById('chatProfileSub').textContent = isOnline ? '🟢 в сети' : '⚪ не в сети';
             }
 
             const optionsContainer = document.getElementById('chatProfileOptions');
@@ -7094,9 +7050,13 @@ html[data-theme="sepia"] {
                 ensureGroupMembersLoaded(chat);
             }
 
-            // Автоответ
-            const ars = getAutoreplySettings(chat.id);
-            optionsContainer.innerHTML += `
+            // Автоответ и «не отправлять прочитано» имеют смысл только для
+            // личной переписки (DIALOG) — в группе/канале это ничего не
+            // значит и только раздувает окно. Показываем эти пункты только
+            // для DIALOG, как в обычном чате с человеком.
+            if (chat.type === 'DIALOG') {
+                const ars = getAutoreplySettings(chat.id);
+                optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="toggleChatOption('autoreply')">
                 <span class="opt-icon">🤖</span>
                 <span class="opt-label">Автоответ</span>
@@ -7108,8 +7068,8 @@ html[data-theme="sepia"] {
             </button>
         `;
 
-            // Текст автоответа (поле ввода внутри профиля)
-            optionsContainer.innerHTML += `
+                // Текст автоответа (поле ввода внутри профиля)
+                optionsContainer.innerHTML += `
             <div class="chat-profile-option" style="flex-direction:column;align-items:stretch;gap:8px;padding:8px 12px;">
                 <div style="font-size:13px;color:#888;margin-bottom:2px;">Текст автоответа:</div>
                 <input type="text" id="profileAutoreplyText" value="${escapeHtml(ars.text || '')}" 
@@ -7119,9 +7079,9 @@ html[data-theme="sepia"] {
             </div>
         `;
 
-            // Ghost read
-            const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
-            optionsContainer.innerHTML += `
+                // Ghost read
+                const gr = JSON.parse(localStorage.getItem('maxclient_ghost_read') || '{}');
+                optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="toggleChatOption('ghost')">
                 <span class="opt-icon">👻</span>
                 <span class="opt-label">Не отправлять «прочитано»</span>
@@ -7132,6 +7092,7 @@ html[data-theme="sepia"] {
                 </span>
             </button>
         `;
+            }
 
             const webAppInfo = getBotWebAppInfo(chat);
             if (webAppInfo) {
@@ -7373,63 +7334,6 @@ html[data-theme="sepia"] {
             send(32, { contactIds: ids });
         }
 
-        // Абсолютное время последнего визита в стиле Телеграма: "в HH:MM"
-        // для сегодня, "вчера в HH:MM" и "DD.MM.YYYY" для более старых дат —
-        // вместо относительного "N мин./ч./дн. назад".
-        function formatLastSeenAbsolute(seenUnixSeconds) {
-            if (!seenUnixSeconds) return null;
-            const d = new Date(seenUnixSeconds * 1000);
-            const now = new Date();
-            const pad = n => String(n).padStart(2, '0');
-            const time = pad(d.getHours()) + ':' + pad(d.getMinutes());
-
-            if (d.toDateString() === now.toDateString()) {
-                return `в ${time}`;
-            }
-            const yesterday = new Date(now);
-            yesterday.setDate(now.getDate() - 1);
-            if (d.toDateString() === yesterday.toDateString()) {
-                return `вчера в ${time}`;
-            }
-            return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
-        }
-
-        // Формирует текст и цвет статуса "в сети / был(а) в ..." для
-        // пользователя uid, используя как текущий presenceById, так и то,
-        // что сохранено в localStorage (user_presences) с предыдущих сессий —
-        // чтобы статус был виден сразу при открытии чата, а не только после
-        // прихода следующего presence-пуша по сети (opcode 132). Формат
-        // времени — абсолютный, как в Телеграме ("был(а) в 12:26"), а не
-        // относительный.
-        function formatPresenceStatus(uid) {
-            if (uid == null) return { text: '', color: '#888' };
-
-            const live = presenceById[uid];
-            if (live && live.online) {
-                return { text: 'в сети', color: '#4caf50' };
-            }
-
-            // Серверное значение seen — приоритетнее: это реальное время
-            // последнего визита. Локально сохранённое время (когда МЫ сами
-            // последний раз получили presence) — лишь запасной вариант,
-            // если seen от сервера отсутствует.
-            let seenText = live && live.seen ? formatLastSeenAbsolute(live.seen) : null;
-            if (!seenText) {
-                try {
-                    const allPresences = JSON.parse(localStorage.getItem('user_presences')) || {};
-                    const savedLastSeen = allPresences[uid]?.lastSeen || null;
-                    if (savedLastSeen) {
-                        seenText = formatLastSeenAbsolute(Math.floor(savedLastSeen / 1000));
-                    }
-                } catch (e) { }
-            }
-
-            if (!seenText) {
-                return { text: 'не в сети', color: '#8E8E93' };
-            }
-            return { text: `был(а) ${seenText}`, color: '#8E8E93' };
-        }
-
         function otherParticipantId(chat) {
             if (!chat || !chat.participants) return null;
             const ids = Object.keys(chat.participants).map(Number);
@@ -7600,6 +7504,41 @@ html[data-theme="sepia"] {
 
         // Имя участника группы по его id (аналог chatDisplayName, но для
         // «сырого» userId из chat.participants, а не для целого chat/DIALOG).
+        // Единое форматирование "последний раз был(а) в сети" — использует
+        // presenceById[id].seen (эпоха в мс, приходит от сервера в opcode 132
+        // и в общем presence-снапшоте). Используется и в списке участников
+        // группы, и в мини-профиле, и в шапке личного чата.
+        function formatLastSeen(seenMs) {
+            if (!seenMs) return '';
+            // Защита от рассинхрона единиц: если сервер вдруг прислал
+            // секунды вместо миллисекунд (значение до ~2001 года в мс-эпохе),
+            // домножаем — иначе дата «улетает» в 1970-й и текст выглядит
+            // сломанным вместо реального времени последнего захода.
+            if (seenMs < 10000000000) seenMs *= 1000;
+            const diffMs = Date.now() - seenMs;
+            if (diffMs < 0) return 'был(а) в сети только что';
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'был(а) в сети только что';
+            if (diffMin < 60) return `был(а) в сети ${diffMin} мин. назад`;
+            const diffH = Math.floor(diffMin / 60);
+            if (diffH < 24) return `был(а) в сети ${diffH} ч. назад`;
+            const diffD = Math.floor(diffH / 24);
+            if (diffD === 1) return 'был(а) в сети вчера';
+            if (diffD < 7) return `был(а) в сети ${diffD} дн. назад`;
+            const d = new Date(seenMs);
+            return 'был(а) в сети ' + d.toLocaleDateString();
+        }
+
+        // Текст статуса "в сети / был(а) в сети ..." для конкретного id —
+        // общая функция, чтобы не дублировать одну и ту же логику в трёх
+        // разных местах рендера (список участников, мини-профиль, шапка чата).
+        function presenceStatusText(id) {
+            const p = presenceById[id];
+            if (!p) return '';
+            if (p.online) return '🟢 в сети';
+            return p.seen ? '⚪ ' + formatLastSeen(p.seen) : '';
+        }
+
         function memberDisplayName(id) {
             if (id === selfId) return 'Вы';
             const meta = metadataOverride[id];
@@ -7641,8 +7580,7 @@ html[data-theme="sepia"] {
             const rows = ids.map(id => {
                 const name = escapeHtml(memberDisplayName(id));
                 const avatarUrl = memberAvatarUrl(id);
-                const status = id === selfId ? { text: '', color: '' } : formatPresenceStatus(id);
-                const isOnline = presenceById[id]?.online;
+                const statusText = presenceStatusText(id);
                 const roleBadge = id === ownerId
                     ? '<span class="member-role-badge owner">владелец</span>'
                     : adminIds.has(id)
@@ -7653,11 +7591,11 @@ html[data-theme="sepia"] {
                     : getInitials(memberDisplayName(id));
                 const avatarBg = avatarUrl ? '' : `style="background:${avatarGradient(id)}"`;
                 return `
-                <div class="chat-profile-option member-row">
+                <div class="chat-profile-option member-row" data-member-id="${id}">
                     <div class="member-avatar" ${avatarBg}>${avatarHtml}</div>
                     <div class="member-info">
                         <div class="member-name">${name}${roleBadge}</div>
-                        ${status.text ? `<div class="member-status${isOnline ? ' online' : ''}">${status.text}</div>` : ''}
+                        ${statusText ? `<div class="member-status">${statusText}</div>` : ''}
                     </div>
                 </div>`;
             }).join('');
@@ -8639,13 +8577,8 @@ html[data-theme="sepia"] {
             } catch (e) { /* сохранение кэша не критично — молча пропускаем */ }
         }
 
-        // Загружает сохранённые сообщения чата с диска. Вызывается в двух
-        // случаях: (1) реально в офлайн-режиме, когда send(49, ...) по
-        // вебсокету всё равно ничего не вернёт, и (2) как оптимизация ДАЖЕ
-        // при наличии интернета — чтобы сразу показать что-то на экране,
-        // пока идёт свежий запрос к серверу (см. вызов в openChat). Раньше
-        // лог всегда писал «(офлайн)», даже когда соединение было —
-        // формулируем текст по фактическому состоянию isConnected.
+        // Загружает сохранённые сообщения чата с диска, когда мы в офлайн-режиме
+        // и обычный send(49, ...) по вебсокету всё равно ничего не вернёт.
         async function loadCachedMessagesForChat(chatId) {
             try {
                 const res = await fetch('/api/messages-cache?chatId=' + encodeURIComponent(chatId));
@@ -8653,8 +8586,7 @@ html[data-theme="sepia"] {
                 if (json.success && json.data && Array.isArray(json.data.messages) && json.data.messages.length) {
                     messagesByChatId[chatId] = json.data.messages.slice();
                     await renderMessages({ messages: json.data.messages }, false);
-                    const suffix = (isOfflineCacheMode || !isConnected) ? ' (офлайн)' : ' (из локального кэша, обновление уже запрошено)';
-                    log('📦 Показаны сохранённые сообщения чата ' + chatId + suffix, 'info');
+                    log('📦 Показаны сохранённые сообщения чата ' + chatId + ' (офлайн)', 'info');
                 } else {
                     log('ℹ️ Нет сохранённых сообщений для этого чата', 'info');
                 }
@@ -9989,11 +9921,6 @@ html[data-theme="sepia"] {
             document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
             if (isBotChat(chat)) {
                 document.getElementById('chatDetailStatus').textContent = '🤖 Бот';
-            } else if (chat.type === 'DIALOG') {
-                const statusEl = document.getElementById('chatDetailStatus');
-                const status = formatPresenceStatus(otherParticipantId(chat));
-                statusEl.textContent = status.text;
-                statusEl.style.color = status.color;
             } else {
                 document.getElementById('chatDetailStatus').textContent = '';
             }
@@ -10260,21 +10187,7 @@ html[data-theme="sepia"] {
         }
 
         document.getElementById('messagesList').addEventListener('scroll', function () {
-            if (isLoadingMore || earliestMessageTime == null || currentChatId == null) return;
-            // Раньше подгрузка старой истории срабатывала только у самого
-            // верха списка (фиксированный порог 50px), из-за чего пользователь
-            // видел пустоту/дерготню, пока сообщения догружались. Теперь
-            // порог считается динамически — по фактической высоте первых
-            // MESSAGES_PRELOAD_LOOKAHEAD сообщений сверху списка, чтобы
-            // подгрузка стартовала заранее, ещё до того, как они окажутся
-            // в кадре.
-            const MESSAGES_PRELOAD_LOOKAHEAD = 3;
-            const bubbles = this.querySelectorAll('.msg-bubble[data-msg-time]');
-            let threshold = 50; // запасной вариант, если сообщений меньше лимита
-            if (bubbles.length > MESSAGES_PRELOAD_LOOKAHEAD) {
-                threshold = bubbles[MESSAGES_PRELOAD_LOOKAHEAD].offsetTop;
-            }
-            if (this.scrollTop < threshold) {
+            if (this.scrollTop < 50 && !isLoadingMore && earliestMessageTime != null && currentChatId != null) {
                 isLoadingMore = true;
                 send(49, {
                     chatId: currentChatId,
@@ -10545,58 +10458,45 @@ html[data-theme="sepia"] {
                         const p = data.payload.presence;
 
                         if (uid != null && p) {
-                            // Обновляем текущий статус
+                            // Обновляем текущий статус (seen — эпоха в мс, как и
+                            // остальные таймстемпы в протоколе MAX).
                             presenceById[uid] = {
                                 online: p.status === 1,
                                 seen: p.seen || 0
                             };
 
-                            // 🔥 СОХРАНЕНИЕ: записываем текущее присутствие, чтобы после
-                            // перезапуска/переоткрытия чата время "был(а) в сети" не терялось
-                            try {
-                                let allPresences = JSON.parse(localStorage.getItem('user_presences')) || {};
-
-                                allPresences[uid] = {
-                                    online: p.status === 1,
-                                    lastSeen: Date.now(),
-                                    rawSeen: p.seen || 0,
-                                    statusCode: p.status
-                                };
-
-                                // Ограничиваем до 50 последних пользователей
-                                const userIds = Object.keys(allPresences);
-                                if (userIds.length > 50) {
-                                    const sorted = userIds.sort((a, b) => allPresences[b].lastSeen - allPresences[a].lastSeen);
-                                    for (let i = 50; i < sorted.length; i++) {
-                                        delete allPresences[sorted[i]];
-                                    }
-                                }
-
-                                localStorage.setItem('user_presences', JSON.stringify(allPresences));
-                            } catch (e) { }
-
+                            // Шапка личного чата, если сейчас открыт диалог с этим человеком.
                             if (currentChatId) {
                                 const chat = chatsById[currentChatId];
                                 if (chat && chat.type === 'DIALOG' && otherParticipantId(chat) == uid) {
                                     const statusEl = document.getElementById('chatDetailStatus');
-                                    if (statusEl) {
-                                        // p.status===1 означает "только что стал онлайн" — в этот
-                                        // момент ещё нет свежей записи lastSeen для "не в сети",
-                                        // поэтому онлайн-статус выставляем явно, а офлайн — через
-                                        // общий помощник (использует то же, что и при открытии чата).
+                                    if (statusEl && !isBotChat(chat)) {
                                         if (p.status === 1) {
                                             statusEl.textContent = 'в сети';
                                             statusEl.style.color = '#4caf50';
                                         } else {
-                                            const status = formatPresenceStatus(uid);
-                                            statusEl.textContent = status.text;
-                                            statusEl.style.color = status.color;
+                                            statusEl.textContent = formatLastSeen(p.seen || 0) || 'не в сети';
+                                            statusEl.style.color = '';
                                         }
                                     }
                                 }
-                                return;
+                            }
+
+                            // Строка этого человека в открытом списке участников группы.
+                            const memberRow = document.querySelector(`.member-row[data-member-id="${uid}"] .member-status`);
+                            if (memberRow) {
+                                const statusText = presenceStatusText(uid);
+                                memberRow.textContent = statusText;
+                                memberRow.style.display = statusText ? '' : 'none';
+                            }
+
+                            // Открытый мини-профиль этого же участника.
+                            if (openMemberProfileId === uid) {
+                                const subEl = document.getElementById('chatProfileSub');
+                                if (subEl) subEl.textContent = presenceStatusText(uid) || '⚪ не в сети';
                             }
                         }
+                        return;
                     }
 
                     // notifMessage — новое входящее сообщение в реальном времени
@@ -10610,24 +10510,6 @@ html[data-theme="sepia"] {
                         if (chatsById[chatId]) {
                             chatsById[chatId].lastMessage = msg;
                             chatsById[chatId].lastEventTime = msg.time || Date.now();
-                        }
-
-                        // Раньше здесь только обновлялись данные chatsById, а сам
-                        // список чатов (превью последнего сообщения, время, и
-                        // позиция чата в списке) никогда не перерисовывался —
-                        // поэтому после отправки СВОЕГО сообщения (сервер
-                        // присылает его же обратно этим же событием — sync между
-                        // устройствами) превью в списке чатов оставалось старым
-                        // до следующей полной синхронизации. Теперь поднимаем
-                        // чат в начало отсортированного кэша и перерисовываем
-                        // список сразу.
-                        if (chatsById[chatId]) {
-                            const idx = chatsSortedCache.findIndex(c => c.id === chatId);
-                            if (idx > 0) {
-                                const [movedChat] = chatsSortedCache.splice(idx, 1);
-                                chatsSortedCache.unshift(movedChat);
-                            }
-                            renderChatsList();
                         }
 
                         // Функция для очистки текста от HTML-тегов
@@ -11407,7 +11289,6 @@ html[data-theme="sepia"] {
         }
 
         applySettingsVars(loadSettingsVars());
-        applyLogPanelVisibility();
         checkAuth();
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
