@@ -10612,6 +10612,24 @@ html[data-theme="sepia"] {
                             chatsById[chatId].lastEventTime = msg.time || Date.now();
                         }
 
+                        // Раньше здесь только обновлялись данные chatsById, а сам
+                        // список чатов (превью последнего сообщения, время, и
+                        // позиция чата в списке) никогда не перерисовывался —
+                        // поэтому после отправки СВОЕГО сообщения (сервер
+                        // присылает его же обратно этим же событием — sync между
+                        // устройствами) превью в списке чатов оставалось старым
+                        // до следующей полной синхронизации. Теперь поднимаем
+                        // чат в начало отсортированного кэша и перерисовываем
+                        // список сразу.
+                        if (chatsById[chatId]) {
+                            const idx = chatsSortedCache.findIndex(c => c.id === chatId);
+                            if (idx > 0) {
+                                const [movedChat] = chatsSortedCache.splice(idx, 1);
+                                chatsSortedCache.unshift(movedChat);
+                            }
+                            renderChatsList();
+                        }
+
                         // Функция для очистки текста от HTML-тегов
                         const stripHtml = (html) => {
                             const tmp = document.createElement("DIV");
