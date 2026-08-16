@@ -6394,6 +6394,24 @@ html[data-theme="sepia"] {
         let isLoadingMore = false;
         let metadataOverride = {};
         let requestedContactIds = new Set();
+
+        // Кэш URL аватаров участников по userId, переживает перезагрузку
+        // страницы (localStorage). Нужен из-за того, что contact.baseUrl —
+        // подписанная CDN-ссылка с токеном (?r=...), который меняется при
+        // каждом повторном запросе профиля (opcode 32). Без стабилизации
+        // URL браузерный HTTP-кэш каждый раз видит «новый» адрес картинки
+        // и качает её заново, хотя фото не изменилось — именно это выглядело
+        // как «иконки не кешируются в групповых чатах».
+        let avatarUrlCache = {};
+        try {
+            avatarUrlCache = JSON.parse(localStorage.getItem('maxclient_avatar_url_cache') || '{}');
+        } catch (e) { avatarUrlCache = {}; }
+
+        function persistAvatarUrlCache() {
+            try {
+                localStorage.setItem('maxclient_avatar_url_cache', JSON.stringify(avatarUrlCache));
+            } catch (e) { /* квота localStorage — не критично, просто не сохранится */ }
+        }
         let presenceById = {};
 
         // Функция проверки авторизации — использует глобальную переменную selfId
@@ -7622,11 +7640,32 @@ html[data-theme="sepia"] {
         function memberAvatarUrl(id) {
             const meta = metadataOverride[id];
             if (meta && meta.avatar) {
+                // Явно заданный пользователем аватар (например, data: URL) —
+                // не кэшируем по id, он и так стабилен/локален.
                 return meta.avatar.startsWith('http') ? '/img?url=' + encodeURIComponent(meta.avatar) : meta.avatar;
             }
+            // Если для этого id уже есть стабильный URL — используем именно
+            // его, а не пересобираем заново из contact.baseUrl: так браузер
+            // всегда обращается к одному и тому же адресу и реально кэширует
+            // картинку, вместо повторной закачки при каждом обновлении
+            // подписанного токена в contact.baseUrl. Раз в неделю всё же
+            // обновляем URL — на случай, если человек сменил фото.
+            const AVATAR_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+            const cached = avatarUrlCache[id];
+            if (cached && Date.now() - (cached.ts || 0) < AVATAR_CACHE_TTL_MS) {
+                return cached.url;
+            }
             const contact = contactsById[id];
-            if (contact?.baseUrl) return '/img?url=' + encodeURIComponent(contact.baseUrl);
-            return null;
+            if (contact?.baseUrl) {
+                const url = '/img?url=' + encodeURIComponent(contact.baseUrl);
+                avatarUrlCache[id] = { url, ts: Date.now() };
+                persistAvatarUrlCache();
+                return url;
+            }
+            // Не смогли получить свежий baseUrl (контакт ещё не дозагружен) —
+            // лучше показать чуть устаревший, но кэшированный аватар, чем
+            // ничего, пока не придёт ответ opcode 32.
+            return cached ? cached.url : null;
         }
 
         // Список участников группы, отсортированный: сначала админы, затем
