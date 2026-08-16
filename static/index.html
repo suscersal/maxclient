@@ -7372,6 +7372,56 @@ html[data-theme="sepia"] {
             return '<span class="bot-badge">Бот</span>';
         }
 
+        // ========================================
+        // КОЛИЧЕСТВО УЧАСТНИКОВ/ПОДПИСЧИКОВ ПОД НАЗВАНИЕМ ЧАТА
+        // ========================================
+        // Сервер не присылает participantsCount в общей синхронизации чатов —
+        // как и в Komet (см. _loadParticipantsCount в chat_screen.dart), это
+        // отдельно дозапрашивается через CHAT_INFO (opcode 48) при открытии
+        // группы/канала и кэшируется по chatId.
+        let chatParticipantsCountCache = {};
+        let requestedChatInfoIds = new Set();
+
+        function pluralRu(n, one, few, many) {
+            const mod10 = n % 10;
+            const mod100 = n % 100;
+            if (mod10 === 1 && mod100 !== 11) return one;
+            if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+            return many;
+        }
+
+        function participantsCountLabel(chat, count) {
+            if (count == null) return '';
+            if (chat.type === 'CHANNEL') {
+                return count + ' ' + pluralRu(count, 'подписчик', 'подписчика', 'подписчиков');
+            }
+            return count + ' ' + pluralRu(count, 'участник', 'участника', 'участников');
+        }
+
+        // Обновляет строку под названием чата в шапке (если открыт именно
+        // этот groupovой/канальный чат) актуальным количеством участников.
+        function renderChatDetailStatus(chat) {
+            const statusEl = document.getElementById('chatDetailStatus');
+            if (!statusEl) return;
+            if (isBotChat(chat)) {
+                statusEl.textContent = '🤖 Бот';
+                return;
+            }
+            if (chat.type === 'CHAT' || chat.type === 'CHANNEL') {
+                const count = chatParticipantsCountCache[chat.id] ??
+                    (chat.participants ? Object.keys(chat.participants).length : null);
+                statusEl.textContent = participantsCountLabel(chat, count);
+                return;
+            }
+            statusEl.textContent = '';
+        }
+
+        function fetchChatParticipantsCount(chatId) {
+            if (requestedChatInfoIds.has(chatId)) return;
+            requestedChatInfoIds.add(chatId);
+            send(48, { chatIds: [chatId] });
+        }
+
         function stripHtml(html) {
             const d = document.createElement('div');
             d.innerHTML = html;
@@ -7425,6 +7475,32 @@ html[data-theme="sepia"] {
             });
         }
 
+        // Резолвит отображаемое имя из массива names контакта/бота по тому же
+        // алгоритму, что и Komet (см. ContactInfo.displayName в
+        // lib/models/contact_info.dart): приоритет отдаётся записи с
+        // type === 'ONEME', но если такой записи нет (это обычно и есть
+        // случай ботов — у них нет "одного имени", заданного пользователем,
+        // а есть просто имя, заданное при регистрации бота, часто вовсе без
+        // поля type или с другим типом) — используется ПЕРВАЯ запись, у
+        // которой вообще есть непустое имя, а не жёсткий фильтр по
+        // CUSTOM/ONEME. Раньше фильтр по CUSTOM/ONEME был слишком строгим и
+        // для ботов ничего не находил, из-за чего в шапке чата и списке
+        // диалогов показывался фолбэк «Контакт #id» вместо настоящего имени
+        // бота.
+        function bestNameFromNames(names) {
+            if (!Array.isArray(names) || !names.length) return null;
+            let firstLabel = null;
+            for (const n of names) {
+                if (!n) continue;
+                const label = (n.name && String(n.name).trim())
+                    || `${n.firstName || ''} ${n.lastName || ''}`.trim();
+                if (!label) continue;
+                if (firstLabel === null) firstLabel = label;
+                if (n.type === 'ONEME') return label;
+            }
+            return firstLabel;
+        }
+
         function chatDisplayName(chat) {
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : chat.id;
             const meta = metadataOverride[otherId];
@@ -7436,13 +7512,7 @@ html[data-theme="sepia"] {
                     name = meta.name;
                 } else {
                     const contact = contactsById[otherId];
-                    if (contact) {
-                        const custom = contact.names?.find(n => n.type === 'CUSTOM');
-                        const oneme = contact.names?.find(n => n.type === 'ONEME');
-                        name = (custom || oneme)?.name || 'Контакт #' + otherId;
-                    } else {
-                        name = 'Контакт #' + otherId;
-                    }
+                    name = (contact && bestNameFromNames(contact.names)) || 'Контакт #' + otherId;
                 }
             } else {
                 if (meta && meta.name) {
@@ -7544,12 +7614,8 @@ html[data-theme="sepia"] {
             const meta = metadataOverride[id];
             if (meta && meta.name) return meta.name;
             const contact = contactsById[id];
-            if (contact) {
-                const custom = contact.names?.find(n => n.type === 'CUSTOM');
-                const oneme = contact.names?.find(n => n.type === 'ONEME');
-                const name = (custom || oneme)?.name;
-                if (name) return name;
-            }
+            const name = contact && bestNameFromNames(contact.names);
+            if (name) return name;
             return 'Контакт #' + id;
         }
 
@@ -9919,10 +9985,9 @@ html[data-theme="sepia"] {
             hideBottomNav();
 
             document.getElementById('chatDetailName').innerHTML = chatDisplayName(chat);
-            if (isBotChat(chat)) {
-                document.getElementById('chatDetailStatus').textContent = '🤖 Бот';
-            } else {
-                document.getElementById('chatDetailStatus').textContent = '';
+            renderChatDetailStatus(chat);
+            if (chat.type === 'CHAT' || chat.type === 'CHANNEL') {
+                fetchChatParticipantsCount(chatId);
             }
             document.getElementById('chatIdLabel').textContent = 'ID: ' + chatId;
 
@@ -10405,6 +10470,20 @@ html[data-theme="sepia"] {
                             renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
                             refreshChatProfileMembersIfOpen();
                             refreshVisibleMessageSenders();
+                        }
+                        return;
+                    }
+                    if (data.opcode === 48 && data.cmd === 256) {
+                        const infoChats = data.payload?.chats;
+                        if (Array.isArray(infoChats)) {
+                            infoChats.forEach(c => {
+                                if (c && typeof c.id === 'number' && typeof c.participantsCount === 'number') {
+                                    chatParticipantsCountCache[c.id] = c.participantsCount;
+                                    if (currentChatId === c.id) {
+                                        renderChatDetailStatus(chatsById[c.id] || c);
+                                    }
+                                }
+                            });
                         }
                         return;
                     }
