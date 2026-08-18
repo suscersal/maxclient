@@ -6244,7 +6244,7 @@ html[data-theme="sepia"] {
             saveBotChatHistory(activeBotChatId, history);
             renderBotChatMessages();
             const fullUrl = normalizeBotBaseUrl(bot.url) + '/api/message';
-console.log('Request URL:', fullUrl);
+            console.log('Request URL:', fullUrl);
 
             try {
                 const res = await fetch(normalizeBotBaseUrl(bot.url) + '/api/message', {
