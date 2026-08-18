@@ -6243,6 +6243,8 @@ html[data-theme="sepia"] {
             history.push({ role: 'user', text, ts: Date.now() });
             saveBotChatHistory(activeBotChatId, history);
             renderBotChatMessages();
+            const fullUrl = normalizeBotBaseUrl(bot.url) + '/api/message';
+console.log('Request URL:', fullUrl);
 
             try {
                 const res = await fetch(normalizeBotBaseUrl(bot.url) + '/api/message', {
@@ -6255,6 +6257,7 @@ html[data-theme="sepia"] {
                         history: history.slice(-20),
                     }),
                 });
+                
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 const replyText = data.text || '(пустой ответ)';
