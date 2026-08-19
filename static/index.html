@@ -10292,6 +10292,14 @@ html[data-theme="sepia"] {
             openChat(chatId);
         }
 
+        // Резолвит имя контакта строго по тому же алгоритму, что и заголовок
+        // чата (bestNameFromNames): сначала ищем запись с type === 'ONEME'
+        // (это и есть "имя из контактов", заданное самим пользователем), и
+        // только если такой записи нет — берём первую запись с непустым
+        // именем (обычно это как раз "display"-имя, заданное при
+        // регистрации). Раньше эта функция ВСЕГДА брала первую попавшуюся
+        // запись, из-за чего в списке контактов и поиске людей показывалось
+        // display-имя даже при наличии сохранённого контактного.
         function contactNameFromPayload(contact) {
             const names = contact?.names;
 
@@ -10299,22 +10307,15 @@ html[data-theme="sepia"] {
             if (Array.isArray(names) && names.length) {
                 const descriptions = names.map((n, i) => {
                     if (!n) return `[${i}]: null`;
-                    return `[${i}]: name="${n.name || ''}" firstName="${n.firstName || ''}" lastName="${n.lastName || ''}"`;
+                    return `[${i}]: type="${n.type || ''}" name="${n.name || ''}" firstName="${n.firstName || ''}" lastName="${n.lastName || ''}"`;
                 }).join(' | ');
                 console.log(`[Contact ID: ${contact?.id}] Все имена: ${descriptions}`);
             } else {
                 console.log(`[Contact ID: ${contact?.id}] Массив names пуст или отсутствует`);
             }
 
-            if (Array.isArray(names) && names.length) {
-                // Ищем объект, где есть хотя бы имя или фамилия. Если нет — берем первый элемент.
-                const n = names.find(x => x && (x.firstName || x.lastName || x.name)) || names[0];
-
-                // Формируем full строго как firstName + lastName. Если их нет, используем n.name.
-                const full = `${n.firstName || ''} ${n.lastName || ''}`.trim() || n.name || '';
-
-                if (full) return full;
-            }
+            const best = bestNameFromNames(names);
+            if (best) return best;
             return 'Контакт #' + contact?.id;
         }
 
