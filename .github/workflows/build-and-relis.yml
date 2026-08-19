@@ -224,13 +224,13 @@ jobs:
         #  fi
 
      # - name: Build standalone desktop #app
-        run: |
+  #      run: |
   #        # desktop_launcher.py: Flask #в фоне + окно с UI (как Android #WebView).
           # Явно перечисляем только нужные фронтенду файлы (whitelist),
           # а не всю папку static/ целиком — чтобы туда случайно
           # не попал session.json с токеном, если кто-то положит его рядом.
 #          pyinstaller --onefile ##--windowed --name max-client-linux \
-            --hidden-import=webview \
+#            --hidden-import=webview \
  #           --collect-all webview \
 #            --add-data "static/#index.html:static" \
 #            --add-data "static/#avatars.json:static" \
