@@ -7875,30 +7875,36 @@ html[data-theme="sepia"] {
             });
         }
 
-        // Резолвит отображаемое имя из массива names контакта/бота по тому же
-        // алгоритму, что и Komet (см. ContactInfo.displayName в
-        // lib/models/contact_info.dart): приоритет отдаётся записи с
-        // type === 'ONEME', но если такой записи нет (это обычно и есть
-        // случай ботов — у них нет "одного имени", заданного пользователем,
-        // а есть просто имя, заданное при регистрации бота, часто вовсе без
-        // поля type или с другим типом) — используется ПЕРВАЯ запись, у
-        // которой вообще есть непустое имя, а не жёсткий фильтр по
-        // CUSTOM/ONEME. Раньше фильтр по CUSTOM/ONEME был слишком строгим и
-        // для ботов ничего не находил, из-за чего в шапке чата и списке
-        // диалогов показывался фолбэк «Контакт #id» вместо настоящего имени
-        // бота.
+        // Резолвит отображаемое имя из массива names контакта/бота.
+        // Приоритет: CUSTOM (имя из контактов — то, что задал сам пользователь
+        // в своей адресной книге / переименовал вручную) > ONEME (имя,
+        // заданное собеседником в самом MAX) > первая запись с непустым
+        // именем (обычно это как раз display-имя, заданное при регистрации —
+        // актуально для ботов, у которых нет ни CUSTOM, ни ONEME записи).
+        // ВАЖНО: раньше здесь стоял жёсткий фильтр только по CUSTOM/ONEME —
+        // это ломало имена ботов (падало в "Контакт #id"). Потом фильтр
+        // заменили на "первая непустая запись ИЛИ ONEME", но по ошибке
+        // потеряли ветку CUSTOM — из-за этого личные контакты с сохранённым
+        // именем в адресной книге стали показывать display-имя вместо
+        // сохранённого. Сейчас проверяются все три варианта по порядку.
         function bestNameFromNames(names) {
             if (!Array.isArray(names) || !names.length) return null;
+
+            const labelOf = (n) => (n.name && String(n.name).trim())
+                || `${n.firstName || ''} ${n.lastName || ''}`.trim();
+
+            let custom = null;
+            let oneme = null;
             let firstLabel = null;
             for (const n of names) {
                 if (!n) continue;
-                const label = (n.name && String(n.name).trim())
-                    || `${n.firstName || ''} ${n.lastName || ''}`.trim();
+                const label = labelOf(n);
                 if (!label) continue;
                 if (firstLabel === null) firstLabel = label;
-                if (n.type === 'ONEME') return label;
+                if (custom === null && n.type === 'CUSTOM') custom = label;
+                if (oneme === null && n.type === 'ONEME') oneme = label;
             }
-            return firstLabel;
+            return custom || oneme || firstLabel;
         }
 
         function chatDisplayName(chat) {
