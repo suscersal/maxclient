@@ -1295,69 +1295,6 @@
             background: #d6ebff;
         }
 
-        /* Экран "Начать" — показывается вместо пустой истории чата с ботом */
-        .bot-start-screen {
-            margin: auto;
-            max-width: 320px;
-            width: 100%;
-            text-align: center;
-            background: #fff;
-            border: 1px solid #e2e6ea;
-            border-radius: 14px;
-            padding: 24px 18px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .bot-start-avatar {
-            font-size: 34px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: #eaf3ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 4px;
-        }
-
-        .bot-start-name {
-            font-size: 16px;
-            font-weight: 600;
-            color: #222;
-        }
-
-        .bot-start-desc {
-            font-size: 13px;
-            color: #777;
-            line-height: 1.4;
-            margin-bottom: 10px;
-            white-space: pre-line;
-        }
-
-        .bot-start-btn {
-            width: 100%;
-            background: #007bff;
-            color: #fff;
-            border: none;
-            border-radius: 22px;
-            padding: 11px 16px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-
-        .bot-start-btn:hover {
-            background: #0069d9;
-        }
-
-        .bot-start-btn:active {
-            background: #005cbf;
-        }
-
         /* Панель команд бота (кнопка-меню снизу, как в Telegram) */
         .bot-menu-item {
             background: #f5f7fa;
@@ -1387,6 +1324,76 @@
             color: #777;
             text-align: right;
         }
+
+        /* Аватарка бота (в списке ботов и в шапке чата) */
+        .bot-avatar-img {
+            width: var(--bot-avatar-size, 36px);
+            height: var(--bot-avatar-size, 36px);
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: #eee;
+        }
+
+        .bot-avatar-fallback {
+            width: var(--bot-avatar-size, 36px);
+            height: var(--bot-avatar-size, 36px);
+            border-radius: 50%;
+            background: #e9edf3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: calc(var(--bot-avatar-size, 36px) * 0.55);
+            flex-shrink: 0;
+        }
+
+        /* Постоянная reply-клавиатура бота (как в Telegram — висит над полем
+           ввода, пока бот её не сменит/не уберёт) */
+        .bot-reply-keyboard {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px 4px;
+            border-top: 1px solid #eee;
+        }
+
+        .bot-reply-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        .bot-reply-btn {
+            flex: 1;
+            background: #f5f7fa;
+            border: 1px solid #e2e6ea;
+            color: #222;
+            border-radius: 8px;
+            padding: 9px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .bot-reply-btn:hover {
+            background: #eaeef3;
+        }
+
+        .bot-inline-btn.bot-inline-btn-url {
+            border-color: #999;
+            color: #333;
+        }
+
+        /* Простая Markdown-разметка в сообщениях бота */
+        .msg-text b, .msg-text strong { font-weight: 600; }
+        .msg-text i, .msg-text em { font-style: italic; }
+        .msg-text code.inline-code {
+            background: rgba(0,0,0,0.06);
+            border-radius: 4px;
+            padding: 1px 4px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 0.9em;
+        }
+        .msg-text s { text-decoration: line-through; }
 
         .msg-text {
             margin-top: 4px;
@@ -3230,58 +3237,57 @@
             font-weight: 500;
             text-align: center;
         }
-
         /* Простая (Минимализм) */
-        html[data-theme="simple"] {
-            --tg-blue: #007aff;
-            --tg-blue-dark: #0066d6;
-            --tg-blue-deep: #0057b8;
-            --tg-bg: #f5f7fa;
-            --tg-panel: #ffffff;
-            --tg-text: #333333;
-            --tg-text-secondary: #7a7a7a;
-            --tg-border: #e2e5e9;
-            --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
-            --tg-incoming-bubble: #ffffff;
-        }
+html[data-theme="simple"] {
+  --tg-blue: #007aff;
+  --tg-blue-dark: #0066d6;
+  --tg-blue-deep: #0057b8;
+  --tg-bg: #f5f7fa;
+  --tg-panel: #ffffff;
+  --tg-text: #333333;
+  --tg-text-secondary: #7a7a7a;
+  --tg-border: #e2e5e9;
+  --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
+  --tg-incoming-bubble: #ffffff;
+}
 
-        /* Неон (Энергия) */
-        html[data-theme="neon"] {
-            --tg-blue: #ff007f;
-            --tg-blue-dark: #cc0066;
-            --tg-blue-deep: #a30052;
-            --tg-bg: #0d0e15;
-            --tg-panel: #15161f;
-            --tg-text: #00ffcc;
-            --tg-text-secondary: #7a90a0;
-            --tg-border: #232538;
-            --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
-            --tg-incoming-bubble: #15161f;
-        }
+/* Неон (Энергия) */
+html[data-theme="neon"] {
+  --tg-blue: #ff007f;
+  --tg-blue-dark: #cc0066;
+  --tg-blue-deep: #a30052;
+  --tg-bg: #0d0e15;
+  --tg-panel: #15161f;
+  --tg-text: #00ffcc;
+  --tg-text-secondary: #7a90a0;
+  --tg-border: #232538;
+  --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
+  --tg-incoming-bubble: #15161f;
+}
 
-        /* Летний лес (Умиротворение) */
-        html[data-theme="forest"] {
-            --tg-blue: #4caf50;
-            --tg-blue-dark: #3d8b40;
-            --tg-blue-deep: #2e6b30;
-            --tg-bg: #f0f4f1;
-            --tg-panel: #ffffff;
-            --tg-text: #2c3e2b;
-            --tg-text-secondary: #6b8065;
-            --tg-border: #d7e3d4;
-            --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
-            --tg-incoming-bubble: #ffffff;
-        }
+/* Летний лес (Умиротворение) */
+html[data-theme="forest"] {
+  --tg-blue: #4caf50;
+  --tg-blue-dark: #3d8b40;
+  --tg-blue-deep: #2e6b30;
+  --tg-bg: #f0f4f1;
+  --tg-panel: #ffffff;
+  --tg-text: #2c3e2b;
+  --tg-text-secondary: #6b8065;
+  --tg-border: #d7e3d4;
+  --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
+  --tg-incoming-bubble: #ffffff;
+}
 
-        html[data-theme="simple"] html,
-        html[data-theme="simple"] body,
-        html[data-theme="neon"] html,
-        html[data-theme="neon"] body,
-        html[data-theme="forest"] html,
-        html[data-theme="forest"] body {
-            background: var(--tg-bg) !important;
-            color: var(--tg-text) !important;
-        }
+html[data-theme="simple"] html,
+html[data-theme="simple"] body,
+html[data-theme="neon"] html,
+html[data-theme="neon"] body,
+html[data-theme="forest"] html,
+html[data-theme="forest"] body {
+    background: var(--tg-bg) !important;
+    color: var(--tg-text) !important;
+}
 
 
         .msg-bubble {
@@ -3302,44 +3308,43 @@
         .msg-bubble.own .msg-file a {
             color: #fff;
         }
-
         /* ===== ЗАГРУЗОЧНЫЙ ЭКРАН — ПОДДЕРЖКА ТЕМ ===== */
 
-        /* Базовые стили (светлая тема) */
-        #loadingOverlay {
-            background: #f5f5f5;
-        }
+/* Базовые стили (светлая тема) */
+#loadingOverlay {
+    background: #f5f5f5;
+}
 
-        #loadingOverlay .loading-label {
-            color: #666;
-        }
+#loadingOverlay .loading-label {
+    color: #666;
+}
 
-        /* Тёмная тема */
-        html[data-theme="dark"] #loadingOverlay {
-            background: #000 !important;
-        }
+/* Тёмная тема */
+html[data-theme="dark"] #loadingOverlay {
+    background: #000 !important;
+}
 
-        html[data-theme="dark"] #loadingOverlay .loading-label {
-            color: #8E8E93 !important;
-        }
+html[data-theme="dark"] #loadingOverlay .loading-label {
+    color: #8E8E93 !important;
+}
 
-        /* Тема "Космос" (если добавите) */
-        html[data-theme="space"] #loadingOverlay {
-            background: #0a0e27 !important;
-        }
+/* Тема "Космос" (если добавите) */
+html[data-theme="space"] #loadingOverlay {
+    background: #0a0e27 !important;
+}
 
-        html[data-theme="space"] #loadingOverlay .loading-label {
-            color: #7a8abf !important;
-        }
+html[data-theme="space"] #loadingOverlay .loading-label {
+    color: #7a8abf !important;
+}
 
-        /* Тема "Сепия" (если добавите) */
-        html[data-theme="sepia"] #loadingOverlay {
-            background: #f4efe6 !important;
-        }
+/* Тема "Сепия" (если добавите) */
+html[data-theme="sepia"] #loadingOverlay {
+    background: #f4efe6 !important;
+}
 
-        html[data-theme="sepia"] #loadingOverlay .loading-label {
-            color: #5c4b3a !important;
-        }
+html[data-theme="sepia"] #loadingOverlay .loading-label {
+    color: #5c4b3a !important;
+}
 
         .msg-bubble.own .msg-time {
             color: rgba(255, 255, 255, 0.8);
@@ -3470,30 +3475,29 @@
         html[data-theme="dark"] #globalSearchResultsList .chat-item {
             border-bottom-color: #2C2C2E !important;
         }
-
         /* Космос */
-        html[data-theme="space"] {
-            --tg-bg: #0a0e27;
-            --tg-panel: #141832;
-            --tg-text: #b8c6ff;
-            --tg-text-secondary: #7a8abf;
-            --tg-border: #2a3060;
-            --tg-blue: #6c8cff;
-            --tg-own-bubble: linear-gradient(135deg, #6c8cff, #4a6cf7);
-            --tg-incoming-bubble: #1a2040;
-        }
+html[data-theme="space"] {
+    --tg-bg: #0a0e27;
+    --tg-panel: #141832;
+    --tg-text: #b8c6ff;
+    --tg-text-secondary: #7a8abf;
+    --tg-border: #2a3060;
+    --tg-blue: #6c8cff;
+    --tg-own-bubble: linear-gradient(135deg, #6c8cff, #4a6cf7);
+    --tg-incoming-bubble: #1a2040;
+}
 
-        /* Сепия */
-        html[data-theme="sepia"] {
-            --tg-bg: #f4efe6;
-            --tg-panel: #faf6ef;
-            --tg-text: #5c4b3a;
-            --tg-text-secondary: #8a7a6a;
-            --tg-border: #e0d5c8;
-            --tg-blue: #b8860b;
-            --tg-own-bubble: linear-gradient(135deg, #d4a055, #b8860b);
-            --tg-incoming-bubble: #faf6ef;
-        }
+/* Сепия */
+html[data-theme="sepia"] {
+    --tg-bg: #f4efe6;
+    --tg-panel: #faf6ef;
+    --tg-text: #5c4b3a;
+    --tg-text-secondary: #8a7a6a;
+    --tg-border: #e0d5c8;
+    --tg-blue: #b8860b;
+    --tg-own-bubble: linear-gradient(135deg, #d4a055, #b8860b);
+    --tg-incoming-bubble: #faf6ef;
+}
 
         html[data-theme="dark"] #localChatSearchInput {
             background: #2C2C2E !important;
@@ -3685,36 +3689,6 @@
         html[data-theme="dark"] .bot-badge {
             background: rgba(77, 163, 255, 0.15) !important;
             color: #4DA3FF !important;
-        }
-
-        html[data-theme="dark"] .bot-start-screen {
-            background: #1c2a36 !important;
-            border-color: rgba(255, 255, 255, 0.08) !important;
-        }
-
-        html[data-theme="dark"] .bot-start-avatar {
-            background: rgba(77, 163, 255, 0.15) !important;
-        }
-
-        html[data-theme="dark"] .bot-start-name {
-            color: #E8E8E8 !important;
-        }
-
-        html[data-theme="dark"] .bot-start-desc {
-            color: #8E8E93 !important;
-        }
-
-        html[data-theme="dark"] .bot-start-btn {
-            background: #4DA3FF !important;
-            color: #0b1620 !important;
-        }
-
-        html[data-theme="dark"] .bot-start-btn:hover {
-            background: #6bb4ff !important;
-        }
-
-        html[data-theme="dark"] .bot-start-btn:active {
-            background: #3a8ee0 !important;
         }
 
         html[data-theme="dark"] .miniapp-overlay {
@@ -4235,19 +4209,34 @@
         <div class="chat-profile-modal"
             style="max-width:460px;width:92vw;display:flex;flex-direction:column;height:70vh;">
             <div class="chat-profile-header">
-                <h3 id="botChatTitle">Бот</h3>
+                <h3 id="botChatTitle" style="display:flex;align-items:center;gap:10px;">
+                    <span id="botChatAvatarSlot" style="--bot-avatar-size:32px;"></span>
+                    <span id="botChatTitleText">Бот</span>
+                </h3>
                 <button class="chat-profile-close" onclick="closeBotChatModal()">✕</button>
             </div>
             <div id="botChatMessages"
                 style="flex:1;overflow-y:auto;padding:8px 4px;display:flex;flex-direction:column;gap:8px;"></div>
+            <!-- Стартовая карточка бота (аналог экрана "Что умеет этот бот?" +
+                 кнопка "Запустить бота" в Telegram) — показывается только пока
+                 в чате нет ни одного сообщения. -->
+            <div id="botStartCard" style="display:none;padding:14px;border-top:1px solid #eee;">
+                <div id="botStartCardBody" style="font-size:14px;color:#333;line-height:1.5;white-space:pre-wrap;margin-bottom:12px;"></div>
+                <button class="btn-save" id="botStartBtn" onclick="startBotChat()"
+                    style="width:100%;padding:12px;font-size:15px;border-radius:20px;">Запустить бота</button>
+            </div>
+            <!-- Постоянная reply-клавиатура бота (аналог обычной, не inline,
+                 клавиатуры в Telegram) — висит над полем ввода, пока бот не
+                 пришлёт новую или не уберёт её (data.remove_keyboard). -->
+            <div id="botReplyKeyboard" class="bot-reply-keyboard" style="display:none;"></div>
             <!-- Панель команд бота (аналог кнопки "меню" внизу чата в Telegram) —
                  скрыта по умолчанию, открывается кнопкой ☰ слева от поля ввода. -->
             <div id="botMenuPanel"
                 style="display:none;flex-direction:column;gap:4px;padding:6px 4px;border-top:1px solid #eee;max-height:160px;overflow-y:auto;">
             </div>
-            <div style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;align-items:center;">
-                <button class="btn-save" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
-                    style="padding:10px 12px;">☰</button>
+            <div id="botInputRow" style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;align-items:center;">
+                <button class="btn-save" id="botMenuBtn" onclick="toggleBotMenu()"
+                    title="Меню команд бота" style="padding:10px 12px;">☰</button>
                 <input type="text" id="botChatInput" placeholder="Сообщение боту..."
                     style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
                     onkeydown="if(event.key==='Enter') sendBotChatMessage();">
@@ -6167,7 +6156,7 @@
             const installedHtml = bots.length
                 ? bots.map(bot => `
                     <div class="chat-profile-option" style="align-items:flex-start;">
-                        <span class="opt-icon">🤖</span>
+                        ${getBotAvatarHtml(bot.id, 36)}
                         <div style="flex:1;min-width:0;">
                             <div style="font-weight:600;">${escapeHtml(bot.name)}</div>
                             <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(bot.url)}</div>
@@ -6313,6 +6302,8 @@
             const bots = getCustomBots().filter(b => b.id !== id);
             saveCustomBotsList(bots);
             localStorage.removeItem('maxclient_bot_chat_' + id);
+            localStorage.removeItem('maxclient_bot_info_' + id);
+            localStorage.removeItem('maxclient_bot_keyboard_' + id);
             settingsMenu.refreshPage('bots');
         }
 
@@ -6326,33 +6317,55 @@
             localStorage.setItem('maxclient_bot_chat_' + botId, JSON.stringify(history.slice(-200)));
         }
 
-        // Рендерит текст сообщения бота: та же логика, что и для обычных сообщений
-        // MAX без elements — экранирование + блоки кода ``` ``` + ссылки
-        // (см. renderPlainMessageText / buildMessageTextHtml).
+        // Рендерит текст сообщения бота: экранирование + блоки кода ``` ``` +
+        // ссылки (см. renderPlainMessageText) + простая Markdown-разметка,
+        // которую боты обычно используют в ответах (как в Telegram):
+        // **жирный**, *курсив*/_курсив_, `код`, ~~зачёркнутый~~.
         function renderBotMessageText(text) {
-            return renderPlainMessageText(text || '');
+            const withCode = renderPlainMessageText(text || '');
+            return applySimpleMarkdown(withCode);
         }
 
-        // Команды бота (для кнопки-меню) кэшируются в localStorage на бота —
-        // чтобы меню не мигало пустым при каждом открытии чата.
-        function getBotCommandsCache(botId) {
-            try { return JSON.parse(localStorage.getItem('maxclient_bot_commands_' + botId) || 'null'); }
+        // Применяется к уже экранированному HTML (после renderPlainMessageText),
+        // поэтому работает с безопасным текстом — просто оборачивает разметку
+        // в теги. Блоки ``` ``` уже вынесены в div-ы до этого шага, так что
+        // Markdown-паттерны внутри них не трогаются.
+        function applySimpleMarkdown(html) {
+            let out = html;
+            out = out.replace(/`([^`\n]+?)`/g, '<code class="inline-code">$1</code>');
+            out = out.replace(/\*\*([^\n*]+?)\*\*/g, '<b>$1</b>');
+            out = out.replace(/~~([^\n~]+?)~~/g, '<s>$1</s>');
+            out = out.replace(/(^|[^\w*])\*([^\n*]+?)\*(?!\w)/g, '$1<i>$2</i>');
+            out = out.replace(/(^|[^\w_])_([^\n_]+?)_(?!\w)/g, '$1<i>$2</i>');
+            return out;
+        }
+
+        // Инфо о боте (имя/описание/команды/аватар — для стартовой карточки,
+        // меню и шапки чата) кэшируется в localStorage на бота, чтобы не
+        // мигало пустым при каждом открытии чата.
+        function getBotInfoCache(botId) {
+            try { return JSON.parse(localStorage.getItem('maxclient_bot_info_' + botId) || 'null'); }
             catch (e) { return null; }
         }
 
-        function saveBotCommandsCache(botId, commands) {
-            localStorage.setItem('maxclient_bot_commands_' + botId, JSON.stringify(commands || {}));
+        function saveBotInfoCache(botId, info) {
+            localStorage.setItem('maxclient_bot_info_' + botId, JSON.stringify(info || {}));
         }
 
-        // Описание бота (для экрана "Начать") — кэшируется отдельно от команд
-        // по той же причине: не мигать пустым экраном при каждом открытии чата.
-        function getBotDescriptionCache(botId) {
-            try { return localStorage.getItem('maxclient_bot_desc_' + botId) || ''; }
-            catch (e) { return ''; }
+        function getBotCommandsCache(botId) {
+            return (getBotInfoCache(botId) || {}).commands || null;
         }
 
-        function saveBotDescriptionCache(botId, description) {
-            localStorage.setItem('maxclient_bot_desc_' + botId, description || '');
+        // Рендерит аватарку бота (картинка из /api/info -> avatar_url, либо
+        // эмодзи-заглушка, если аватар не задан/не загрузился). size — px.
+        function getBotAvatarHtml(botId, size) {
+            const info = getBotInfoCache(botId) || {};
+            const s = size || 36;
+            if (info.avatar_url) {
+                return `<img class="bot-avatar-img" style="--bot-avatar-size:${s}px;" src="${escapeHtml(info.avatar_url)}"
+                    alt="" onerror="this.outerHTML=${jsStrAttr(`<span class="bot-avatar-fallback" style="--bot-avatar-size:${s}px;">🤖</span>`)};">`;
+            }
+            return `<span class="bot-avatar-fallback" style="--bot-avatar-size:${s}px;">🤖</span>`;
         }
 
         async function fetchBotCommands(bot) {
@@ -6360,15 +6373,25 @@
                 const res = await fetch(normalizeBotBaseUrl(bot.url) + '/api/info', { cache: 'no-store' });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                saveBotCommandsCache(bot.id, data.commands || {});
-                saveBotDescriptionCache(bot.id, data.description || '');
+                saveBotInfoCache(bot.id, {
+                    name: data.name || bot.name,
+                    description: data.description || '',
+                    commands: data.commands || {},
+                    avatar_url: data.avatar_url || '',
+                });
                 if (activeBotChatId === bot.id) {
                     renderBotMenuPanel();
-                    renderBotChatMessages();
+                    updateBotStartUi();
+                    updateBotChatHeader(bot);
                 }
             } catch (e) {
                 // Бот недоступен / не отдаёт /api/info — просто оставляем то, что было в кэше.
             }
+        }
+
+        function updateBotChatHeader(bot) {
+            document.getElementById('botChatTitleText').textContent = bot.name;
+            document.getElementById('botChatAvatarSlot').innerHTML = getBotAvatarHtml(bot.id, 32);
         }
 
         function openBotChatModal(botId) {
@@ -6376,10 +6399,12 @@
             if (!bot) return;
             activeBotChatId = botId;
             touchCustomBot(botId);
-            document.getElementById('botChatTitle').textContent = '🤖 ' + bot.name;
+            updateBotChatHeader(bot);
             document.getElementById('botMenuPanel').style.display = 'none';
             renderBotChatMessages();
             renderBotMenuPanel();
+            renderBotReplyKeyboard();
+            updateBotStartUi();
             fetchBotCommands(bot);
             document.getElementById('botChatModal').classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -6390,6 +6415,40 @@
             document.getElementById('botChatModal').classList.remove('active');
             document.body.style.overflow = '';
             activeBotChatId = null;
+        }
+
+        // Пока в чате нет ни одного сообщения — показываем стартовую карточку
+        // бота ("Что умеет этот бот?" + кнопка "Запустить бота"), как в
+        // Telegram, вместо обычного поля ввода. После первого сообщения —
+        // обычный интерфейс чата.
+        function updateBotStartUi() {
+            if (!activeBotChatId) return;
+            const startCard = document.getElementById('botStartCard');
+            const inputRow = document.getElementById('botInputRow');
+            const menuPanel = document.getElementById('botMenuPanel');
+            const replyKeyboard = document.getElementById('botReplyKeyboard');
+            const history = getBotChatHistory(activeBotChatId);
+            const info = getBotInfoCache(activeBotChatId) || {};
+            if (!history.length) {
+                const body = document.getElementById('botStartCardBody');
+                body.textContent = info.description
+                    ? `Что умеет этот бот?\n\n${info.description}`
+                    : 'Нажмите «Запустить бота», чтобы начать общение.';
+                startCard.style.display = 'block';
+                inputRow.style.display = 'none';
+                menuPanel.style.display = 'none';
+                if (replyKeyboard) replyKeyboard.style.display = 'none';
+            } else {
+                startCard.style.display = 'none';
+                inputRow.style.display = 'flex';
+                renderBotReplyKeyboard();
+            }
+        }
+
+        // Клик по кнопке "Запустить бота" — отправляет /start, как первое
+        // сообщение при запуске бота в Telegram, и переключает UI на обычный чат.
+        function startBotChat() {
+            sendBotChatMessage('/start');
         }
 
         // Показывает/скрывает панель команд бота (аналог кнопки "меню" в Telegram).
@@ -6421,6 +6480,7 @@
             if (e.target === e.currentTarget) closeBotChatModal();
         });
 
+
         // Безопасно вставляет строку как аргумент-литерал внутрь onclick="..."
         // (атрибут в двойных кавычках) — экранирует кавычки/спецсимволы,
         // чтобы значения кнопок вроде текста с апострофами не ломали HTML.
@@ -6433,7 +6493,9 @@
         }
 
         // Отрисовывает инлайн-кнопки бота под сообщением (аналог inline-клавиатуры
-        // в Telegram): buttons — массив рядов, каждый ряд — массив {text, value}.
+        // в Telegram): buttons — массив рядов, каждый ряд — массив кнопок:
+        // {text, value} — отправляет value как сообщение;
+        // {text, url}   — просто открывает ссылку в новой вкладке, ничего не отправляет.
         function renderBotInlineButtons(buttons) {
             if (!Array.isArray(buttons) || !buttons.length) return '';
             const rows = buttons.map(row => {
@@ -6441,6 +6503,9 @@
                 const btnsHtml = cells.map(btn => {
                     if (!btn) return '';
                     const label = typeof btn === 'object' ? (btn.text ?? btn.label ?? '') : String(btn);
+                    if (typeof btn === 'object' && btn.url) {
+                        return `<button class="bot-inline-btn bot-inline-btn-url" onclick="window.open(${jsStrAttr(btn.url)}, '_blank', 'noopener')">${escapeHtml(label)} ↗</button>`;
+                    }
                     const value = typeof btn === 'object' ? (btn.value ?? btn.text ?? '') : String(btn);
                     return `<button class="bot-inline-btn" onclick="sendBotChatMessage(${jsStrAttr(value)})">${escapeHtml(label)}</button>`;
                 }).join('');
@@ -6449,30 +6514,47 @@
             return `<div class="bot-inline-buttons">${rows}</div>`;
         }
 
-        // Экран "Начать" — показывается вместо пустой истории, пока пользователь
-        // ещё ни разу не писал боту (аналог приветственного экрана с кнопкой
-        // "Запустить бота" в Telegram, до первого сообщения в диалоге).
-        function renderBotStartScreen(bot) {
-            const description = escapeHtml(getBotDescriptionCache(bot.id) || '');
-            return `
-                <div class="bot-start-screen">
-                    <div class="bot-start-avatar">🤖</div>
-                    <div class="bot-start-name">${escapeHtml(bot.name)}</div>
-                    ${description ? `<div class="bot-start-desc">${description}</div>` : ''}
-                    <button type="button" class="bot-start-btn" onclick="sendBotChatMessage('/start')">🚀 Начать</button>
-                </div>`;
+        // ===== Постоянная reply-клавиатура (не inline) =====
+        // В отличие от инлайн-кнопок (привязаны к конкретному сообщению),
+        // reply-клавиатура — общий набор кнопок над полем ввода, который
+        // держится, пока бот не пришлёт новый (data.keyboard) или не уберёт
+        // его (data.remove_keyboard: true). Хранится отдельно от истории.
+        function getBotReplyKeyboard(botId) {
+            try { return JSON.parse(localStorage.getItem('maxclient_bot_keyboard_' + botId) || 'null'); }
+            catch (e) { return null; }
+        }
+
+        function saveBotReplyKeyboard(botId, keyboard) {
+            if (keyboard) localStorage.setItem('maxclient_bot_keyboard_' + botId, JSON.stringify(keyboard));
+            else localStorage.removeItem('maxclient_bot_keyboard_' + botId);
+        }
+
+        function renderBotReplyKeyboard() {
+            const el = document.getElementById('botReplyKeyboard');
+            if (!el || !activeBotChatId) return;
+            const keyboard = getBotReplyKeyboard(activeBotChatId);
+            if (!Array.isArray(keyboard) || !keyboard.length) {
+                el.style.display = 'none';
+                el.innerHTML = '';
+                return;
+            }
+            el.innerHTML = keyboard.map(row => {
+                const cells = Array.isArray(row) ? row : [row];
+                const btnsHtml = cells.map(btn => {
+                    if (!btn) return '';
+                    const label = typeof btn === 'object' ? (btn.text ?? btn.label ?? '') : String(btn);
+                    const value = typeof btn === 'object' ? (btn.value ?? btn.text ?? '') : String(btn);
+                    return `<button class="bot-reply-btn" onclick="sendBotChatMessage(${jsStrAttr(value)})">${escapeHtml(label)}</button>`;
+                }).join('');
+                return `<div class="bot-reply-row">${btnsHtml}</div>`;
+            }).join('');
+            el.style.display = 'flex';
         }
 
         function renderBotChatMessages() {
             const container = document.getElementById('botChatMessages');
             if (!container || !activeBotChatId) return;
             const history = getBotChatHistory(activeBotChatId);
-            if (!history.length) {
-                const bot = getCustomBots().find(b => b.id === activeBotChatId);
-                container.innerHTML = bot ? renderBotStartScreen(bot) : '';
-                container.scrollTop = 0;
-                return;
-            }
             container.innerHTML = history.map(m => `
                 <div style="align-self:${m.role === 'user' ? 'flex-end' : 'flex-start'};max-width:85%;
                             background:${m.role === 'user' ? '#007bff' : '#f0f0f0'};color:${m.role === 'user' ? '#fff' : '#000'};
@@ -6530,6 +6612,7 @@
             history.push({ role: 'user', text, ts: Date.now() });
             saveBotChatHistory(activeBotChatId, history);
             renderBotChatMessages();
+            updateBotStartUi();
             const fullUrl = normalizeBotBaseUrl(bot.url) + '/api/message';
             console.log('Request URL:', fullUrl);
 
@@ -6544,19 +6627,28 @@
                         history: history.slice(-20),
                     }),
                 });
-
+                
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 const replyText = data.text || '(пустой ответ)';
                 const freshHistory = getBotChatHistory(activeBotChatId);
                 freshHistory.push({ role: 'bot', text: replyText, buttons: data.buttons || null, ts: Date.now() });
                 saveBotChatHistory(activeBotChatId, freshHistory);
+                // Постоянная reply-клавиатура: бот прислал новую — заменяем,
+                // прислал remove_keyboard — убираем, ничего не прислал — оставляем как есть.
+                if (data.remove_keyboard) {
+                    saveBotReplyKeyboard(activeBotChatId, null);
+                } else if (Array.isArray(data.keyboard)) {
+                    saveBotReplyKeyboard(activeBotChatId, data.keyboard);
+                }
                 renderBotChatMessages();
+                updateBotStartUi();
             } catch (e) {
                 const freshHistory = getBotChatHistory(activeBotChatId);
                 freshHistory.push({ role: 'bot', text: '⚠️ Бот недоступен: ' + String(e.message || e), ts: Date.now() });
                 saveBotChatHistory(activeBotChatId, freshHistory);
                 renderBotChatMessages();
+                updateBotStartUi();
             }
         }
 
@@ -8123,18 +8215,8 @@
             let processedText = escapeHtml(text);
             const { text: textWithoutCode, blocks: codeBlocks } = extractCodeBlocks(processedText);
             processedText = linkifyPlainSegment(textWithoutCode);
-            processedText = boldifyPlainSegment(processedText);
             processedText = reinsertCodeBlocks(processedText, codeBlocks);
             return processedText;
-        }
-
-        // Markdown-фолбэк для кастомных ботов: **жирный текст** -> <strong>.
-        // Применяется ПОСЛЕ linkify (чтобы не мешать распознаванию ссылок/
-        // упоминаний звёздочками) и ДО возврата код-блоков на место (их
-        // содержимое уже вырезано плейсхолдерами \u0000CODEBLOCK..\u0000,
-        // поэтому ** внутри ``` ``` не трогаем).
-        function boldifyPlainSegment(escapedSegment) {
-            return escapedSegment.replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>');
         }
 
         // Новый путь: реальный формат MAX с массивом elements.
