@@ -19,6 +19,7 @@ import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -164,6 +165,21 @@ class MainActivity : AppCompatActivity() {
                 loadingGif.visibility = View.GONE
                 loadingStatus.visibility = View.GONE
             }
+
+            // Всё, что не относится к нашему собственному локальному
+            // серверу (127.0.0.1 / localhost, на котором крутится
+            // static/index.html и Flask-бридж), уводим в системный
+            // браузер через Intent.ACTION_VIEW, а не грузим внутри
+            // WebView приложения. Так любые внешние ссылки — из
+            // сообщений, профилей, ботов и т.д. — открываются как
+            // обычная веб-страница снаружи, а не "в клиенте".
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val url = request?.url ?: return false
+                return openExternallyIfNeeded(url)
+            }
         }
 
         // Обычный system WebView НЕ показывает системный проводник для
@@ -173,7 +189,45 @@ class MainActivity : AppCompatActivity() {
         // полноценный системный проводник (Файлы, Google Drive и т.д.), а не
         // урезанный чузер "недавних" файлов, который на части устройств
         // подставляется под GET_CONTENT.
+        // JS-код (index.html) местами открывает ссылки через window.open(url,
+        // '_blank') — например, кнопки бота или предпросмотр вложений. Без
+        // этого флага и onCreateWindow WebView либо тихо игнорирует такой
+        // вызов, либо грузит его в себе же. Включаем поддержку "нового окна"
+        // и сразу же перенаправляем его в системный браузер, вместо того
+        // чтобы реально открывать второе WebView-окно внутри приложения.
+        webView.settings.setSupportMultipleWindows(true)
+        webView.settings.javaScriptCanOpenWindowsAutomatically = true
+
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                // WebView не даёт URL напрямую в onCreateWindow — ловим его
+                // через одноразовый "прокладочный" WebView, у которого
+                // перехватываем shouldOverrideUrlLoading/onPageStarted и
+                // сразу открываем адрес снаружи.
+                val transport = WebView(view?.context ?: this@MainActivity)
+                transport.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        v: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        request?.url?.let { openExternallyIfNeeded(it) }
+                        return true
+                    }
+
+                    override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        url?.let { openExternallyIfNeeded(Uri.parse(it)) }
+                    }
+                }
+                (resultMsg?.obj as? android.webkit.WebView.WebViewTransport)?.webView = transport
+                resultMsg?.sendToTarget()
+                return true
+            }
+
             override fun onShowFileChooser(
                 view: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -408,6 +462,37 @@ class MainActivity : AppCompatActivity() {
             // ссылку в Python-модуле всё время жизни процесса.
             launcher.callAttr("start_server", sessionFile, port, hotpatchPath, applicationContext)
         }.start()
+    }
+
+    // Наш собственный Flask-сервер (127.0.0.1 / localhost на PORT) — это и
+    // есть сам клиент (static/index.html, api и т.д.), его нужно грузить
+    // внутри WebView как обычно. Всё остальное (http/https на любые другие
+    // хосты — ссылки из сообщений, профилей, кнопок ботов, web-приложений)
+    // отправляем наружу через ACTION_VIEW, чтобы открывалось в системном
+    // браузере, а не внутри приложения. Возвращает true, если навигацию
+    // перехватили (и она ушла наружу), false — если её нужно грузить в
+    // WebView как обычно.
+    private fun openExternallyIfNeeded(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            // Не веб-ссылка (например, about:blank, data:, blob: — их
+            // WebView должен обработать сам) — не трогаем.
+            return false
+        }
+        val host = uri.host?.lowercase()
+        if (host == "127.0.0.1" || host == "localhost") {
+            // Это наш собственный сервер — оставляем в WebView.
+            return false
+        }
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            true
+        } catch (e: Exception) {
+            // Нет ни одного приложения, способного открыть ссылку —
+            // ничего не делаем, просто не даём ей загрузиться в WebView.
+            Toast.makeText(this, "Не удалось открыть ссылку: ${e.message}", Toast.LENGTH_SHORT).show()
+            true
+        }
     }
 
     private fun waitForServerThenLoad(webView: WebView) {
