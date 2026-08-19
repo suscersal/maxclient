@@ -46,7 +46,7 @@ jobs:
 
           # Файлы, которые НИКОГДА не требуют полной сборки (документация, README и т.п.)
           IGNORE_REGEX='^(README\.md|\.github/.*\.md|docs/.*|\.gitignore|LICENSE|test_bots\.py)$'
-'
+
 
           # "Горячие" пути — то, что попадает в scripts/sync-android-python.sh
           # и не требует пересборки нативного кода.
