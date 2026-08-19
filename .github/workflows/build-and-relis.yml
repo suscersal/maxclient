@@ -303,7 +303,7 @@ jobs:
   # которые как раз существуют для обновления без пересборки.
   release:
     needs:
-      [detect-changes, resolve-tag, build-android, build-linux, build-windows]
+      [detect-changes, resolve-tag, build-android,  build-windows]
     if: needs.detect-changes.outputs.hot_only != 'true'
     runs-on: ubuntu-latest
     steps:
