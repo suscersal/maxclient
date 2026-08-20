@@ -1886,7 +1886,138 @@
             color: #fff;
         }
 
-        /* ---- Плашка «Ответ на сообщение» над полем ввода ---- */
+                #simpleConfirmBackdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000010;
+            background: rgba(0, 0, 0, 0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #simpleConfirmBackdrop.active {
+            display: flex;
+        }
+
+        #simpleConfirmDialog {
+            width: min(340px, 88vw);
+            background: #f2f9fc;
+            border-radius: 20px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+            padding: 24px 22px 20px;
+            box-sizing: border-box;
+        }
+
+        #simpleConfirmDialog .dcd-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1c1c1e;
+            margin: 0 0 14px;
+        }
+
+        #simpleConfirmDialog .dcd-text {
+            font-size: 15px;
+            color: #1c1c1e;
+            margin: 0 0 16px;
+            line-height: 1.4;
+        }
+
+        #simpleConfirmDialog .dcd-check-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 0 22px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #simpleConfirmDialog .dcd-checkbox {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid #b9c2c9;
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+
+        #simpleConfirmDialog .dcd-checkbox.checked {
+            background: #3390ec;
+            border-color: #3390ec;
+        }
+
+        #simpleConfirmDialog .dcd-checkbox svg {
+            width: 13px;
+            height: 13px;
+            display: none;
+        }
+
+        #simpleConfirmDialog .dcd-checkbox.checked svg {
+            display: block;
+        }
+
+        #simpleConfirmDialog .dcd-check-label {
+            font-size: 15px;
+            color: #1c1c1e;
+        }
+
+        #simpleConfirmDialog .dcd-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        #simpleConfirmDialog .dcd-btn {
+            flex: 1 1 0;
+            border: none;
+            padding: 13px 10px;
+            font-size: 15px;
+            font-weight: 700;
+            border-radius: 12px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        #simpleConfirmDialog .dcd-btn.danger {
+            background: #e2503f;
+            color: #fff;
+        }
+
+        #simpleConfirmDialog .dcd-btn.danger:hover,
+        #simpleConfirmDialog .dcd-btn.danger:active {
+            background: #cf4534;
+        }
+
+        #simpleConfirmDialog .dcd-btn.cancel {
+            background: #e3e6e8;
+            color: #1c1c1e;
+        }
+
+        #simpleConfirmDialog .dcd-btn.cancel:hover,
+        #simpleConfirmDialog .dcd-btn.cancel:active {
+            background: #d5d9db;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog {
+            background: #232e3c;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-title,
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-text,
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-check-label {
+            color: #fff;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-btn.cancel {
+            background: #2b3a4c;
+            color: #fff;
+        }
+
+        
+/* ---- Плашка «Ответ на сообщение» над полем ввода ---- */
         .reply-preview-bar {
             display: flex;
             align-items: center;
@@ -4274,6 +4405,79 @@
         </div>
     </div>
 
+    <!-- ===== Новый чат: создать группу / вступить по ссылке (создание группы через
+         msgSend с CONTROL-attach, chatJoin — opcode 57) ===== -->
+    <div class="chat-profile-overlay" id="newChatModal">
+        <div class="chat-profile-modal" style="max-width:420px;width:92vw;">
+            <div class="chat-profile-header">
+                <h3 id="newChatModalTitle">Новый чат</h3>
+                <button class="chat-profile-close" onclick="closeNewChatModal()">✕</button>
+            </div>
+            <div id="newChatModalMenu">
+                <button class="chat-profile-option" onclick="openCreateGroupForm()">
+                    <span class="opt-icon">👥</span>
+                    <span class="opt-label">Создать группу</span>
+                </button>
+                <button class="chat-profile-option" onclick="openJoinByLinkForm()">
+                    <span class="opt-icon">🔗</span>
+                    <span class="opt-label">Вступить по ссылке</span>
+                </button>
+            </div>
+            <div id="createGroupForm" class="hidden" style="padding:4px 12px 12px;">
+                <input type="text" id="newGroupTitle" placeholder="Название группы"
+                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:border-box;">
+                <div style="font-size:13px;color:#888;margin-bottom:6px;">Участники:</div>
+                <div id="newGroupMembersList" style="max-height:260px;overflow-y:auto;margin-bottom:10px;"></div>
+                <button class="btn-save" style="width:100%;" onclick="submitCreateGroup()">Создать</button>
+            </div>
+            <div id="joinByLinkForm" class="hidden" style="padding:4px 12px 12px;">
+                <input type="text" id="joinLinkInput" placeholder="Ссылка-приглашение или @username"
+                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:border-box;">
+                <div id="joinLinkPreview" style="font-size:13px;color:#888;margin-bottom:10px;"></div>
+                <button class="btn-save" style="width:100%;" onclick="submitJoinByLink()">Вступить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Заблокированные контакты (contactList, status=BLOCKED — opcode 36) ===== -->
+    <div class="chat-profile-overlay" id="blockedContactsModal">
+        <div class="chat-profile-modal" style="max-width:420px;width:92vw;">
+            <div class="chat-profile-header">
+                <h3>Заблокированные</h3>
+                <button class="chat-profile-close" onclick="closeBlockedContactsModal()">✕</button>
+            </div>
+            <div id="blockedContactsList" style="padding:4px 0;">
+                <div style="padding:12px;color:#888;font-size:13px;">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Фото контакта (contactPhotos — opcode 39) ===== -->
+    <div class="chat-profile-overlay" id="contactPhotosModal">
+        <div class="chat-profile-modal" style="max-width:420px;width:92vw;">
+            <div class="chat-profile-header">
+                <h3>Фотографии</h3>
+                <button class="chat-profile-close" onclick="closeContactPhotosModal()">✕</button>
+            </div>
+            <div id="contactPhotosGrid"
+                style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px;">
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Медиафайлы чата (chatMedia — opcode 51) ===== -->
+    <div class="chat-profile-overlay" id="chatMediaModal">
+        <div class="chat-profile-modal" style="max-width:460px;width:92vw;">
+            <div class="chat-profile-header">
+                <h3>Медиафайлы</h3>
+                <button class="chat-profile-close" onclick="closeChatMediaModal()">✕</button>
+            </div>
+            <div id="chatMediaGrid"
+                style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px;max-height:60vh;overflow-y:auto;">
+            </div>
+        </div>
+    </div>
+
     <!-- ===== CUSTOM BOT CHAT MODAL (локальный чат с кастомным ботом по его HTTP API) ===== -->
     <div class="chat-profile-overlay" id="botChatModal">
         <div class="chat-profile-modal"
@@ -4366,6 +4570,8 @@
     <div id="chatsSection" class="section hidden">
         <div class="section-header-row">
             <h3>💬 Чаты</h3>
+            <button type="button" id="newChatBtn" class="chat-profile-close" title="Новый чат"
+                style="position:static;margin-left:auto;" onclick="openNewChatModal()">✏️</button>
         </div>
         <div id="localChatSearchWrap">
             <input type="text" id="localChatSearchInput"
@@ -7601,6 +7807,62 @@
         `;
             }
 
+            // Добавить в контакты (contactUpdate action=ADD — opcode 34) —
+            // только для личных диалогов с не-ботами.
+            if (chat.type === 'DIALOG' && otherId != null && otherId !== selfId && !isBotChat(chat)) {
+                optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="addContactAction(${JSON.stringify(otherId)})">
+                <span class="opt-icon">➕</span>
+                <span class="opt-label">Добавить в контакты</span>
+            </button>
+            <button class="chat-profile-option" onclick="openContactPhotosModal(${JSON.stringify(otherId)})">
+                <span class="opt-icon">🖼️</span>
+                <span class="opt-label">Фотографии</span>
+            </button>
+        `;
+            }
+
+            // Переименовать / сменить фото группы (chatUpdate — opcode 55) —
+            // только владельцу/админу группового чата.
+            if (chat.type === 'CHAT' && isChatAdmin(chat)) {
+                optionsContainer.innerHTML += `
+            <div class="chat-profile-option" style="flex-direction:column;align-items:stretch;gap:8px;padding:8px 12px;">
+                <div style="font-size:13px;color:#888;margin-bottom:2px;">Название группы:</div>
+                <input type="text" id="profileGroupTitle" value="${escapeHtml(chat.title || chat.theme || '')}"
+                       style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
+                       onchange="renameGroupAction(${chat.id}, this.value)">
+            </div>
+            <input type="file" id="groupPhotoInput" accept="image/*" style="display:none;"
+                   onchange="uploadGroupPhotoAction(${chat.id}, this.files[0])">
+            <button class="chat-profile-option" onclick="document.getElementById('groupPhotoInput').click()">
+                <span class="opt-icon">🖼️</span>
+                <span class="opt-label">Сменить фото группы</span>
+            </button>
+        `;
+            }
+
+            // Медиафайлы чата (chatMedia — opcode 51)
+            optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="openChatMediaModal(${chat.id})">
+                <span class="opt-icon">🗂️</span>
+                <span class="opt-label">Медиафайлы</span>
+            </button>
+        `;
+
+            // Уведомления / mute (settings.chats[id].dontDisturbUntil — opcode 22)
+            const muted = (chat.dontDisturbUntil || 0) !== 0;
+            optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="toggleChatMuteAction(${chat.id})">
+                <span class="opt-icon">🔔</span>
+                <span class="opt-label">Уведомления</span>
+                <span class="opt-toggle">
+                    <div class="toggle-switch ${!muted ? 'active' : ''}" id="toggleMute">
+                        <div class="toggle-knob"></div>
+                    </div>
+                </span>
+            </button>
+        `;
+
             // Скам-проверка этого чата
             optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="checkCurrentChatForScam()">
@@ -7610,16 +7872,27 @@
             <div id="scamCheckChatResult" style="padding:0 12px 8px;font-size:12px;color:#888;"></div>
         `;
 
-            // Закрепить чат (заглушка)
+            // Очистить историю / удалить чат / покинуть группу
+            // (chatClear=54, chatDelete=52, chatLeave=58)
             optionsContainer.innerHTML += `
             <hr class="chat-profile-divider">
-            <button class="chat-profile-option" onclick="log('ℹ️ Функция в разработке', 'info')">
-                <span class="opt-icon">📌</span>
-                <span class="opt-label">Закрепить чат</span>
+            <button class="chat-profile-option" onclick="clearChatHistoryAction(${chat.id})">
+                <span class="opt-icon">🧹</span>
+                <span class="opt-label">Очистить историю</span>
             </button>
-            <button class="chat-profile-option chat-profile-danger" onclick="log('ℹ️ Функция в разработке', 'info')">
-                <span class="opt-icon">🚫</span>
-                <span class="opt-label">Заблокировать</span>
+        `;
+            if (chat.type === 'CHAT') {
+                optionsContainer.innerHTML += `
+            <button class="chat-profile-option chat-profile-danger" onclick="leaveChatAction(${chat.id})">
+                <span class="opt-icon">🚪</span>
+                <span class="opt-label">Покинуть группу</span>
+            </button>
+        `;
+            }
+            optionsContainer.innerHTML += `
+            <button class="chat-profile-option chat-profile-danger" onclick="deleteChatAction(${chat.id})">
+                <span class="opt-icon">🗑️</span>
+                <span class="opt-label">Удалить чат</span>
             </button>
         `;
 
@@ -7627,8 +7900,274 @@
             document.body.style.overflow = 'hidden';
         }
 
+        // Владелец или админ группового чата — только им сервер разрешит
+        // переименование/смену фото/другие настройки чата.
+        function isChatAdmin(chat) {
+            if (!chat || !selfId) return false;
+            if (chat.owner === selfId) return true;
+            return !!(chat.adminParticipants && chat.adminParticipants[selfId]);
+        }
+
         function closeChatProfile() {
             document.getElementById('chatProfileModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // ===================================================================
+        // Общий модальный confirm() (без нативного confirm() — он ненадёжен
+        // в некоторых мобильных WebView, см. комментарий у
+        // showDeleteConfirmDialog выше). Переиспользует CSS-классы dcd-*.
+        // ===================================================================
+        let _simpleConfirmEls = null;
+        function _ensureSimpleConfirmEls() {
+            if (_simpleConfirmEls) return _simpleConfirmEls;
+            const backdrop = document.createElement('div');
+            backdrop.id = 'simpleConfirmBackdrop';
+            backdrop.className = 'dcd-backdrop';
+            const dialog = document.createElement('div');
+            dialog.id = 'simpleConfirmDialog';
+            dialog.className = 'dcd-dialog';
+            backdrop.appendChild(dialog);
+            document.body.appendChild(backdrop);
+            _simpleConfirmEls = { backdrop, dialog };
+            return _simpleConfirmEls;
+        }
+        function showSimpleConfirmDialog(title, text, confirmLabel, danger) {
+            const { backdrop, dialog } = _ensureSimpleConfirmEls();
+            return new Promise((resolve) => {
+                let settled = false;
+                const close = (result) => {
+                    if (settled) return;
+                    settled = true;
+                    backdrop.classList.remove('active');
+                    backdrop.removeEventListener('click', onBackdropClick);
+                    document.removeEventListener('keydown', onKeydown);
+                    resolve(result);
+                };
+                const onBackdropClick = (e) => { if (e.target === backdrop) close(false); };
+                const onKeydown = (e) => { if (e.key === 'Escape') close(false); };
+
+                dialog.innerHTML = '';
+                const titleEl = document.createElement('p');
+                titleEl.className = 'dcd-title';
+                titleEl.textContent = title;
+                const textEl = document.createElement('p');
+                textEl.className = 'dcd-text';
+                textEl.textContent = text;
+                dialog.appendChild(titleEl);
+                dialog.appendChild(textEl);
+
+                const actions = document.createElement('div');
+                actions.className = 'dcd-actions';
+                const okBtn = document.createElement('button');
+                okBtn.type = 'button';
+                okBtn.className = 'dcd-btn ' + (danger ? 'danger' : '');
+                okBtn.textContent = confirmLabel;
+                okBtn.onclick = () => close(true);
+                const cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'dcd-btn cancel';
+                cancelBtn.textContent = 'Отменить';
+                cancelBtn.onclick = () => close(false);
+                actions.appendChild(okBtn);
+                actions.appendChild(cancelBtn);
+                dialog.appendChild(actions);
+
+                backdrop.classList.add('active');
+                backdrop.addEventListener('click', onBackdropClick);
+                document.addEventListener('keydown', onKeydown);
+            });
+        }
+
+        // ===================================================================
+        // Новый чат: меню «Создать группу» / «Вступить по ссылке»
+        // ===================================================================
+        function openNewChatModal() {
+            document.getElementById('newChatModalMenu').classList.remove('hidden');
+            document.getElementById('createGroupForm').classList.add('hidden');
+            document.getElementById('joinByLinkForm').classList.add('hidden');
+            document.getElementById('newChatModalTitle').textContent = 'Новый чат';
+            document.getElementById('newChatModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeNewChatModal() {
+            document.getElementById('newChatModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        function openCreateGroupForm() {
+            document.getElementById('newChatModalMenu').classList.add('hidden');
+            document.getElementById('createGroupForm').classList.remove('hidden');
+            document.getElementById('newChatModalTitle').textContent = 'Создать группу';
+            const list = document.getElementById('newGroupMembersList');
+            const contacts = Object.values(contactsById).filter(c => c && c.id !== selfId);
+            list.innerHTML = contacts.map(c => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;">
+                <input type="checkbox" class="new-group-member-cb" value="${c.id}">
+                <span>${escapeHtml(c.names?.[0]?.firstName || c.name || ('#' + c.id))}</span>
+            </label>
+        `).join('') || '<div style="color:#888;font-size:13px;">Нет доступных контактов</div>';
+        }
+
+        function openJoinByLinkForm() {
+            document.getElementById('newChatModalMenu').classList.add('hidden');
+            document.getElementById('joinByLinkForm').classList.remove('hidden');
+            document.getElementById('newChatModalTitle').textContent = 'Вступить по ссылке';
+            document.getElementById('joinLinkInput').value = '';
+            document.getElementById('joinLinkPreview').textContent = '';
+        }
+
+        function submitCreateGroup() {
+            const title = document.getElementById('newGroupTitle').value.trim();
+            if (!title) { log('❌ Введите название группы', 'error'); return; }
+            const userIds = Array.from(document.querySelectorAll('.new-group-member-cb:checked'))
+                .map(cb => Number(cb.value));
+            // Группа в MAX создаётся отправкой обычного сообщения с
+            // CONTROL-вложением event:"new" (см. ChatsModule.createGroupChat
+            // в Komet — chatCreate(63) там не используется).
+            pendingGroupCreate = true;
+            send(64, {
+                cid: Date.now(),
+                message: {
+                    cid: Date.now(),
+                    attaches: [{ _type: 'CONTROL', event: 'new', chatType: 'CHAT', title, userIds }]
+                },
+                notify: true
+            });
+            closeNewChatModal();
+            log('⏳ Создание группы...', 'info');
+        }
+
+        function submitJoinByLink() {
+            const link = document.getElementById('joinLinkInput').value.trim();
+            if (!link) return;
+            pendingJoinLink = link;
+            send(57, { link });
+            closeNewChatModal();
+            log('⏳ Вступление в чат...', 'info');
+        }
+
+        // ===================================================================
+        // Действия из профиля чата/контакта
+        // ===================================================================
+        function addContactAction(contactId) {
+            const c = contactsById[contactId] || {};
+            const firstName = c.names?.[0]?.firstName || c.name || 'Контакт';
+            send(34, { action: 'ADD', contactId, firstName });
+            log('⏳ Добавление контакта...', 'info');
+        }
+
+        function renameGroupAction(chatId, title) {
+            title = (title || '').trim();
+            if (!title) return;
+            send(55, { chatId, theme: title });
+        }
+
+        async function uploadGroupPhotoAction(chatId, file) {
+            if (!file) return;
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const resp = await fetch('/api/upload-photo', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!data.success || !data.photoToken) {
+                    log('❌ ' + (data.error || 'Не удалось загрузить фото'), 'error');
+                    return;
+                }
+                send(55, { chatId, photoToken: data.photoToken });
+                log('⏳ Обновление фото группы...', 'info');
+            } catch (e) {
+                log('❌ Ошибка загрузки фото: ' + e.message, 'error');
+            }
+        }
+
+        function toggleChatMuteAction(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            const currentlyMuted = (chat.dontDisturbUntil || 0) !== 0;
+            const dontDisturbUntil = currentlyMuted ? 0 : -1; // 0=muteOff, -1=muteForever (см. ChatsModule в Komet)
+            send(22, { settings: { chats: { [chatId]: { dontDisturbUntil } } } });
+            chat.dontDisturbUntil = dontDisturbUntil;
+            const toggle = document.getElementById('toggleMute');
+            if (toggle) toggle.classList.toggle('active', dontDisturbUntil === 0);
+        }
+
+        async function clearChatHistoryAction(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            const ok = await showSimpleConfirmDialog(
+                'Очистить историю', 'Все сообщения в этом чате будут удалены у вас. Продолжить?',
+                'Очистить', true);
+            if (!ok) return;
+            send(54, { chatId, lastEventTime: Date.now(), forAll: false });
+        }
+
+        async function leaveChatAction(chatId) {
+            const ok = await showSimpleConfirmDialog(
+                'Покинуть группу', 'Вы уверены, что хотите покинуть эту группу?', 'Покинуть', true);
+            if (!ok) return;
+            lastChatLeaveId = chatId;
+            send(58, { chatId });
+        }
+
+        async function deleteChatAction(chatId) {
+            const ok = await showSimpleConfirmDialog(
+                'Удалить чат', 'Чат будет удалён из списка. Продолжить?', 'Удалить', true);
+            if (!ok) return;
+            lastChatDeleteId = chatId;
+            send(52, { chatId, lastEventTime: Date.now(), forAll: false });
+        }
+
+        // ===================================================================
+        // Заблокированные контакты (contactList, status=BLOCKED — opcode 36)
+        // ===================================================================
+        function openBlockedContactsModal() {
+            document.getElementById('blockedContactsList').innerHTML =
+                '<div style="padding:12px;color:#888;font-size:13px;">Загрузка...</div>';
+            document.getElementById('blockedContactsModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+            send(36, { status: 'BLOCKED', count: 100, from: 0 });
+        }
+        function closeBlockedContactsModal() {
+            document.getElementById('blockedContactsModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // ===================================================================
+        // Фото контакта (contactPhotos — opcode 39)
+        // ===================================================================
+        let contactPhotosTargetId = null;
+        function openContactPhotosModal(contactId) {
+            contactPhotosTargetId = contactId;
+            document.getElementById('contactPhotosGrid').innerHTML =
+                '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Загрузка...</div>';
+            document.getElementById('contactPhotosModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+            send(39, { contactId, from: 0, count: 25 });
+        }
+        function closeContactPhotosModal() {
+            document.getElementById('contactPhotosModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // ===================================================================
+        // Медиафайлы чата (chatMedia — opcode 51)
+        // ===================================================================
+        let chatMediaTargetId = null;
+        function openChatMediaModal(chatId) {
+            chatMediaTargetId = chatId;
+            document.getElementById('chatMediaGrid').innerHTML =
+                '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Загрузка...</div>';
+            document.getElementById('chatMediaModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+            send(51, {
+                chatId, messageId: 0,
+                attachTypes: ['PHOTO', 'VIDEO'],
+                forward: 0, backward: 60
+            });
+        }
+        function closeChatMediaModal() {
+            document.getElementById('chatMediaModal').classList.remove('active');
             document.body.style.overflow = '';
         }
 
@@ -9677,6 +10216,13 @@
         // оптимистичную пометку "удалено", если сервер ответит ошибкой
         // (см. обработку opcode 66/cmd 768 в ws.onmessage).
         let lastDeleteAttempt = null;
+        // Флаг/значение для сопоставления ответа сервера с запросом, т.к.
+        // relay не даёт привязать ответ к конкретному запросу по id
+        // (см. аналогичный комментарий у lastDeleteAttempt выше).
+        let pendingGroupCreate = false;
+        let pendingJoinLink = null;
+        let lastChatDeleteId = null;
+        let lastChatLeaveId = null;
 
         async function deleteMessageAction(m, isOwn) {
             if (!currentChatId) return;
@@ -9797,9 +10343,24 @@
             // Ответить/Удалить — без ожидания возможного двойного тапа
             // (раньше тут была задержка в 250мс и отдельная логика
             // двойного тапа/клика, которая ставила ❤️ — убрано).
-            el.addEventListener('click', (e) => {
-                showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
-            });
+            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+if (isTouchDevice) {
+    el.addEventListener('dblclick', (e) => {
+        if (e.target.closest('.msg-avatar, .msg-sender-name, .msg-reply-quote, .msg-keyboard-btn, .msg-file-link, .bot-inline-btn, .bot-reply-btn, .msg-keyboard, .bot-menu-item, .bot-cmd-link, .mention-link, .msg-code-copy, .lazy-media-placeholder, .msg-video-container, .voice-play-btn, .voice-progress-track, .video-note-play-overlay')) {
+            return;
+        }
+        e.preventDefault(); // предотвращает масштабирование при двойном тапе
+        showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
+    });
+} else {
+    el.addEventListener('click', (e) => {
+        if (e.target.closest('.msg-avatar, .msg-sender-name, .msg-reply-quote, .msg-keyboard-btn, .msg-file-link, .bot-inline-btn, .bot-reply-btn, .msg-keyboard, .bot-menu-item, .bot-cmd-link, .mention-link, .msg-code-copy, .lazy-media-placeholder, .msg-video-container, .voice-play-btn, .voice-progress-track, .video-note-play-overlay')) {
+            return;
+        }
+        showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
+    });
+}
             let attachesHtml = '';
             let keyboardHtml = '';
             let encBadgeHtml = '';
@@ -11025,11 +11586,155 @@
                         return;
                     }
                     if (data.opcode === 64 && data.cmd === 256) {
+                        // Если это был запрос создания группы (см. submitCreateGroup) —
+                        // сервер вернул новый чат в payload.chat, а не обычный ответ на
+                        // отправку сообщения в текущий чат.
+                        if (pendingGroupCreate) {
+                            pendingGroupCreate = false;
+                            const newChat = data.payload?.chat;
+                            if (newChat && typeof newChat.id === 'number') {
+                                chatsById[newChat.id] = newChat;
+                                renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                                log('✅ Группа создана', 'success');
+                                openChat(newChat.id);
+                            } else {
+                                log('❌ Не удалось создать группу', 'error');
+                            }
+                            return;
+                        }
                         document.getElementById('messageText').value = '';
                         send(49, {
                             chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
                             getMessages: true
                         });
+                        return;
+                    }
+                    if (data.opcode === 57 && data.cmd === 256) {
+                        // chatJoin — вступили в чат по ссылке.
+                        pendingJoinLink = null;
+                        const joinedChat = data.payload?.chat;
+                        if (joinedChat && typeof joinedChat.id === 'number') {
+                            chatsById[joinedChat.id] = joinedChat;
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                            log('✅ Вы вступили в чат', 'success');
+                            openChat(joinedChat.id);
+                        } else {
+                            log('✅ Вступление выполнено', 'success');
+                            send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                        }
+                        return;
+                    }
+                    if (data.opcode === 55 && data.cmd === 256) {
+                        // chatUpdate — переименование / смена фото / другие настройки чата.
+                        const updatedChat = data.payload?.chat;
+                        if (updatedChat && typeof updatedChat.id === 'number') {
+                            chatsById[updatedChat.id] = Object.assign({}, chatsById[updatedChat.id], updatedChat);
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                            if (currentChatId === updatedChat.id) renderChatDetailStatus(chatsById[updatedChat.id]);
+                        }
+                        log('✅ Настройки чата обновлены', 'success');
+                        return;
+                    }
+                    if (data.opcode === 52 && data.cmd === 256) {
+                        // chatDelete
+                        const deletedId = lastChatDeleteId;
+                        if (deletedId != null) {
+                            delete chatsById[deletedId];
+                            if (currentChatId === deletedId) {
+                                document.getElementById('chatDetailSection').classList.add('hidden');
+                                document.getElementById('chatsSection').classList.remove('hidden');
+                                currentChatId = null;
+                            }
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                        }
+                        closeChatProfile();
+                        log('✅ Чат удалён', 'success');
+                        return;
+                    }
+                    if (data.opcode === 58 && data.cmd === 256) {
+                        // chatLeave
+                        const leftId = lastChatLeaveId;
+                        if (leftId != null) {
+                            delete chatsById[leftId];
+                            if (currentChatId === leftId) {
+                                document.getElementById('chatDetailSection').classList.add('hidden');
+                                document.getElementById('chatsSection').classList.remove('hidden');
+                                currentChatId = null;
+                            }
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                        }
+                        closeChatProfile();
+                        log('✅ Вы покинули группу', 'success');
+                        return;
+                    }
+                    if (data.opcode === 54 && data.cmd === 256) {
+                        // chatClear
+                        if (currentChatId != null) {
+                            document.getElementById('messagesList').innerHTML = '';
+                        }
+                        log('✅ История очищена', 'success');
+                        return;
+                    }
+                    if (data.opcode === 22 && data.cmd === 256) {
+                        // config — используется для mute чата (и других настроек в будущем).
+                        return;
+                    }
+                    if (data.opcode === 34 && data.cmd === 256) {
+                        // contactUpdate (добавление/изменение контакта)
+                        const c = data.payload?.contact;
+                        if (c && typeof c.id === 'number') {
+                            contactsById[c.id] = c;
+                            renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
+                        }
+                        log('✅ Контакт добавлен', 'success');
+                        return;
+                    }
+                    if (data.opcode === 36 && data.cmd === 256) {
+                        // contactList (status=BLOCKED) — заблокированные контакты
+                        const list = data.payload?.contacts;
+                        const container = document.getElementById('blockedContactsList');
+                        if (!Array.isArray(list) || !list.length) {
+                            container.innerHTML = '<div style="padding:12px;color:#888;font-size:13px;">Список пуст</div>';
+                            return;
+                        }
+                        container.innerHTML = list.map(c => {
+                            const name = escapeHtml(c.names?.[0]?.firstName || c.name || ('#' + c.id));
+                            return `
+                        <div class="chat-profile-option">
+                            <span class="opt-label">${name}</span>
+                        </div>`;
+                        }).join('');
+                        return;
+                    }
+                    if (data.opcode === 39 && data.cmd === 256) {
+                        // contactPhotos
+                        const urls = data.payload?.urls;
+                        const grid = document.getElementById('contactPhotosGrid');
+                        if (!Array.isArray(urls) || !urls.length) {
+                            grid.innerHTML = '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Фотографий нет</div>';
+                            return;
+                        }
+                        grid.innerHTML = urls.map(u => `
+                        <img src="${u}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;" loading="lazy">
+                    `).join('');
+                        return;
+                    }
+                    if (data.opcode === 51 && data.cmd === 256) {
+                        // chatMedia
+                        const messages = data.payload?.messages;
+                        const grid = document.getElementById('chatMediaGrid');
+                        const items = [];
+                        if (Array.isArray(messages)) {
+                            messages.forEach(m => {
+                                (m.attaches || []).forEach(a => {
+                                    const url = a.baseUrl || a.url;
+                                    if (url && (a._type === 'PHOTO' || a._type === 'VIDEO')) items.push(url);
+                                });
+                            });
+                        }
+                        grid.innerHTML = items.length
+                            ? items.map(u => `<img src="${u}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;" loading="lazy">`).join('')
+                            : '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Медиафайлов нет</div>';
                         return;
                     }
                     if (data.opcode === 130 && data.payload) {
