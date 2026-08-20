@@ -1772,23 +1772,24 @@
 
         #deleteConfirmDialog {
             width: min(340px, 88vw);
-            background: #f2f9fc;
+            background: var(--tg-panel);
             border-radius: 20px;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
             padding: 24px 22px 20px;
             box-sizing: border-box;
+            transition: background 0.15s ease;
         }
 
         #deleteConfirmDialog .dcd-title {
             font-size: 22px;
             font-weight: 700;
-            color: #1c1c1e;
+            color: var(--tg-text);
             margin: 0 0 14px;
         }
 
         #deleteConfirmDialog .dcd-text {
             font-size: 15px;
-            color: #1c1c1e;
+            color: var(--tg-text);
             margin: 0 0 16px;
             line-height: 1.4;
         }
@@ -1806,7 +1807,7 @@
             width: 22px;
             height: 22px;
             border-radius: 50%;
-            border: 2px solid #b9c2c9;
+            border: 2px solid var(--tg-border);
             flex: 0 0 auto;
             display: flex;
             align-items: center;
@@ -1816,8 +1817,8 @@
         }
 
         #deleteConfirmDialog .dcd-checkbox.checked {
-            background: #3390ec;
-            border-color: #3390ec;
+            background: var(--tg-blue);
+            border-color: var(--tg-blue);
         }
 
         #deleteConfirmDialog .dcd-checkbox svg {
@@ -1832,7 +1833,7 @@
 
         #deleteConfirmDialog .dcd-check-label {
             font-size: 15px;
-            color: #1c1c1e;
+            color: var(--tg-text);
         }
 
         #deleteConfirmDialog .dcd-actions {
@@ -1862,28 +1863,13 @@
         }
 
         #deleteConfirmDialog .dcd-btn.cancel {
-            background: #e3e6e8;
-            color: #1c1c1e;
+            background: var(--tg-border);
+            color: var(--tg-text);
         }
 
         #deleteConfirmDialog .dcd-btn.cancel:hover,
         #deleteConfirmDialog .dcd-btn.cancel:active {
-            background: #d5d9db;
-        }
-
-        html[data-theme="dark"] #deleteConfirmDialog {
-            background: #232e3c;
-        }
-
-        html[data-theme="dark"] #deleteConfirmDialog .dcd-title,
-        html[data-theme="dark"] #deleteConfirmDialog .dcd-text,
-        html[data-theme="dark"] #deleteConfirmDialog .dcd-check-label {
-            color: #fff;
-        }
-
-        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel {
-            background: #2b3a4c;
-            color: #fff;
+            filter: brightness(0.94);
         }
 
                 #simpleConfirmBackdrop {
@@ -1902,23 +1888,24 @@
 
         #simpleConfirmDialog {
             width: min(340px, 88vw);
-            background: #f2f9fc;
+            background: var(--tg-panel);
             border-radius: 20px;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
             padding: 24px 22px 20px;
             box-sizing: border-box;
+            transition: background 0.15s ease;
         }
 
         #simpleConfirmDialog .dcd-title {
             font-size: 22px;
             font-weight: 700;
-            color: #1c1c1e;
+            color: var(--tg-text);
             margin: 0 0 14px;
         }
 
         #simpleConfirmDialog .dcd-text {
             font-size: 15px;
-            color: #1c1c1e;
+            color: var(--tg-text);
             margin: 0 0 16px;
             line-height: 1.4;
         }
@@ -1936,7 +1923,7 @@
             width: 22px;
             height: 22px;
             border-radius: 50%;
-            border: 2px solid #b9c2c9;
+            border: 2px solid var(--tg-border);
             flex: 0 0 auto;
             display: flex;
             align-items: center;
@@ -1946,8 +1933,8 @@
         }
 
         #simpleConfirmDialog .dcd-checkbox.checked {
-            background: #3390ec;
-            border-color: #3390ec;
+            background: var(--tg-blue);
+            border-color: var(--tg-blue);
         }
 
         #simpleConfirmDialog .dcd-checkbox svg {
@@ -1962,7 +1949,7 @@
 
         #simpleConfirmDialog .dcd-check-label {
             font-size: 15px;
-            color: #1c1c1e;
+            color: var(--tg-text);
         }
 
         #simpleConfirmDialog .dcd-actions {
@@ -1992,28 +1979,13 @@
         }
 
         #simpleConfirmDialog .dcd-btn.cancel {
-            background: #e3e6e8;
-            color: #1c1c1e;
+            background: var(--tg-border);
+            color: var(--tg-text);
         }
 
         #simpleConfirmDialog .dcd-btn.cancel:hover,
         #simpleConfirmDialog .dcd-btn.cancel:active {
-            background: #d5d9db;
-        }
-
-        html[data-theme="dark"] #simpleConfirmDialog {
-            background: #232e3c;
-        }
-
-        html[data-theme="dark"] #simpleConfirmDialog .dcd-title,
-        html[data-theme="dark"] #simpleConfirmDialog .dcd-text,
-        html[data-theme="dark"] #simpleConfirmDialog .dcd-check-label {
-            color: #fff;
-        }
-
-        html[data-theme="dark"] #simpleConfirmDialog .dcd-btn.cancel {
-            background: #2b3a4c;
-            color: #fff;
+            filter: brightness(0.94);
         }
 
         
@@ -4456,7 +4428,7 @@
     <div class="chat-profile-overlay" id="contactPhotosModal">
         <div class="chat-profile-modal" style="max-width:420px;width:92vw;">
             <div class="chat-profile-header">
-                <h3>Фотографии</h3>
+                <h3>Аватарки</h3>
                 <button class="chat-profile-close" onclick="closeContactPhotosModal()">✕</button>
             </div>
             <div id="contactPhotosGrid"
@@ -7817,7 +7789,7 @@
             </button>
             <button class="chat-profile-option" onclick="openContactPhotosModal(${JSON.stringify(otherId)})">
                 <span class="opt-icon">🖼️</span>
-                <span class="opt-label">Фотографии</span>
+                <span class="opt-label">Аватарки</span>
             </button>
         `;
             }
