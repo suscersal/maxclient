@@ -313,14 +313,38 @@ class MainActivity : AppCompatActivity() {
 
         loadingStatus.visibility = View.VISIBLE
 
-        // OtaUpdater.checkAndUpdate сама ловит сетевые ошибки и не должна
-        // зависать дольше своих HTTP-таймаутов (~8-16 сек), но если сети нет
-        // вообще (DNS-резолвинг иногда виснет дольше connectTimeout) —
-        // подстраховываемся отдельным таймером, чтобы приложение в любом
-        // случае стартовало на уже скачанном ранее hotpatch'е (или на коде
-        // из APK, если ничего ещё не скачивалось), а не стояло на заставке
-        // бесконечно.
+        // РАНЬШЕ здесь был плоский таймер на 5000мс от старта: если
+        // checkAndUpdate() не успевал за 5с — приложение стартовало на
+        // старом hotpatch'е, а когда OtaUpdater всё-таки докачивал файлы
+        // чуть позже, срабатывала ветка updated && serverStartedInProcess
+        // ниже — и вызывала restartProcessToApplyUpdate(). Из-за этого
+        // пользователь видел: старый index.html → через секунду-две
+        // WebView открывается заново с новым.
+        //
+        // Причина гонки: checkAndUpdate качает изменившиеся файлы
+        // ПОСЛЕДОВАТЕЛЬНО, и у каждого отдельного HTTP-запроса таймаут до
+        // ~23с (connectTimeout 8000 + readTimeout 15000 в downloadToFile) —
+        // если изменилось больше одного файла, 5с почти гарантированно не
+        // хватает даже на нормальном соединении, это не сценарий "совсем
+        // нет сети".
+        //
+        // Чиним тем, что watchdog теперь смотрит на ЗАСТОЙ прогресса
+        // (сколько времени прошло с последнего onProgress), а не на время
+        // с момента старта: пока checkAndUpdate реально что-то делает
+        // (шлёт onProgress на каждый проверенный/скачанный файл) —
+        // watchdog ждёт дальше. Есть также абсолютный HARD_CAP как
+        // страховка на случай, если прогресс идёт, но никогда не
+        // заканчивается.
         val proceededOnce = java.util.concurrent.atomic.AtomicBoolean(false)
+        val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val hotpatchStartedAt = System.currentTimeMillis()
+
+        // Чуть больше, чем максимальное время одного зависшего сетевого
+        // вызова внутри OtaUpdater (23с у downloadToFile) — иначе даже
+        // первый httpGetJsonArray() на медленном соединении без промежуточных
+        // onProgress мог бы сам спровоцировать ту же гонку.
+        val STALL_TIMEOUT_MS = 25_000L
+        val HARD_CAP_MS = 60_000L
 
         fun proceedWithHotpatch(hotpatchDir: File?) {
             if (!proceededOnce.compareAndSet(false, true)) return
@@ -329,18 +353,29 @@ class MainActivity : AppCompatActivity() {
             waitForServerThenLoad(webView)
         }
 
-        android.os.Handler(mainLooper).postDelayed({
-            if (!proceededOnce.get()) {
-                val dir = OtaUpdater.hotpatchDir(this)
-                val existing = if (dir.exists() && dir.listFiles()?.isNotEmpty() == true) dir else null
-                loadingStatus.text = "Нет соединения, запуск без обновлений…"
-                proceedWithHotpatch(existing)
+        val watchdogHandler = android.os.Handler(mainLooper)
+        val watchdog = object : Runnable {
+            override fun run() {
+                if (proceededOnce.get()) return
+                val now = System.currentTimeMillis()
+                val stalled = now - lastProgressAt.get() > STALL_TIMEOUT_MS
+                val hardCapped = now - hotpatchStartedAt > HARD_CAP_MS
+                if (stalled || hardCapped) {
+                    val dir = OtaUpdater.hotpatchDir(this@MainActivity)
+                    val existing = if (dir.exists() && dir.listFiles()?.isNotEmpty() == true) dir else null
+                    loadingStatus.text = "Нет соединения, запуск без обновлений…"
+                    proceedWithHotpatch(existing)
+                } else {
+                    watchdogHandler.postDelayed(this, 1000)
+                }
             }
-        }, 5000)
+        }
+        watchdogHandler.postDelayed(watchdog, 1000)
 
         Thread {
             OtaUpdater.checkAndUpdate(this, object : OtaUpdater.ProgressListener {
                 override fun onProgress(percent: Int, statusText: String) {
+                    lastProgressAt.set(System.currentTimeMillis())
                     runOnUiThread { loadingStatus.text = statusText }
                 }
 
@@ -353,6 +388,10 @@ class MainActivity : AppCompatActivity() {
                             // Python'ом, порт уже занят). Единственный
                             // надёжный способ подхватить свежескачанный
                             // bridge.py — перезапустить процесс целиком.
+                            // После фикса watchdog'а выше это по-прежнему
+                            // МОЖЕТ сработать (например, если пользователь
+                            // сам был на грани HARD_CAP), но перестаёт быть
+                            // обычным сценарием на каждом запуске.
                             loadingStatus.text = "Обновление готово, перезапуск…"
                             restartProcessToApplyUpdate()
                             return@runOnUiThread
