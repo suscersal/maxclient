@@ -19,6 +19,7 @@ commands = {
     "/info": "информация о боте",
     "/about": "информация о пользователе",
     "/keyboard": "показать/скрыть постоянную клавиатуру",
+    "/start": "старт"
 }
 
 # Инлайн-кнопки под сообщением (аналог inline-клавиатуры в Telegram).
@@ -34,7 +35,8 @@ MAIN_MENU_BUTTONS = [
 # Постоянная reply-клавиатура (не inline) — держится над полем ввода,
 # пока бот не пришлёт новую или не уберёт (remove_keyboard: true).
 REPLY_KEYBOARD = [
-    [{"text": "😀", "value": "/echo 😀"}, {"text": "👍", "value": "/echo 👍"}, {"text": "🔥", "value": "/echo 🔥"}],
+    [{"text": "😀", "value": "/echo 😀"}, {"text": "👍",
+                                         "value": "/echo 👍"}, {"text": "🔥", "value": "/echo 🔥"}],
     [{"text": "ℹ️ Инфо", "value": "/info"}],
 ]
 
@@ -57,7 +59,7 @@ def message():
     if text in ("/start", "/menu"):
         return jsonify({
             "text": f"👋 Привет! Я **{name}**. {description}\n\n"
-                    f"Выберите пункт меню или просто напишите мне что-нибудь — я отвечу эхом.",
+            f"Выберите пункт меню или просто напишите мне что-нибудь — я отвечу эхом.",
             "buttons": MAIN_MENU_BUTTONS,
             "keyboard": REPLY_KEYBOARD,
         })
@@ -77,7 +79,8 @@ def message():
         })
 
     elif text == "/info":
-        commands_text = "\n".join(f"`{cmd}` — {desc}" for cmd, desc in commands.items())
+        commands_text = "\n".join(
+            f"`{cmd}` — {desc}" for cmd, desc in commands.items())
         return jsonify({
             "text": f"Имя: **{name}**. Описание: {description}\n\nКоманды:\n{commands_text}",
             "buttons": MAIN_MENU_BUTTONS,

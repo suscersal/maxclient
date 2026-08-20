@@ -1357,6 +1357,62 @@
             border-top: 1px solid #eee;
         }
 
+        /* Стартовый экран бота: карточка "Что умеет этот бот?" плавает по
+           центру области сообщений (как в Telegram), а не прилипает к низу
+           отдельной полосой — кнопка "Запустить бота" вынесена в свой подвал. */
+        #botChatMessages.bot-start-active {
+            justify-content: center;
+            align-items: center;
+        }
+
+        .bot-start-card {
+            max-width: 300px;
+            width: 100%;
+            background: #f0f1f5;
+            border-radius: 16px;
+            padding: 18px 16px;
+            font-size: 14px;
+            color: #2c2c2e;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        html[data-theme="dark"] .bot-start-card {
+            background: rgba(255, 255, 255, 0.06) !important;
+            color: #E8E8E8 !important;
+        }
+
+        /* Команды в тексте сообщений бота (например "/info" в описании или
+           списке команд) подсвечиваются как ссылки-кнопки: клик отправляет
+           эту команду боту заново, как обычное сообщение. */
+        .bot-cmd-link {
+            color: #5b9bff;
+            background: rgba(91, 155, 255, 0.10);
+            padding: 1px 6px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .bot-cmd-link:hover {
+            background: rgba(91, 155, 255, 0.18);
+        }
+
+        .bot-cmd-link:active {
+            background: rgba(91, 155, 255, 0.26);
+        }
+
+        html[data-theme="dark"] .bot-cmd-link {
+            color: #8FC4FF !important;
+            background: rgba(143, 196, 255, 0.12) !important;
+        }
+
+        html[data-theme="dark"] .bot-cmd-link:active {
+            background: rgba(143, 196, 255, 0.22) !important;
+        }
+
         .bot-reply-row {
             display: flex;
             gap: 6px;
@@ -1384,16 +1440,27 @@
         }
 
         /* Простая Markdown-разметка в сообщениях бота */
-        .msg-text b, .msg-text strong { font-weight: 600; }
-        .msg-text i, .msg-text em { font-style: italic; }
+        .msg-text b,
+        .msg-text strong {
+            font-weight: 600;
+        }
+
+        .msg-text i,
+        .msg-text em {
+            font-style: italic;
+        }
+
         .msg-text code.inline-code {
-            background: rgba(0,0,0,0.06);
+            background: rgba(0, 0, 0, 0.06);
             border-radius: 4px;
             padding: 1px 4px;
             font-family: 'SFMono-Regular', Consolas, monospace;
             font-size: 0.9em;
         }
-        .msg-text s { text-decoration: line-through; }
+
+        .msg-text s {
+            text-decoration: line-through;
+        }
 
         .msg-text {
             margin-top: 4px;
@@ -3237,57 +3304,58 @@
             font-weight: 500;
             text-align: center;
         }
+
         /* Простая (Минимализм) */
-html[data-theme="simple"] {
-  --tg-blue: #007aff;
-  --tg-blue-dark: #0066d6;
-  --tg-blue-deep: #0057b8;
-  --tg-bg: #f5f7fa;
-  --tg-panel: #ffffff;
-  --tg-text: #333333;
-  --tg-text-secondary: #7a7a7a;
-  --tg-border: #e2e5e9;
-  --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
-  --tg-incoming-bubble: #ffffff;
-}
+        html[data-theme="simple"] {
+            --tg-blue: #007aff;
+            --tg-blue-dark: #0066d6;
+            --tg-blue-deep: #0057b8;
+            --tg-bg: #f5f7fa;
+            --tg-panel: #ffffff;
+            --tg-text: #333333;
+            --tg-text-secondary: #7a7a7a;
+            --tg-border: #e2e5e9;
+            --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
+            --tg-incoming-bubble: #ffffff;
+        }
 
-/* Неон (Энергия) */
-html[data-theme="neon"] {
-  --tg-blue: #ff007f;
-  --tg-blue-dark: #cc0066;
-  --tg-blue-deep: #a30052;
-  --tg-bg: #0d0e15;
-  --tg-panel: #15161f;
-  --tg-text: #00ffcc;
-  --tg-text-secondary: #7a90a0;
-  --tg-border: #232538;
-  --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
-  --tg-incoming-bubble: #15161f;
-}
+        /* Неон (Энергия) */
+        html[data-theme="neon"] {
+            --tg-blue: #ff007f;
+            --tg-blue-dark: #cc0066;
+            --tg-blue-deep: #a30052;
+            --tg-bg: #0d0e15;
+            --tg-panel: #15161f;
+            --tg-text: #00ffcc;
+            --tg-text-secondary: #7a90a0;
+            --tg-border: #232538;
+            --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
+            --tg-incoming-bubble: #15161f;
+        }
 
-/* Летний лес (Умиротворение) */
-html[data-theme="forest"] {
-  --tg-blue: #4caf50;
-  --tg-blue-dark: #3d8b40;
-  --tg-blue-deep: #2e6b30;
-  --tg-bg: #f0f4f1;
-  --tg-panel: #ffffff;
-  --tg-text: #2c3e2b;
-  --tg-text-secondary: #6b8065;
-  --tg-border: #d7e3d4;
-  --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
-  --tg-incoming-bubble: #ffffff;
-}
+        /* Летний лес (Умиротворение) */
+        html[data-theme="forest"] {
+            --tg-blue: #4caf50;
+            --tg-blue-dark: #3d8b40;
+            --tg-blue-deep: #2e6b30;
+            --tg-bg: #f0f4f1;
+            --tg-panel: #ffffff;
+            --tg-text: #2c3e2b;
+            --tg-text-secondary: #6b8065;
+            --tg-border: #d7e3d4;
+            --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
+            --tg-incoming-bubble: #ffffff;
+        }
 
-html[data-theme="simple"] html,
-html[data-theme="simple"] body,
-html[data-theme="neon"] html,
-html[data-theme="neon"] body,
-html[data-theme="forest"] html,
-html[data-theme="forest"] body {
-    background: var(--tg-bg) !important;
-    color: var(--tg-text) !important;
-}
+        html[data-theme="simple"] html,
+        html[data-theme="simple"] body,
+        html[data-theme="neon"] html,
+        html[data-theme="neon"] body,
+        html[data-theme="forest"] html,
+        html[data-theme="forest"] body {
+            background: var(--tg-bg) !important;
+            color: var(--tg-text) !important;
+        }
 
 
         .msg-bubble {
@@ -3308,43 +3376,44 @@ html[data-theme="forest"] body {
         .msg-bubble.own .msg-file a {
             color: #fff;
         }
+
         /* ===== ЗАГРУЗОЧНЫЙ ЭКРАН — ПОДДЕРЖКА ТЕМ ===== */
 
-/* Базовые стили (светлая тема) */
-#loadingOverlay {
-    background: #f5f5f5;
-}
+        /* Базовые стили (светлая тема) */
+        #loadingOverlay {
+            background: #f5f5f5;
+        }
 
-#loadingOverlay .loading-label {
-    color: #666;
-}
+        #loadingOverlay .loading-label {
+            color: #666;
+        }
 
-/* Тёмная тема */
-html[data-theme="dark"] #loadingOverlay {
-    background: #000 !important;
-}
+        /* Тёмная тема */
+        html[data-theme="dark"] #loadingOverlay {
+            background: #000 !important;
+        }
 
-html[data-theme="dark"] #loadingOverlay .loading-label {
-    color: #8E8E93 !important;
-}
+        html[data-theme="dark"] #loadingOverlay .loading-label {
+            color: #8E8E93 !important;
+        }
 
-/* Тема "Космос" (если добавите) */
-html[data-theme="space"] #loadingOverlay {
-    background: #0a0e27 !important;
-}
+        /* Тема "Космос" (если добавите) */
+        html[data-theme="space"] #loadingOverlay {
+            background: #0a0e27 !important;
+        }
 
-html[data-theme="space"] #loadingOverlay .loading-label {
-    color: #7a8abf !important;
-}
+        html[data-theme="space"] #loadingOverlay .loading-label {
+            color: #7a8abf !important;
+        }
 
-/* Тема "Сепия" (если добавите) */
-html[data-theme="sepia"] #loadingOverlay {
-    background: #f4efe6 !important;
-}
+        /* Тема "Сепия" (если добавите) */
+        html[data-theme="sepia"] #loadingOverlay {
+            background: #f4efe6 !important;
+        }
 
-html[data-theme="sepia"] #loadingOverlay .loading-label {
-    color: #5c4b3a !important;
-}
+        html[data-theme="sepia"] #loadingOverlay .loading-label {
+            color: #5c4b3a !important;
+        }
 
         .msg-bubble.own .msg-time {
             color: rgba(255, 255, 255, 0.8);
@@ -3475,29 +3544,30 @@ html[data-theme="sepia"] #loadingOverlay .loading-label {
         html[data-theme="dark"] #globalSearchResultsList .chat-item {
             border-bottom-color: #2C2C2E !important;
         }
-        /* Космос */
-html[data-theme="space"] {
-    --tg-bg: #0a0e27;
-    --tg-panel: #141832;
-    --tg-text: #b8c6ff;
-    --tg-text-secondary: #7a8abf;
-    --tg-border: #2a3060;
-    --tg-blue: #6c8cff;
-    --tg-own-bubble: linear-gradient(135deg, #6c8cff, #4a6cf7);
-    --tg-incoming-bubble: #1a2040;
-}
 
-/* Сепия */
-html[data-theme="sepia"] {
-    --tg-bg: #f4efe6;
-    --tg-panel: #faf6ef;
-    --tg-text: #5c4b3a;
-    --tg-text-secondary: #8a7a6a;
-    --tg-border: #e0d5c8;
-    --tg-blue: #b8860b;
-    --tg-own-bubble: linear-gradient(135deg, #d4a055, #b8860b);
-    --tg-incoming-bubble: #faf6ef;
-}
+        /* Космос */
+        html[data-theme="space"] {
+            --tg-bg: #0a0e27;
+            --tg-panel: #141832;
+            --tg-text: #b8c6ff;
+            --tg-text-secondary: #7a8abf;
+            --tg-border: #2a3060;
+            --tg-blue: #6c8cff;
+            --tg-own-bubble: linear-gradient(135deg, #6c8cff, #4a6cf7);
+            --tg-incoming-bubble: #1a2040;
+        }
+
+        /* Сепия */
+        html[data-theme="sepia"] {
+            --tg-bg: #f4efe6;
+            --tg-panel: #faf6ef;
+            --tg-text: #5c4b3a;
+            --tg-text-secondary: #8a7a6a;
+            --tg-border: #e0d5c8;
+            --tg-blue: #b8860b;
+            --tg-own-bubble: linear-gradient(135deg, #d4a055, #b8860b);
+            --tg-incoming-bubble: #faf6ef;
+        }
 
         html[data-theme="dark"] #localChatSearchInput {
             background: #2C2C2E !important;
@@ -4217,13 +4287,14 @@ html[data-theme="sepia"] {
             </div>
             <div id="botChatMessages"
                 style="flex:1;overflow-y:auto;padding:8px 4px;display:flex;flex-direction:column;gap:8px;"></div>
-            <!-- Стартовая карточка бота (аналог экрана "Что умеет этот бот?" +
-                 кнопка "Запустить бота" в Telegram) — показывается только пока
-                 в чате нет ни одного сообщения. -->
-            <div id="botStartCard" style="display:none;padding:14px;border-top:1px solid #eee;">
-                <div id="botStartCardBody" style="font-size:14px;color:#333;line-height:1.5;white-space:pre-wrap;margin-bottom:12px;"></div>
-                <button class="btn-save" id="botStartBtn" onclick="startBotChat()"
-                    style="width:100%;padding:12px;font-size:15px;border-radius:20px;">Запустить бота</button>
+            <!-- Подвал с кнопкой "Запустить бота" (аналог кнопки в Telegram) —
+                 показывается только пока в чате нет ни одного сообщения;
+                 сама карточка "Что умеет этот бот?" рендерится внутри
+                 #botChatMessages (см. updateBotStartUi), чтобы плавать по
+                 центру области, а не прилипать к этой кнопке. -->
+            <div id="botStartFooter" style="display:none;padding:10px 4px 0;">
+                <button id="botStartBtn" onclick="startBotChat()" style="width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:22px;
+                           background:#0d6efd;color:#fff;border:none;cursor:pointer;">Запустить бота</button>
             </div>
             <!-- Постоянная reply-клавиатура бота (аналог обычной, не inline,
                  клавиатуры в Telegram) — висит над полем ввода, пока бот не
@@ -4234,9 +4305,10 @@ html[data-theme="sepia"] {
             <div id="botMenuPanel"
                 style="display:none;flex-direction:column;gap:4px;padding:6px 4px;border-top:1px solid #eee;max-height:160px;overflow-y:auto;">
             </div>
-            <div id="botInputRow" style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;align-items:center;">
-                <button class="btn-save" id="botMenuBtn" onclick="toggleBotMenu()"
-                    title="Меню команд бота" style="padding:10px 12px;">☰</button>
+            <div id="botInputRow"
+                style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;align-items:center;">
+                <button class="btn-save" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
+                    style="padding:10px 12px;">☰</button>
                 <input type="text" id="botChatInput" placeholder="Сообщение боту..."
                     style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
                     onkeydown="if(event.key==='Enter') sendBotChatMessage();">
@@ -6320,10 +6392,30 @@ html[data-theme="sepia"] {
         // Рендерит текст сообщения бота: экранирование + блоки кода ``` ``` +
         // ссылки (см. renderPlainMessageText) + простая Markdown-разметка,
         // которую боты обычно используют в ответах (как в Telegram):
-        // **жирный**, *курсив*/_курсив_, `код`, ~~зачёркнутый~~.
+        // **жирный**, *курсив*/_курсив_, `код`, ~~зачёркнутый~~, + подсветка
+        // известных команд бота (/info, /start...) кликабельными ссылками.
         function renderBotMessageText(text) {
             const withCode = renderPlainMessageText(text || '');
-            return applySimpleMarkdown(withCode);
+            const withMarkdown = applySimpleMarkdown(withCode);
+            return linkifyBotCommands(withMarkdown);
+        }
+
+        // Оборачивает в тексте сообщения ЛЮБОЕ слово вида "/что-то" (не только
+        // команды из /api/info — так бот может подсказывать и команды, которых
+        // нет в его официальном списке) в кликабельный span: клик отправляет
+        // эту команду боту заново — как тап по команде в Telegram. Работает и
+        // внутри `код`-разметки.
+        // Отрицательный lookbehind ["\w/:] и lookahead [\w/] отсекают куски
+        // ссылок вида href="...com/info" или "https://example.com/path" —
+        // токен считается командой, только если "/" не приклеен к другому
+        // слову/слэшу/двоеточию слева и не продолжается дальше словом/слэшем.
+        function linkifyBotCommands(html) {
+            // "<" в исключениях — иначе паттерн ловит "/b", "/i", "/code" внутри
+            // закрывающих тегов </b>, </i>, </code>, которые уже добавила
+            // applySimpleMarkdown, и ломает HTML (это и было в баге со скриншота).
+            const pattern = /(?<!["\w/:<])(\/[A-Za-zА-Яа-яЁё0-9_-]+)(?![\w/])/g;
+            return html.replace(pattern, m =>
+                `<span class="bot-cmd-link" onclick="sendBotChatMessage(${jsStrAttr(m)})">${m}</span>`);
         }
 
         // Применяется к уже экранированному HTML (после renderPlainMessageText),
@@ -6401,9 +6493,7 @@ html[data-theme="sepia"] {
             touchCustomBot(botId);
             updateBotChatHeader(bot);
             document.getElementById('botMenuPanel').style.display = 'none';
-            renderBotChatMessages();
             renderBotMenuPanel();
-            renderBotReplyKeyboard();
             updateBotStartUi();
             fetchBotCommands(bot);
             document.getElementById('botChatModal').classList.add('active');
@@ -6418,31 +6508,30 @@ html[data-theme="sepia"] {
         }
 
         // Пока в чате нет ни одного сообщения — показываем стартовую карточку
-        // бота ("Что умеет этот бот?" + кнопка "Запустить бота"), как в
-        // Telegram, вместо обычного поля ввода. После первого сообщения —
-        // обычный интерфейс чата.
+        // бота ("Что умеет этот бот?"), плавающую по центру области сообщений,
+        // и кнопку "Запустить бота" отдельным подвалом снизу — как в Telegram,
+        // вместо обычного поля ввода. После первого сообщения — обычный чат.
         function updateBotStartUi() {
             if (!activeBotChatId) return;
-            const startCard = document.getElementById('botStartCard');
+            const container = document.getElementById('botChatMessages');
+            const footer = document.getElementById('botStartFooter');
             const inputRow = document.getElementById('botInputRow');
             const menuPanel = document.getElementById('botMenuPanel');
             const replyKeyboard = document.getElementById('botReplyKeyboard');
             const history = getBotChatHistory(activeBotChatId);
-            const info = getBotInfoCache(activeBotChatId) || {};
             if (!history.length) {
-                const body = document.getElementById('botStartCardBody');
-                body.textContent = info.description
-                    ? `Что умеет этот бот?\n\n${info.description}`
-                    : 'Нажмите «Запустить бота», чтобы начать общение.';
-                startCard.style.display = 'block';
+                container.classList.add('bot-start-active');
+                footer.style.display = 'block';
                 inputRow.style.display = 'none';
                 menuPanel.style.display = 'none';
                 if (replyKeyboard) replyKeyboard.style.display = 'none';
             } else {
-                startCard.style.display = 'none';
+                container.classList.remove('bot-start-active');
+                footer.style.display = 'none';
                 inputRow.style.display = 'flex';
                 renderBotReplyKeyboard();
             }
+            renderBotChatMessages();
         }
 
         // Клик по кнопке "Запустить бота" — отправляет /start, как первое
@@ -6555,6 +6644,14 @@ html[data-theme="sepia"] {
             const container = document.getElementById('botChatMessages');
             if (!container || !activeBotChatId) return;
             const history = getBotChatHistory(activeBotChatId);
+            if (!history.length) {
+                const info = getBotInfoCache(activeBotChatId) || {};
+                const body = info.description
+                    ? `Что умеет этот бот?\n\n${renderBotMessageText(info.description)}`
+                    : 'Нажмите «Запустить бота», чтобы начать общение.';
+                container.innerHTML = `<div class="bot-start-card">${body}</div>`;
+                return;
+            }
             container.innerHTML = history.map(m => `
                 <div style="align-self:${m.role === 'user' ? 'flex-end' : 'flex-start'};max-width:85%;
                             background:${m.role === 'user' ? '#007bff' : '#f0f0f0'};color:${m.role === 'user' ? '#fff' : '#000'};
@@ -6627,7 +6724,7 @@ html[data-theme="sepia"] {
                         history: history.slice(-20),
                     }),
                 });
-                
+
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 const replyText = data.text || '(пустой ответ)';
