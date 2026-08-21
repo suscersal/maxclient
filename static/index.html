@@ -1772,24 +1772,23 @@
 
         #deleteConfirmDialog {
             width: min(340px, 88vw);
-            background: var(--tg-panel);
+            background: #f2f9fc;
             border-radius: 20px;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
             padding: 24px 22px 20px;
             box-sizing: border-box;
-            transition: background 0.15s ease;
         }
 
         #deleteConfirmDialog .dcd-title {
             font-size: 22px;
             font-weight: 700;
-            color: var(--tg-text);
+            color: #1c1c1e;
             margin: 0 0 14px;
         }
 
         #deleteConfirmDialog .dcd-text {
             font-size: 15px;
-            color: var(--tg-text);
+            color: #1c1c1e;
             margin: 0 0 16px;
             line-height: 1.4;
         }
@@ -1807,7 +1806,7 @@
             width: 22px;
             height: 22px;
             border-radius: 50%;
-            border: 2px solid var(--tg-border);
+            border: 2px solid #b9c2c9;
             flex: 0 0 auto;
             display: flex;
             align-items: center;
@@ -1817,8 +1816,8 @@
         }
 
         #deleteConfirmDialog .dcd-checkbox.checked {
-            background: var(--tg-blue);
-            border-color: var(--tg-blue);
+            background: #3390ec;
+            border-color: #3390ec;
         }
 
         #deleteConfirmDialog .dcd-checkbox svg {
@@ -1833,7 +1832,7 @@
 
         #deleteConfirmDialog .dcd-check-label {
             font-size: 15px;
-            color: var(--tg-text);
+            color: #1c1c1e;
         }
 
         #deleteConfirmDialog .dcd-actions {
@@ -1863,13 +1862,28 @@
         }
 
         #deleteConfirmDialog .dcd-btn.cancel {
-            background: var(--tg-border);
-            color: var(--tg-text);
+            background: #e3e6e8;
+            color: #1c1c1e;
         }
 
         #deleteConfirmDialog .dcd-btn.cancel:hover,
         #deleteConfirmDialog .dcd-btn.cancel:active {
-            filter: brightness(0.94);
+            background: #d5d9db;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog {
+            background: #232e3c;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-title,
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-text,
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-check-label {
+            color: #fff;
+        }
+
+        html[data-theme="dark"] #deleteConfirmDialog .dcd-btn.cancel {
+            background: #2b3a4c;
+            color: #fff;
         }
 
                 #simpleConfirmBackdrop {
@@ -1888,24 +1902,23 @@
 
         #simpleConfirmDialog {
             width: min(340px, 88vw);
-            background: var(--tg-panel);
+            background: #f2f9fc;
             border-radius: 20px;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
             padding: 24px 22px 20px;
             box-sizing: border-box;
-            transition: background 0.15s ease;
         }
 
         #simpleConfirmDialog .dcd-title {
             font-size: 22px;
             font-weight: 700;
-            color: var(--tg-text);
+            color: #1c1c1e;
             margin: 0 0 14px;
         }
 
         #simpleConfirmDialog .dcd-text {
             font-size: 15px;
-            color: var(--tg-text);
+            color: #1c1c1e;
             margin: 0 0 16px;
             line-height: 1.4;
         }
@@ -1923,7 +1936,7 @@
             width: 22px;
             height: 22px;
             border-radius: 50%;
-            border: 2px solid var(--tg-border);
+            border: 2px solid #b9c2c9;
             flex: 0 0 auto;
             display: flex;
             align-items: center;
@@ -1933,8 +1946,8 @@
         }
 
         #simpleConfirmDialog .dcd-checkbox.checked {
-            background: var(--tg-blue);
-            border-color: var(--tg-blue);
+            background: #3390ec;
+            border-color: #3390ec;
         }
 
         #simpleConfirmDialog .dcd-checkbox svg {
@@ -1949,7 +1962,7 @@
 
         #simpleConfirmDialog .dcd-check-label {
             font-size: 15px;
-            color: var(--tg-text);
+            color: #1c1c1e;
         }
 
         #simpleConfirmDialog .dcd-actions {
@@ -1979,13 +1992,28 @@
         }
 
         #simpleConfirmDialog .dcd-btn.cancel {
-            background: var(--tg-border);
-            color: var(--tg-text);
+            background: #e3e6e8;
+            color: #1c1c1e;
         }
 
         #simpleConfirmDialog .dcd-btn.cancel:hover,
         #simpleConfirmDialog .dcd-btn.cancel:active {
-            filter: brightness(0.94);
+            background: #d5d9db;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog {
+            background: #232e3c;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-title,
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-text,
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-check-label {
+            color: #fff;
+        }
+
+        html[data-theme="dark"] #simpleConfirmDialog .dcd-btn.cancel {
+            background: #2b3a4c;
+            color: #fff;
         }
 
         
@@ -4408,6 +4436,11 @@
                 <div id="joinLinkPreview" style="font-size:13px;color:#888;margin-bottom:10px;"></div>
                 <button class="btn-save" style="width:100%;" onclick="submitJoinByLink()">Вступить</button>
             </div>
+            <div id="addMemberForm" class="hidden" style="padding:4px 12px 12px;">
+                <div style="font-size:13px;color:#888;margin-bottom:6px;">Кого добавить:</div>
+                <div id="addMemberMembersList" style="max-height:260px;overflow-y:auto;margin-bottom:10px;"></div>
+                <button class="btn-save" style="width:100%;" onclick="submitAddMembers()">Добавить</button>
+            </div>
         </div>
     </div>
 
@@ -4428,7 +4461,7 @@
     <div class="chat-profile-overlay" id="contactPhotosModal">
         <div class="chat-profile-modal" style="max-width:420px;width:92vw;">
             <div class="chat-profile-header">
-                <h3>Аватарки</h3>
+                <h3>Фотографии</h3>
                 <button class="chat-profile-close" onclick="closeContactPhotosModal()">✕</button>
             </div>
             <div id="contactPhotosGrid"
@@ -4597,6 +4630,9 @@
 
             <button id="sendMessageBtn" class="success">Отправить</button>
         </div>
+        <button type="button" id="joinChatBtn" class="hidden success"
+            style="width:calc(100% - 24px);margin:8px 12px;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;"
+            onclick="joinChatAction(currentChatId)">Вступить</button>
     </div>
 
     <div id="miniappOverlay" class="miniapp-overlay hidden">
@@ -4648,19 +4684,19 @@
                 return true;
             }
 
-            // Если это группа/супергруппа
-            if (chat.type === 'GROUP' || chat.type === 'SUPERGROUP') {
-                // Примерная логика: ищем участника по selfId
-                const participant = chat.participants?.[selfId];
-                if (!participant) return false;
+            // Обычная группа (chat.type === 'CHAT' в протоколе MAX) —
+            // писать может любой участник.
+            if (chat.type === 'CHAT') {
+                return isChatMember(chat);
+            }
 
-                // Здесь должны быть реальные биты прав (flags). 
-                // Обычно право на отправку текста имеет бит send_messages.
-                // Так как структура flags неизвестна, используем заглушку:
-                // return Boolean(participant.flags & 0x01); 
-
-                // Временное решение: разрешать писать везде, кроме каналов
-                return true;
+            // Канал — по умолчанию это broadcast-only (пишет только
+            // владелец/админы), обычные подписчики только читают.
+            if (chat.type === 'CHANNEL') {
+                if (!isChatMember(chat)) return false;
+                const ownerId = chat.owner;
+                const adminIds = chat.adminParticipants || {};
+                return selfId === ownerId || !!adminIds[selfId];
             }
 
             return false;
@@ -7721,6 +7757,12 @@
             // у каналов сервер не присылает полный список подписчиков
             // в chat.participants, поэтому для них блок не показываем.
             if (chat.type === 'CHAT') {
+                optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="openAddMemberForm(${chat.id})">
+                <span class="opt-icon">➕</span>
+                <span class="opt-label">Добавить участника</span>
+            </button>
+        `;
                 optionsContainer.innerHTML += renderGroupMembersHtml(chat);
                 ensureGroupMembersLoaded(chat);
             }
@@ -7789,7 +7831,7 @@
             </button>
             <button class="chat-profile-option" onclick="openContactPhotosModal(${JSON.stringify(otherId)})">
                 <span class="opt-icon">🖼️</span>
-                <span class="opt-label">Аватарки</span>
+                <span class="opt-label">Фотографии</span>
             </button>
         `;
             }
@@ -7844,29 +7886,36 @@
             <div id="scamCheckChatResult" style="padding:0 12px 8px;font-size:12px;color:#888;"></div>
         `;
 
-            // Очистить историю / удалить чат / покинуть группу
+            // Очистить чат / удалить чат / покинуть группу или канал
             // (chatClear=54, chatDelete=52, chatLeave=58)
-            optionsContainer.innerHTML += `
-            <hr class="chat-profile-divider">
+            optionsContainer.innerHTML += `<hr class="chat-profile-divider">`;
+            if (chat.type === 'CHAT' || chat.type === 'CHANNEL') {
+                // Для групп и каналов вместо «Удалить чат» — две отдельные
+                // кнопки: локальная очистка кэша и выход из группы/канала.
+                optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="clearChatHistoryAction(${chat.id})">
                 <span class="opt-icon">🧹</span>
-                <span class="opt-label">Очистить историю</span>
+                <span class="opt-label">Очистить чат (кэш)</span>
             </button>
-        `;
-            if (chat.type === 'CHAT') {
-                optionsContainer.innerHTML += `
             <button class="chat-profile-option chat-profile-danger" onclick="leaveChatAction(${chat.id})">
                 <span class="opt-icon">🚪</span>
-                <span class="opt-label">Покинуть группу</span>
+                <span class="opt-label">${chat.type === 'CHANNEL' ? 'Покинуть канал' : 'Покинуть группу'}</span>
             </button>
         `;
-            }
-            optionsContainer.innerHTML += `
+            } else {
+                // Личный чат с контактом: очистка с выбором «у себя»/«у всех»
+                // и отдельная кнопка полного удаления чата из списка.
+                optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="clearChatHistoryAction(${chat.id})">
+                <span class="opt-icon">🧹</span>
+                <span class="opt-label">Очистить чат</span>
+            </button>
             <button class="chat-profile-option chat-profile-danger" onclick="deleteChatAction(${chat.id})">
                 <span class="opt-icon">🗑️</span>
                 <span class="opt-label">Удалить чат</span>
             </button>
         `;
+            }
 
             document.getElementById('chatProfileModal').classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -7951,6 +8000,63 @@
             });
         }
 
+        // Диалог с тремя вариантами (переиспользует тот же DOM-узел/CSS, что
+        // showSimpleConfirmDialog, — просто рисует 3 кнопки вместо 2).
+        // Возвращает 'primary' | 'secondary' | null (отмена).
+        function showThreeWayConfirmDialog(title, text, primaryLabel, secondaryLabel) {
+            const { backdrop, dialog } = _ensureSimpleConfirmEls();
+            return new Promise((resolve) => {
+                let settled = false;
+                const close = (result) => {
+                    if (settled) return;
+                    settled = true;
+                    backdrop.classList.remove('active');
+                    backdrop.removeEventListener('click', onBackdropClick);
+                    document.removeEventListener('keydown', onKeydown);
+                    resolve(result);
+                };
+                const onBackdropClick = (e) => { if (e.target === backdrop) close(null); };
+                const onKeydown = (e) => { if (e.key === 'Escape') close(null); };
+
+                dialog.innerHTML = '';
+                const titleEl = document.createElement('p');
+                titleEl.className = 'dcd-title';
+                titleEl.textContent = title;
+                const textEl = document.createElement('p');
+                textEl.className = 'dcd-text';
+                textEl.textContent = text;
+                dialog.appendChild(titleEl);
+                dialog.appendChild(textEl);
+
+                const actions = document.createElement('div');
+                actions.className = 'dcd-actions';
+                actions.style.flexDirection = 'column';
+                const primaryBtn = document.createElement('button');
+                primaryBtn.type = 'button';
+                primaryBtn.className = 'dcd-btn danger';
+                primaryBtn.textContent = primaryLabel;
+                primaryBtn.onclick = () => close('primary');
+                const secondaryBtn = document.createElement('button');
+                secondaryBtn.type = 'button';
+                secondaryBtn.className = 'dcd-btn cancel';
+                secondaryBtn.textContent = secondaryLabel;
+                secondaryBtn.onclick = () => close('secondary');
+                const cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'dcd-btn cancel';
+                cancelBtn.textContent = 'Отменить';
+                cancelBtn.onclick = () => close(null);
+                actions.appendChild(primaryBtn);
+                actions.appendChild(secondaryBtn);
+                actions.appendChild(cancelBtn);
+                dialog.appendChild(actions);
+
+                backdrop.classList.add('active');
+                backdrop.addEventListener('click', onBackdropClick);
+                document.addEventListener('keydown', onKeydown);
+            });
+        }
+
         // ===================================================================
         // Новый чат: меню «Создать группу» / «Вступить по ссылке»
         // ===================================================================
@@ -7958,6 +8064,7 @@
             document.getElementById('newChatModalMenu').classList.remove('hidden');
             document.getElementById('createGroupForm').classList.add('hidden');
             document.getElementById('joinByLinkForm').classList.add('hidden');
+            document.getElementById('addMemberForm').classList.add('hidden');
             document.getElementById('newChatModalTitle').textContent = 'Новый чат';
             document.getElementById('newChatModal').classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -7989,6 +8096,73 @@
             document.getElementById('joinLinkPreview').textContent = '';
         }
 
+        // «Добавить участника» в уже существующую группу — вызывается кнопкой
+        // из профиля группы (см. openChatProfile, chat.type === 'CHAT').
+        // Открывает то же модальное окно «Новый чат», но со списком контактов,
+        // которых ещё нет среди участников этой группы.
+        function openAddMemberForm(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            addMemberTargetChatId = chatId;
+            const existingIds = new Set(Object.keys(chat.participants || {}).map(Number));
+            const list = document.getElementById('addMemberMembersList');
+            const contacts = Object.values(contactsById)
+                .filter(c => c && c.id !== selfId && !existingIds.has(c.id));
+            list.innerHTML = contacts.map(c => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;">
+                <input type="checkbox" class="add-member-cb" value="${c.id}">
+                <span>${escapeHtml(c.names?.[0]?.firstName || c.name || ('#' + c.id))}</span>
+            </label>
+        `).join('') || '<div style="color:#888;font-size:13px;">Все контакты уже в группе</div>';
+
+            document.getElementById('newChatModalMenu').classList.add('hidden');
+            document.getElementById('addMemberForm').classList.remove('hidden');
+            document.getElementById('newChatModalTitle').textContent = 'Добавить участника';
+            document.getElementById('newChatModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        // Добавление участников шлётся как обычное сообщение с CONTROL-вложением
+        // event:"add" в уже существующий чат (тем же путём, что и остальные
+        // системные события чата — см. submitCreateGroup для event:"new" и
+        // разбор event:"add" в Komet: chat_preview.dart / ChatsModule).
+        function submitAddMembers() {
+            const chatId = addMemberTargetChatId;
+            if (chatId == null) return;
+            const userIds = Array.from(document.querySelectorAll('.add-member-cb:checked'))
+                .map(cb => Number(cb.value));
+            if (!userIds.length) { log('❌ Выберите хотя бы одного участника', 'error'); return; }
+
+            // Оптимистично добавляем локально, чтобы список участников и
+            // счётчик в шапке обновились сразу, не дожидаясь ресинка.
+            const chat = chatsById[chatId];
+            if (chat) {
+                chat.participants = chat.participants || {};
+                userIds.forEach(id => { chat.participants[id] = chat.participants[id] ?? 0; });
+                refreshChatProfileMembersIfOpen();
+                if (currentChatId === chatId) renderChatDetailStatus(chat);
+            }
+
+            send(64, {
+                chatId,
+                message: {
+                    cid: Date.now(),
+                    attaches: [{ _type: 'CONTROL', event: 'add', chatId, userIds }]
+                },
+                notify: true
+            });
+            closeNewChatModal();
+            log('⏳ Добавление участников...', 'info');
+
+            // Подтягиваем актуальный состав с сервера (участники/счётчик),
+            // на случай если оптимистичное обновление разошлось с реальным
+            // результатом (например, часть выбранных не удалось добавить).
+            setTimeout(() => {
+                send(48, { chatIds: [chatId] });
+                send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+            }, 600);
+        }
+
         function submitCreateGroup() {
             const title = document.getElementById('newGroupTitle').value.trim();
             if (!title) { log('❌ Введите название группы', 'error'); return; }
@@ -8017,6 +8191,22 @@
             send(57, { link });
             closeNewChatModal();
             log('⏳ Вступление в чат...', 'info');
+        }
+
+        // Вступление в уже открытый (просматриваемый) публичный канал/группу —
+        // кнопка «Вступить» под лентой сообщений (см. updateComposerVisibility).
+        // Если у чата есть публичная ссылка/юзернейм — используем её (chatJoin
+        // умеет резолвить по link), иначе пробуем по chatId напрямую.
+        function joinChatAction(chatId) {
+            const chat = chatsById[chatId];
+            if (!chat) return;
+            pendingJoinChatId = chatId;
+            if (chat.link) {
+                send(57, { link: chat.link });
+            } else {
+                send(57, { chatId });
+            }
+            log('⏳ Вступление...', 'info');
         }
 
         // ===================================================================
@@ -8067,18 +8257,38 @@
         async function clearChatHistoryAction(chatId) {
             const chat = chatsById[chatId];
             if (!chat) return;
+
+            // В личных чатах с контактом даём выбор: очистить только у себя
+            // (forAll:false) или у обеих сторон (forAll:true, chatClear=54).
+            if (chat.type === 'DIALOG') {
+                const choice = await showThreeWayConfirmDialog(
+                    'Очистить чат',
+                    'Удалить все сообщения в этом чате у всех или только у себя?',
+                    'Удалить у всех', 'Удалить только у себя');
+                if (!choice) return;
+                send(54, { chatId, lastEventTime: Date.now(), forAll: choice === 'primary' });
+                return;
+            }
+
+            // Для групп/каналов это просто локальная очистка кэша (кнопка
+            // «Очистить чат (кэш)») — историю на сервере не трогаем.
             const ok = await showSimpleConfirmDialog(
-                'Очистить историю', 'Все сообщения в этом чате будут удалены у вас. Продолжить?',
+                'Очистить чат', 'Локальная копия сообщений (кэш) этого чата будет очищена. Продолжить?',
                 'Очистить', true);
             if (!ok) return;
             send(54, { chatId, lastEventTime: Date.now(), forAll: false });
         }
 
         async function leaveChatAction(chatId) {
+            const chat = chatsById[chatId];
+            const isChannel = chat && chat.type === 'CHANNEL';
             const ok = await showSimpleConfirmDialog(
-                'Покинуть группу', 'Вы уверены, что хотите покинуть эту группу?', 'Покинуть', true);
+                isChannel ? 'Покинуть канал' : 'Покинуть группу',
+                isChannel ? 'Вы уверены, что хотите покинуть этот канал?' : 'Вы уверены, что хотите покинуть эту группу?',
+                'Покинуть', true);
             if (!ok) return;
             lastChatLeaveId = chatId;
+            lastChatLeaveIsChannel = isChannel;
             send(58, { chatId });
         }
 
@@ -8757,6 +8967,11 @@
             wrapper.innerHTML = renderGroupMembersHtml(chat);
             const newList = wrapper.querySelector('#chatProfileMembersList');
             if (newList) container.innerHTML = newList.innerHTML;
+            const headerEl = container.previousElementSibling;
+            const newHeader = wrapper.querySelector('.chat-profile-members-header');
+            if (headerEl && headerEl.classList.contains('chat-profile-members-header') && newHeader) {
+                headerEl.textContent = newHeader.textContent;
+            }
         }
 
         function chatAvatarUrl(chat) {
@@ -10195,6 +10410,9 @@
         let pendingJoinLink = null;
         let lastChatDeleteId = null;
         let lastChatLeaveId = null;
+        let lastChatLeaveIsChannel = false;
+        let pendingJoinChatId = null;
+        let addMemberTargetChatId = null;
 
         async function deleteMessageAction(m, isOwn) {
             if (!currentChatId) return;
@@ -10315,24 +10533,9 @@
             // Ответить/Удалить — без ожидания возможного двойного тапа
             // (раньше тут была задержка в 250мс и отдельная логика
             // двойного тапа/клика, которая ставила ❤️ — убрано).
-            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-if (isTouchDevice) {
-    el.addEventListener('dblclick', (e) => {
-        if (e.target.closest('.msg-avatar, .msg-sender-name, .msg-reply-quote, .msg-keyboard-btn, .msg-file-link, .bot-inline-btn, .bot-reply-btn, .msg-keyboard, .bot-menu-item, .bot-cmd-link, .mention-link, .msg-code-copy, .lazy-media-placeholder, .msg-video-container, .voice-play-btn, .voice-progress-track, .video-note-play-overlay')) {
-            return;
-        }
-        e.preventDefault(); // предотвращает масштабирование при двойном тапе
-        showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
-    });
-} else {
-    el.addEventListener('click', (e) => {
-        if (e.target.closest('.msg-avatar, .msg-sender-name, .msg-reply-quote, .msg-keyboard-btn, .msg-file-link, .bot-inline-btn, .bot-reply-btn, .msg-keyboard, .bot-menu-item, .bot-cmd-link, .mention-link, .msg-code-copy, .lazy-media-placeholder, .msg-video-container, .voice-play-btn, .voice-progress-track, .video-note-play-overlay')) {
-            return;
-        }
-        showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
-    });
-}
+            el.addEventListener('click', (e) => {
+                showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
+            });
             let attachesHtml = '';
             let keyboardHtml = '';
             let encBadgeHtml = '';
@@ -10862,20 +11065,50 @@ if (isTouchDevice) {
                 }
             };
         }
+        // Состоите ли вы уже в этом групповом чате/канале. Чаты, открытые из
+        // глобального поиска (handlePublicSearchResult) или по резолву
+        // ссылки (handleLinkResolved) БЕЗ явного chatJoin, приходят без
+        // selfId в chat.participants — это и есть режим предпросмотра,
+        // после которого должна показываться кнопка «Вступить» (как у
+        // Telegram/MAX при открытии публичного канала не-подписчиком).
+        function isChatMember(chat) {
+            if (!chat || !selfId) return false;
+            if (chat.type === 'DIALOG') return true;
+            if (chat.participants && Object.prototype.hasOwnProperty.call(chat.participants, selfId)) {
+                return true;
+            }
+            return false;
+        }
+
         function updateComposerVisibility(chat) {
             const composer = document.getElementById('composerRow');
             const messageInput = document.getElementById('messageText');
+            const joinBtn = document.getElementById('joinChatBtn');
 
             if (!composer || !chat) {
                 if (composer) composer.classList.add('hidden');
+                if (joinBtn) joinBtn.classList.add('hidden');
                 return;
             }
 
             // Скрываем, если юзер не авторизован
             if (!isAuthenticated()) {
                 composer.classList.add('hidden');
+                if (joinBtn) joinBtn.classList.add('hidden');
                 return;
             }
+
+            // Превью группы/канала, в который вы ещё не вступили — вместо
+            // поля ввода показываем кнопку «Вступить».
+            if ((chat.type === 'CHAT' || chat.type === 'CHANNEL') && !isChatMember(chat)) {
+                composer.classList.add('hidden');
+                if (joinBtn) {
+                    joinBtn.textContent = chat.type === 'CHANNEL' ? 'Вступить в канал' : 'Вступить в группу';
+                    joinBtn.classList.remove('hidden');
+                }
+                return;
+            }
+            if (joinBtn) joinBtn.classList.add('hidden');
 
             // Основная проверка прав
             if (canWriteToChat(chat)) {
@@ -11445,6 +11678,8 @@ if (isTouchDevice) {
                     }
                     if (data.cmd === 768) {
                         const err = data.payload?.localizedMessage || data.payload?.error || 'Ошибка';
+                        pendingJoinLink = null;
+                        pendingJoinChatId = null;
 
                         if (err === "Ошибка валидации") {
                             log('Ошибка отправки сообщения', 'error')
@@ -11582,8 +11817,11 @@ if (isTouchDevice) {
                         return;
                     }
                     if (data.opcode === 57 && data.cmd === 256) {
-                        // chatJoin — вступили в чат по ссылке.
+                        // chatJoin — вступили в чат (по ссылке или по chatId
+                        // из уже открытого превью — см. joinChatAction).
                         pendingJoinLink = null;
+                        const joinedForId = pendingJoinChatId;
+                        pendingJoinChatId = null;
                         const joinedChat = data.payload?.chat;
                         if (joinedChat && typeof joinedChat.id === 'number') {
                             chatsById[joinedChat.id] = joinedChat;
@@ -11593,6 +11831,17 @@ if (isTouchDevice) {
                         } else {
                             log('✅ Вступление выполнено', 'success');
                             send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                            // Сервер не вернул объект чата напрямую (например,
+                            // при вступлении по chatId) — переоткрываем текущий
+                            // просматриваемый чат сразу после ресинка, чтобы
+                            // кнопка «Вступить» сменилась на поле ввода.
+                            if (joinedForId != null) {
+                                setTimeout(() => {
+                                    if (currentChatId === joinedForId && chatsById[joinedForId]) {
+                                        updateComposerVisibility(chatsById[joinedForId]);
+                                    }
+                                }, 500);
+                            }
                         }
                         return;
                     }
@@ -11626,6 +11875,7 @@ if (isTouchDevice) {
                     if (data.opcode === 58 && data.cmd === 256) {
                         // chatLeave
                         const leftId = lastChatLeaveId;
+                        const wasChannel = lastChatLeaveIsChannel;
                         if (leftId != null) {
                             delete chatsById[leftId];
                             if (currentChatId === leftId) {
@@ -11636,7 +11886,7 @@ if (isTouchDevice) {
                             renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
                         }
                         closeChatProfile();
-                        log('✅ Вы покинули группу', 'success');
+                        log(wasChannel ? '✅ Вы покинули канал' : '✅ Вы покинули группу', 'success');
                         return;
                     }
                     if (data.opcode === 54 && data.cmd === 256) {
@@ -11644,7 +11894,7 @@ if (isTouchDevice) {
                         if (currentChatId != null) {
                             document.getElementById('messagesList').innerHTML = '';
                         }
-                        log('✅ История очищена', 'success');
+                        log('✅ Чат очищен', 'success');
                         return;
                     }
                     if (data.opcode === 22 && data.cmd === 256) {
