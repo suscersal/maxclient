@@ -7502,7 +7502,7 @@
             // ничего, и непонятно, сработал ли клик по кнопке.
             console.log('[scam-check][chat-check] нажата кнопка "Проверить чат на скам"',
                 { chatId, settingsEnabled: !!(scamCheckSettingsCache && scamCheckSettingsCache.enabled) });
-            if (!chatId) {
+            if (chatId == null) {
                 console.warn('[scam-check][chat-check] chatProfileChatId не задан — профиль чата открыт некорректно, проверять нечего');
                 if (out) out.textContent = '❌ Не удалось определить чат — откройте профиль чата заново и повторите.';
                 return;
@@ -8326,7 +8326,7 @@
         }
 
         function saveProfileAutoreplyText(value) {
-            if (!currentChatId) return;
+            if (currentChatId == null) return;
             const s = getAutoreplySettings(currentChatId);
             s.text = value;
             saveAutoreplySettings(currentChatId, s);
@@ -8334,7 +8334,7 @@
         }
 
         function toggleChatOption(type) {
-            if (!currentChatId) return;
+            if (currentChatId == null) return;
 
             if (type === 'autoreply') {
                 const s = getAutoreplySettings(currentChatId);
@@ -9768,7 +9768,7 @@
         }
 
         async function markMessagesDeleted(chatId, messageIds) {
-            if (!chatId || !messageIds || !messageIds.length) return;
+            if (chatId == null || !messageIds || !messageIds.length) return;
             const idSet = new Set(messageIds.map(String));
 
             const deletedSet = deletedIdsByChatId[chatId] || (deletedIdsByChatId[chatId] = new Set());
@@ -9809,7 +9809,7 @@
         // Откатывает пометку "удалено", проставленную оптимистично в
         // markMessagesDeleted, если сервер в итоге ответил ошибкой.
         function unmarkMessagesDeleted(chatId, messageIds) {
-            if (!chatId || !messageIds || !messageIds.length) return;
+            if (chatId == null || !messageIds || !messageIds.length) return;
             const idSet = new Set(messageIds.map(String));
 
             const deletedSet = deletedIdsByChatId[chatId];
@@ -9837,7 +9837,7 @@
         }
 
         function updateMessagesCache(chatId, newMessages) {
-            if (!chatId || !newMessages || !newMessages.length) return;
+            if (chatId == null || !newMessages || !newMessages.length) return;
             const arr = messagesByChatId[chatId] || (messagesByChatId[chatId] = []);
             const ids = new Set(arr.map(m => String(m.id)));
             newMessages.forEach(m => {
@@ -10023,7 +10023,7 @@
         }
 
         function sendReaction(m, emoji) {
-            if (!currentChatId) return;
+            if (currentChatId == null) return;
             const info = m.reactionInfo || { counters: [] };
             const counters = Array.isArray(info.counters) ? info.counters.slice() : [];
             const prevMine = info.yourReaction;
@@ -10387,7 +10387,7 @@
         let addMemberTargetChatId = null;
 
         async function deleteMessageAction(m, isOwn) {
-            if (!currentChatId) return;
+            if (currentChatId == null) return;
             const forEveryone = await showDeleteConfirmDialog(isOwn, 1);
             if (forEveryone === null) return; // отмена
             const chatId = currentChatId;
@@ -12397,7 +12397,7 @@
 
         document.getElementById('sendMessageBtn').onclick = async () => {
             const text = document.getElementById('messageText').value.trim();
-            if (!text || !currentChatId) return;
+            if (!text || currentChatId == null) return;
             let outText = text;
             const session = e2eSessions[currentChatId];
             if (session && session.status === 'active') {
@@ -12435,7 +12435,7 @@
         };
 
         document.getElementById('attachBtn').addEventListener('click', (e) => {
-            if (!currentChatId) {
+            if (currentChatId == null) {
                 e.preventDefault();
                 log('❌ Сначала откройте чат', 'error');
             }
@@ -12444,7 +12444,7 @@
         document.getElementById('attachFileInput').addEventListener('change', async (e) => {
             const files = Array.from(e.target.files || []);
             e.target.value = ''; // чтобы можно было выбрать тот же файл повторно
-            if (!files.length || !currentChatId) return;
+            if (!files.length || currentChatId == null) return;
             for (const file of files) {
                 await uploadAndSendAttachment(file);
             }
@@ -12669,7 +12669,7 @@
 
         function onE2eCheckboxChange() {
             const cb = document.getElementById('e2eCheckbox');
-            if (!currentChatId) { cb.checked = false; return; }
+            if (currentChatId == null) { cb.checked = false; return; }
             if (cb.checked) {
                 e2eStartHandshake(currentChatId);
             } else {
