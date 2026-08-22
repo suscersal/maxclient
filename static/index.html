@@ -661,6 +661,9 @@
         .chat-name {
             font-weight: 600;
             font-size: 17px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .chat-preview {
@@ -820,7 +823,7 @@
             display: flex;
             flex-direction: column;
             gap: 6px;
-            max-height: 50vh;
+            height: 50vh;
             overflow-y: auto;
             padding: 4px;
             margin-bottom: 10px;
@@ -1360,7 +1363,7 @@
         /* Стартовый экран бота: карточка "Что умеет этот бот?" плавает по
            центру области сообщений (как в Telegram), а не прилипает к низу
            отдельной полосой — кнопка "Запустить бота" вынесена в свой подвал. */
-        #botChatMessages.bot-start-active {
+        #messagesList.bot-start-active {
             justify-content: center;
             align-items: center;
         }
@@ -4455,48 +4458,9 @@
         </div>
     </div>
 
-    <!-- ===== CUSTOM BOT CHAT MODAL (локальный чат с кастомным ботом по его HTTP API) ===== -->
-    <div class="chat-profile-overlay" id="botChatModal">
-        <div class="chat-profile-modal"
-            style="max-width:460px;width:92vw;display:flex;flex-direction:column;height:70vh;">
-            <div class="chat-profile-header">
-                <h3 id="botChatTitle" style="display:flex;align-items:center;gap:10px;">
-                    <span id="botChatAvatarSlot" style="--bot-avatar-size:32px;"></span>
-                    <span id="botChatTitleText">Бот</span>
-                </h3>
-                <button class="chat-profile-close" onclick="closeBotChatModal()">✕</button>
-            </div>
-            <div id="botChatMessages"
-                style="flex:1;overflow-y:auto;padding:8px 4px;display:flex;flex-direction:column;gap:8px;"></div>
-            <!-- Подвал с кнопкой "Запустить бота" (аналог кнопки в Telegram) —
-                 показывается только пока в чате нет ни одного сообщения;
-                 сама карточка "Что умеет этот бот?" рендерится внутри
-                 #botChatMessages (см. updateBotStartUi), чтобы плавать по
-                 центру области, а не прилипать к этой кнопке. -->
-            <div id="botStartFooter" style="display:none;padding:10px 4px 0;">
-                <button id="botStartBtn" onclick="startBotChat()" style="width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:22px;
-                           background:#0d6efd;color:#fff;border:none;cursor:pointer;">Запустить бота</button>
-            </div>
-            <!-- Постоянная reply-клавиатура бота (аналог обычной, не inline,
-                 клавиатуры в Telegram) — висит над полем ввода, пока бот не
-                 пришлёт новую или не уберёт её (data.remove_keyboard). -->
-            <div id="botReplyKeyboard" class="bot-reply-keyboard" style="display:none;"></div>
-            <!-- Панель команд бота (аналог кнопки "меню" внизу чата в Telegram) —
-                 скрыта по умолчанию, открывается кнопкой ☰ слева от поля ввода. -->
-            <div id="botMenuPanel"
-                style="display:none;flex-direction:column;gap:4px;padding:6px 4px;border-top:1px solid #eee;max-height:160px;overflow-y:auto;">
-            </div>
-            <div id="botInputRow"
-                style="display:flex;gap:6px;padding:8px 4px 0;border-top:1px solid #eee;align-items:center;">
-                <button class="btn-save" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
-                    style="padding:10px 12px;">☰</button>
-                <input type="text" id="botChatInput" placeholder="Сообщение боту..."
-                    style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"
-                    onkeydown="if(event.key==='Enter') sendBotChatMessage();">
-                <button class="btn-save" onclick="sendBotChatMessage()">➤</button>
-            </div>
-        </div>
-    </div>
+    <!-- ===== CUSTOM BOT CHAT (раньше был отдельный попап, теперь чат с
+         кастомным ботом открывается прямо в #chatDetailSection — как обычный
+         чат с контактом; см. openLocalBotChat) ===== -->
 
     <h1>
         Чаты
@@ -4590,6 +4554,18 @@
             </div>
             <button type="button" class="reply-preview-close" onclick="cancelReply()">✕</button>
         </div>
+        <!-- Ниже — элементы, актуальные только для чата с кастомным ботом
+             (см. openLocalBotChat/exitBotChatInlineMode); для обычных чатов
+             с сервером MAX всегда скрыты. -->
+        <div id="botStartFooter" style="display:none;padding:10px 12px 0;">
+            <button id="botStartBtn" onclick="startBotChat()" style="width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:22px;
+                       background:#0d6efd;color:#fff;border:none;cursor:pointer;">Запустить бота</button>
+        </div>
+        <div id="botReplyKeyboard" class="bot-reply-keyboard" style="display:none;"></div>
+        <div id="botMenuPanel"
+            style="display:none;flex-direction:column;gap:4px;padding:6px 12px;border-top:1px solid #eee;max-height:160px;overflow-y:auto;">
+        </div>
+        <div id="stickerPanel" style="display:none;flex-direction:column;gap:6px;padding:8px 12px;border-top:1px solid var(--tg-border);max-height:260px;overflow-y:auto;background:var(--tg-panel);"></div>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
             <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
@@ -4598,6 +4574,10 @@
                     <use href="#icon_attachment"></use>
                 </svg>
             </label>
+            <button type="button" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
+                style="display:none;flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">☰</button>
+            <button type="button" id="stickerBtn" onclick="toggleStickerPanel()" title="Стикеры"
+                style="flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">😀</button>
             <input type="text" id="messageText" placeholder="Сообщение">
 
             <button id="sendMessageBtn" class="success">Отправить</button>
@@ -4627,7 +4607,7 @@
 
 
 
-    <div class="section">
+    <div class="section" id="logSection">
         <h3>📋 Лог</h3>
         <div id="log"></div>
     </div>
@@ -6107,6 +6087,13 @@
                 Выводить полный дамп в консоль
             </label>
         </div>
+        <div class="settings-row">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="logPanelEnabled" ${getLogPanelEnabled() ? 'checked' : ''}
+                       onchange="setLogPanelEnabled(this.checked)">
+                Показывать панель «📋 Лог» внизу экрана
+            </label>
+        </div>
     `;
         }
 
@@ -6420,7 +6407,7 @@
                             <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(bot.url)}</div>
                             <div style="font-size:11px;color:#aaa;margin-top:2px;">${bot.source === 'manual' ? 'добавлен вручную' : 'из реестра'}${bot.lastUsedAt ? ' · запускался' : ''}</div>
                         </div>
-                        <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openBotChatModal('${bot.id}')">💬 Чат</button>
+                        <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openLocalBotChat('${bot.id}')">💬 Чат</button>
                         <button class="settings-menu-item danger" style="width:auto;padding:6px 10px;" onclick="removeCustomBot('${bot.id}')">🗑️</button>
                     </div>`).join('')
                 : `<div class="settings-empty">Пока нет добавленных ботов</div>`;
@@ -6529,6 +6516,11 @@
             saveCustomBotsList(bots);
             log('✅ Бот добавлен: ' + (name || url), 'success');
             settingsMenu.refreshPage('bots');
+            // Без этого новый бот не появлялся (и не открывался) в общем списке
+            // чатов, пока список не перерисовывался по другой причине (например,
+            // после перезагрузки страницы) — сама settings-страница обновлялась,
+            // а #chatsList за модалкой настроек оставался старым.
+            if (typeof renderChatsList === 'function') renderChatsList();
         }
 
         // Отмечает бота как «запускавшийся» — влияет на порядок в поиске
@@ -6563,6 +6555,7 @@
             localStorage.removeItem('maxclient_bot_info_' + id);
             localStorage.removeItem('maxclient_bot_keyboard_' + id);
             settingsMenu.refreshPage('bots');
+            if (typeof renderChatsList === 'function') renderChatsList();
         }
 
         function getBotChatHistory(botId) {
@@ -6668,29 +6661,76 @@
         }
 
         function updateBotChatHeader(bot) {
-            document.getElementById('botChatTitleText').textContent = bot.name;
-            document.getElementById('botChatAvatarSlot').innerHTML = getBotAvatarHtml(bot.id, 32);
+            document.getElementById('chatDetailName').textContent = bot.name;
+            document.getElementById('chatDetailAvatar').innerHTML = getBotAvatarHtml(bot.id, 40);
+            document.getElementById('chatDetailAvatar').style.background = '';
         }
 
-        function openBotChatModal(botId) {
-            const bot = getCustomBots().find(b => b.id === botId);
-            if (!bot) return;
-            activeBotChatId = botId;
-            touchCustomBot(botId);
-            updateBotChatHeader(bot);
-            document.getElementById('botMenuPanel').style.display = 'none';
-            renderBotMenuPanel();
-            updateBotStartUi();
-            fetchBotCommands(bot);
-            document.getElementById('botChatModal').classList.add('active');
-            document.body.style.overflow = 'hidden';
-            closeSettingsModal();
+        // Открывает чат с кастомным ботом прямо в #chatDetailSection — том же
+        // экране, что и обычные чаты с контактами/группами (а не в отдельном
+        // всплывающем окне, как раньше). currentChatId в этом режиме — строка
+        // вида "bot:<id>", а не число, поэтому весь код реальных чатов
+        // (send/opcode-и/сервер MAX) её просто не встречает — сравнения вида
+        // `chatsById[currentChatId]` для такого id ничего не найдут.
+        function openLocalBotChat(botId) {
+            try {
+                const bot = getCustomBots().find(b => b.id === botId);
+                if (!bot) {
+                    log('❌ Бот не найден (id=' + botId + ')', 'error');
+                    return;
+                }
+                closeSettingsModal();
+                exitBotChatInlineMode(); // на случай повторного открытия другого бота
+                currentChatId = 'bot:' + botId;
+                activeBotChatId = botId;
+                cancelReply();
+                document.getElementById('chatsSection').classList.add('hidden');
+                document.getElementById('chatDetailSection').classList.remove('hidden');
+                hideBottomNav();
+
+                updateBotChatHeader(bot);
+                document.getElementById('chatDetailStatus').textContent = 'Кастомный бот';
+                document.getElementById('chatIdLabel').textContent = '';
+
+                // Элементы, актуальные только для настоящих чатов с сервером MAX.
+                document.getElementById('e2eToggleWrap').style.display = 'none';
+                document.getElementById('botWebAppBtn').classList.add('hidden');
+                document.getElementById('replyPreviewBar').classList.add('hidden');
+                document.getElementById('joinChatBtn').classList.add('hidden');
+                document.getElementById('attachBtn').style.display = 'none';
+                document.getElementById('botMenuBtn').style.display = '';
+                document.getElementById('stickerBtn').style.display = 'none';
+                document.getElementById('stickerPanel').style.display = 'none';
+                document.getElementById('messageText').placeholder = 'Сообщение боту...';
+                document.getElementById('messageText').value = '';
+
+                touchCustomBot(botId);
+                document.getElementById('botMenuPanel').style.display = 'none';
+                renderBotMenuPanel();
+                updateBotStartUi();
+                fetchBotCommands(bot);
+            } catch (e) {
+                log('❌ Ошибка открытия чата с ботом: ' + (e && e.message ? e.message : e), 'error');
+                console.error('openLocalBotChat error', e);
+            }
         }
 
-        function closeBotChatModal() {
-            document.getElementById('botChatModal').classList.remove('active');
-            document.body.style.overflow = '';
+        // Возвращает #chatDetailSection в обычный режим (чат с контактом/группой
+        // на сервере MAX) — вызывается перед открытием такого чата и при выходе
+        // из чата по кнопке «Назад», чтобы элементы бота (меню-кнопка ☰,
+        // reply-клавиатура, карточка «Запустить бота») не оставались висеть,
+        // если до этого был открыт чат с кастомным ботом.
+        function exitBotChatInlineMode() {
+            if (!activeBotChatId) return;
             activeBotChatId = null;
+            document.getElementById('botStartFooter').style.display = 'none';
+            document.getElementById('botReplyKeyboard').style.display = 'none';
+            document.getElementById('botMenuPanel').style.display = 'none';
+            document.getElementById('attachBtn').style.display = '';
+            document.getElementById('botMenuBtn').style.display = 'none';
+            document.getElementById('stickerBtn').style.display = '';
+            document.getElementById('e2eToggleWrap').style.display = '';
+            document.getElementById('messageText').placeholder = 'Сообщение';
         }
 
         // Пока в чате нет ни одного сообщения — показываем стартовую карточку
@@ -6699,22 +6739,22 @@
         // вместо обычного поля ввода. После первого сообщения — обычный чат.
         function updateBotStartUi() {
             if (!activeBotChatId) return;
-            const container = document.getElementById('botChatMessages');
+            const container = document.getElementById('messagesList');
             const footer = document.getElementById('botStartFooter');
-            const inputRow = document.getElementById('botInputRow');
+            const composer = document.getElementById('composerRow');
             const menuPanel = document.getElementById('botMenuPanel');
             const replyKeyboard = document.getElementById('botReplyKeyboard');
             const history = getBotChatHistory(activeBotChatId);
             if (!history.length) {
                 container.classList.add('bot-start-active');
                 footer.style.display = 'block';
-                inputRow.style.display = 'none';
+                composer.classList.add('hidden');
                 menuPanel.style.display = 'none';
                 if (replyKeyboard) replyKeyboard.style.display = 'none';
             } else {
                 container.classList.remove('bot-start-active');
                 footer.style.display = 'none';
-                inputRow.style.display = 'flex';
+                composer.classList.remove('hidden');
                 renderBotReplyKeyboard();
             }
             renderBotChatMessages();
@@ -6735,6 +6775,226 @@
             if (show) renderBotMenuPanel();
         }
 
+        // ===================================================================
+        // Стикеры (Assets — opcode-и 26 assetsGet, 27 assetsUpdate,
+        // 28 assetsGetByIds, 29 assetsAdd, 259 assetsRemove). Payload'ы и сама
+        // последовательность запросов взяты из StickersModule в исходниках
+        // Komet (lib/backend/modules/stickers.dart) — сервер сам не даёт
+        // готовый список "прямо все стикеры", это многошаговая загрузка:
+        // 1) assetsUpdate — секции (какие паки новые + недавние стикеры)
+        // 2) assetsGetByIds(STICKER_SET) — метаданные паков (имя, iconUrl, список id стикеров)
+        // 3) assetsGetByIds(STICKER) — сами стикеры (url) конкретного пака, по клику на его вкладку
+        //
+        // relay в bridge.py ничего не коррелирует по id запроса, поэтому, как и
+        // для создания группы/вступления по ссылке выше, используем pending-флаги,
+        // чтобы отличить, какой из двух вызовов assetsGetByIds пришёл в ответ.
+        // ===================================================================
+        let stickerSetsById = {};       // setId -> {id, name, iconUrl, stickerIds}
+        let stickerItemsById = {};      // stickerId -> {id, url, lottieUrl, width, height, tags}
+        let stickerSetOrder = [];       // порядок вкладок (избранные + новые)
+        let favoriteStickerSetIds = [];
+        let recentStickerIds = [];
+        let stickersLoaded = false;
+        let stickersLoading = false;
+        let activeStickerSetId = null;
+        let pendingStickerSetMetaIds = null;   // ids, которые мы запросили как STICKER_SET
+        let pendingStickerItemsSetId = null;   // setId, для которого мы запросили STICKER
+
+        function toggleStickerPanel() {
+            const panel = document.getElementById('stickerPanel');
+            if (!panel) return;
+            const show = panel.style.display === 'none';
+            panel.style.display = show ? 'flex' : 'none';
+            document.getElementById('botMenuPanel').style.display = 'none';
+            if (show) {
+                if (!stickersLoaded && !stickersLoading) loadStickerSections();
+                else renderStickerPanel();
+            }
+        }
+
+        function loadStickerSections() {
+            stickersLoading = true;
+            panelSetLoadingHtml('Загрузка стикеров...');
+            // Отдельным запросом (type: FAVORITE_STICKER) можно было бы дополнительно
+            // подтянуть уже существующие избранные паки с сервера, но чтобы не
+            // гоняться за состоянием гонки между двумя параллельными assetsUpdate-
+            // ответами на один и тот же opcode, ограничиваемся основным списком;
+            // избранное, помеченное в этой сессии, всё равно работает (opcode 29/259).
+            send(27, { type: 'STICKER', sync: 0 });
+        }
+
+        function panelSetLoadingHtml(text) {
+            const panel = document.getElementById('stickerPanel');
+            if (panel) panel.innerHTML = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${escapeHtml(text)}</div>`;
+        }
+
+        // Вызывается из ws.onmessage при получении ответа на opcode 27 (assetsUpdate).
+        function handleAssetsUpdateResponse(payload) {
+            const sections = payload?.sections;
+            if (!Array.isArray(sections)) return;
+            const newSetIds = [];
+            let nextMarker = 0;
+            sections.forEach(s => {
+                if (!s || typeof s !== 'object') return;
+                if (s.id === 'NEW_STICKER_SETS' && Array.isArray(s.stickerSets)) {
+                    newSetIds.push(...s.stickerSets);
+                    if (typeof s.marker === 'number') nextMarker = s.marker;
+                } else if (s.id === 'FAVORITE_STICKER_SETS' && Array.isArray(s.stickerSets)) {
+                    favoriteStickerSetIds = s.stickerSets.slice();
+                } else if (s.type === 'RECENTS' && Array.isArray(s.recentsList)) {
+                    recentStickerIds = s.recentsList.slice();
+                }
+            });
+            // Если паков больше, чем влезло в первую страницу — сервер прислал
+            // marker; донагружаем остальные страницы через assetsGet (opcode 26),
+            // как это делает ChatsModule.ensureLoaded в Komet.
+            if (nextMarker) send(26, { sectionId: 'NEW_STICKER_SETS', from: nextMarker, count: 100 });
+            if (newSetIds.length) {
+                const order = [];
+                const seen = new Set();
+                [...favoriteStickerSetIds, ...newSetIds].forEach(id => {
+                    if (!seen.has(id)) { seen.add(id); order.push(id); }
+                });
+                stickerSetOrder = order;
+                const missing = order.filter(id => !stickerSetsById[id]);
+                if (missing.length) {
+                    pendingStickerSetMetaIds = missing;
+                    send(28, { type: 'STICKER_SET', ids: missing });
+                    return; // рендер — после того как метаданные паков подгрузятся
+                }
+            }
+            stickersLoaded = true;
+            stickersLoading = false;
+            renderStickerPanel();
+        }
+
+        // Вызывается из ws.onmessage при получении ответа на opcode 28 (assetsGetByIds).
+        function handleAssetsGetByIdsResponse(payload) {
+            if (pendingStickerSetMetaIds) {
+                pendingStickerSetMetaIds = null;
+                const list = payload?.stickerSets;
+                if (Array.isArray(list)) {
+                    list.forEach(s => {
+                        if (s && typeof s.id === 'number') {
+                            stickerSetsById[s.id] = {
+                                id: s.id,
+                                name: s.name || '',
+                                iconUrl: s.iconUrl || '',
+                                stickerIds: Array.isArray(s.stickers) ? s.stickers : [],
+                            };
+                        }
+                    });
+                }
+                stickersLoaded = true;
+                stickersLoading = false;
+                renderStickerPanel();
+                return;
+            }
+            if (pendingStickerItemsSetId != null) {
+                const setId = pendingStickerItemsSetId;
+                pendingStickerItemsSetId = null;
+                const list = payload?.stickers;
+                if (Array.isArray(list)) {
+                    list.forEach(s => {
+                        if (s && typeof s.id === 'number') {
+                            stickerItemsById[s.id] = {
+                                id: s.id, url: s.url || '', lottieUrl: s.lottieUrl || null,
+                                width: s.width || 170, height: s.height || 170,
+                                tags: Array.isArray(s.tags) ? s.tags : [],
+                            };
+                        }
+                    });
+                }
+                renderStickerPanel();
+                return;
+            }
+        }
+
+        function renderStickerPanel() {
+            const panel = document.getElementById('stickerPanel');
+            if (!panel) return;
+            if (!stickerSetOrder.length) {
+                panel.innerHTML = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Нет доступных стикерпаков</div>';
+                return;
+            }
+            if (activeStickerSetId == null) activeStickerSetId = stickerSetOrder[0];
+            const tabsHtml = stickerSetOrder.map(id => {
+                const set = stickerSetsById[id];
+                if (!set) return '';
+                const active = id === activeStickerSetId;
+                const iconHtml = set.iconUrl
+                    ? `<img src="${set.iconUrl}" alt="${escapeHtml(set.name)}" style="width:28px;height:28px;object-fit:contain;display:block;" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🙂',style:'font-size:20px;'}))">`
+                    : `<span style="font-size:20px;display:block;width:28px;height:28px;text-align:center;line-height:28px;">🙂</span>`;
+                return `
+                <button type="button" onclick="selectStickerSet(${id})"
+                    style="flex:0 0 auto;width:36px;height:36px;padding:4px;border:none;background:${active ? 'var(--tg-blue)' : 'transparent'};border-radius:8px;cursor:pointer;opacity:${active ? '1' : '0.6'};">
+                    ${iconHtml}
+                </button>
+            `;
+            }).join('');
+
+            const set = stickerSetsById[activeStickerSetId];
+            let gridHtml = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Загрузка...</div>';
+            if (set) {
+                const missing = set.stickerIds.filter(id => !stickerItemsById[id]);
+                if (missing.length) {
+                    pendingStickerItemsSetId = activeStickerSetId;
+                    send(28, { type: 'STICKER', ids: missing });
+                } else {
+                    const isFav = favoriteStickerSetIds.includes(activeStickerSetId);
+                    gridHtml = `
+                    <div style="display:flex;justify-content:flex-end;padding:0 2px 4px;">
+                        <button type="button" onclick="toggleFavoriteStickerSet(${activeStickerSetId})"
+                            style="border:none;background:none;cursor:pointer;font-size:16px;color:var(--tg-text);" title="В избранное">
+                            ${isFav ? '⭐' : '☆'}
+                        </button>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+                        ${set.stickerIds.map(id => {
+                        const st = stickerItemsById[id];
+                        if (!st) return '';
+                        const src = st.url ? '/img?url=' + encodeURIComponent(st.url) : '';
+                        return `<img src="${src}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:contain;cursor:pointer;"
+                                    onclick="sendStickerMessage(${id})" onerror="this.style.opacity='0.3'">`;
+                    }).join('')}
+                    </div>
+                `;
+                }
+            }
+
+            panel.innerHTML = `
+                <div style="flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;height:44px;align-items:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--tg-border);">${tabsHtml}</div>
+                ${gridHtml}
+            `;
+        }
+
+        function selectStickerSet(setId) {
+            activeStickerSetId = setId;
+            renderStickerPanel();
+        }
+
+        function sendStickerMessage(stickerId) {
+            if (currentChatId == null || activeBotChatId) return;
+            send(64, {
+                chatId: currentChatId,
+                message: { text: '', cid: Date.now(), attaches: [{ _type: 'STICKER', stickerId }] },
+                notify: true
+            });
+            document.getElementById('stickerPanel').style.display = 'none';
+        }
+
+        function toggleFavoriteStickerSet(setId) {
+            const isFav = favoriteStickerSetIds.includes(setId);
+            if (isFav) {
+                favoriteStickerSetIds = favoriteStickerSetIds.filter(id => id !== setId);
+                send(259, { type: 'FAVORITE_STICKER_SET', ids: [setId] });
+            } else {
+                favoriteStickerSetIds = [setId, ...favoriteStickerSetIds];
+                send(29, { type: 'FAVORITE_STICKER_SET', id: setId });
+            }
+            renderStickerPanel();
+        }
+
         function renderBotMenuPanel() {
             const panel = document.getElementById('botMenuPanel');
             if (!panel || !activeBotChatId) return;
@@ -6750,10 +7010,6 @@
                     <span class="desc">${escapeHtml(desc || '')}</span>
                 </button>`).join('');
         }
-
-        document.getElementById('botChatModal').addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) closeBotChatModal();
-        });
 
 
         // Безопасно вставляет строку как аргумент-литерал внутрь onclick="..."
@@ -6827,7 +7083,7 @@
         }
 
         function renderBotChatMessages() {
-            const container = document.getElementById('botChatMessages');
+            const container = document.getElementById('messagesList');
             if (!container || !activeBotChatId) return;
             const history = getBotChatHistory(activeBotChatId);
             if (!history.length) {
@@ -6880,7 +7136,7 @@
         // под сообщением или по пункту меню команд (☰). В этом случае текст поля
         // ввода не трогаем и отправляем presetText, как будто пользователь сам его напечатал.
         async function sendBotChatMessage(presetText) {
-            const input = document.getElementById('botChatInput');
+            const input = document.getElementById('messageText');
             const text = (typeof presetText === 'string' ? presetText : (input?.value || '')).trim();
             if (!text || !activeBotChatId) return;
             const bot = getCustomBots().find(b => b.id === activeBotChatId);
@@ -7099,6 +7355,25 @@
         }
         function setDebugDumpEnabled(val) {
             try { localStorage.setItem('maxclient_debug_dump_enabled', val ? '1' : '0'); } catch (e) { }
+        }
+
+        // Панель "📋 Лог" внизу экрана — по умолчанию видна (как и раньше),
+        // но теперь её можно скрыть чекбоксом в Настройки → Дебаг-дамп,
+        // не трогая при этом сам сбор логов функцией log() — она продолжает
+        // писать в #log, просто секция скрыта через CSS.
+        function getLogPanelEnabled() {
+            try {
+                const v = localStorage.getItem('maxclient_log_panel_enabled');
+                return v === null ? true : v === '1'; // по умолчанию — включено
+            } catch (e) { return true; }
+        }
+        function setLogPanelEnabled(val) {
+            try { localStorage.setItem('maxclient_log_panel_enabled', val ? '1' : '0'); } catch (e) { }
+            applyLogPanelVisibility();
+        }
+        function applyLogPanelVisibility() {
+            const section = document.getElementById('logSection');
+            if (section) section.classList.toggle('hidden', !getLogPanelEnabled());
         }
 
         function renderVarsPage() {
@@ -7462,6 +7737,8 @@
 
             .addItem({ id: 'about', icon: 'ℹ️', label: 'О приложении', page: renderAboutPage })
             .render();
+
+        applyLogPanelVisibility();
 
         // Подгружаем данные профиля устройства сразу после того, как страница
         // "Устройство" будет вставлена в DOM (render() уже вызвал innerHTML для
@@ -9348,7 +9625,10 @@
         }
 
         // Строка списка для кастомного бота (добавлен вручную или из GitHub-реестра) —
-        // по клику открывает локальный чат с ботом по его HTTP API (см. openBotChatModal).
+        // выглядит и ведёт себя как обычный чат с контактом: попадает в общий
+        // список (см. renderChatsList), по клику открывается в
+        // #chatDetailSection тем же способом, что и чаты с сервером MAX
+        // (см. openLocalBotChat).
         function customBotSearchStrings(bot) {
             return [bot.name, bot.url];
         }
@@ -9358,14 +9638,19 @@
             el.className = 'chat-item';
             el.dataset.botId = bot.id;
             const initial = getInitials(bot.name);
+            const history = getBotChatHistory(bot.id);
+            const last = history.length ? history[history.length - 1] : null;
+            const preview = last
+                ? (last.role === 'user' ? 'Вы: ' : '') + last.text.replace(/\n+/g, ' ').slice(0, 60)
+                : 'Кастомный бот · нажмите, чтобы написать';
             el.innerHTML = `
                 <div class="chat-avatar" data-initials="${initial}" style="background:${avatarGradient(bot.id)};">🤖</div>
                 <div class="chat-info">
                     <div class="chat-name">${escapeHtml(bot.name)}</div>
-                    <div class="chat-preview">Кастомный бот · нажмите, чтобы написать</div>
+                    <div class="chat-preview">${escapeHtml(preview)}</div>
                 </div>
             `;
-            el.onclick = () => openBotChatModal(bot.id);
+            el.onclick = () => openLocalBotChat(bot.id);
             return el;
         }
 
@@ -9543,7 +9828,23 @@
                 list.appendChild(divider);
             }
 
-            chats.forEach(chat => list.appendChild(buildChatItemEl(chat)));
+            if (qRaw) {
+                chats.forEach(chat => list.appendChild(buildChatItemEl(chat)));
+            } else {
+                // Без поиска — кастомные боты идут вперемешку с обычными чатами,
+                // как самые обычные контакты, отсортированные по времени
+                // последней активности (последнее сообщение/запуск бота), а не
+                // отдельным списком, как раньше.
+                const merged = chats.map(chat => ({ ts: chat.lastEventTime || chat.lastMessage?.time || 0, render: () => buildChatItemEl(chat) }))
+                    .concat(getCustomBots().map(bot => {
+                        const history = getBotChatHistory(bot.id);
+                        const lastMsgTs = history.length ? (history[history.length - 1].ts || 0) : 0;
+                        const ts = Math.max(lastMsgTs, bot.lastUsedAt || 0, bot.addedAt || 0);
+                        return { ts, render: () => buildCustomBotItemEl(bot) };
+                    }));
+                merged.sort((a, b) => b.ts - a.ts);
+                merged.forEach(entry => list.appendChild(entry.render()));
+            }
 
             if (qRaw) {
                 // Кастомные боты (добавлены вручную или из GitHub-реестра) — идут
@@ -11241,6 +11542,7 @@
         function openChat(chatId) {
             const chat = chatsById[chatId];
             if (!chat) return;
+            exitBotChatInlineMode();
             currentChatId = chatId;
             cancelReply();
             document.getElementById('chatsSection').classList.add('hidden');
@@ -11931,6 +12233,35 @@
                             : '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Медиафайлов нет</div>';
                         return;
                     }
+                    if (data.opcode === 27 && data.cmd === 256) {
+                        // assetsUpdate — секции стикеров (новые паки + недавние + избранное)
+                        handleAssetsUpdateResponse(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 26 && data.cmd === 256) {
+                        // assetsGet — донагрузка страницы NEW_STICKER_SETS (пагинация, marker)
+                        const page = data.payload;
+                        if (page && Array.isArray(page.stickerSets) && page.stickerSets.length) {
+                            page.stickerSets.forEach(id => { if (!stickerSetOrder.includes(id)) stickerSetOrder.push(id); });
+                            const missing = page.stickerSets.filter(id => !stickerSetsById[id]);
+                            if (missing.length) {
+                                pendingStickerSetMetaIds = missing;
+                                send(28, { type: 'STICKER_SET', ids: missing });
+                            }
+                        }
+                        return;
+                    }
+                    if (data.opcode === 28 && data.cmd === 256) {
+                        // assetsGetByIds — метаданные паков ИЛИ сами стикеры набора
+                        // (см. pendingStickerSetMetaIds/pendingStickerItemsSetId)
+                        handleAssetsGetByIdsResponse(data.payload);
+                        return;
+                    }
+                    if ((data.opcode === 29 || data.opcode === 259) && data.cmd === 256) {
+                        // assetsAdd/assetsRemove (избранные стикерпаки) — состояние уже
+                        // обновлено оптимистично в toggleFavoriteStickerSet.
+                        return;
+                    }
                     if (data.opcode === 130 && data.payload) {
                         const p = data.payload;
                         if (p.chatId != null && p.userId != null && p.mark != null) {
@@ -12389,6 +12720,7 @@
 
         document.getElementById('backBtn').onclick = () => {
             currentChatId = null;
+            exitBotChatInlineMode();
             updateBotWebAppButton(null);
             document.getElementById('chatDetailSection').classList.add('hidden');
             showBottomNav();
@@ -12396,6 +12728,7 @@
         };
 
         document.getElementById('sendMessageBtn').onclick = async () => {
+            if (activeBotChatId) { sendBotChatMessage(); return; }
             const text = document.getElementById('messageText').value.trim();
             if (!text || currentChatId == null) return;
             let outText = text;
