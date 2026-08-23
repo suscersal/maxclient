@@ -3214,29 +3214,6 @@
             color: #fff;
         }
 
-        /* Строка ввода сообщения (#composerRow) — особый случай .input-group:
-           там кроме поля и кнопки ещё 2-3 иконки слева, поэтому общий
-           min-width: 150px у .input-group input плюс широкая кнопка
-           "Отправить" (padding 10px 20px, nowrap) на узких экранах не
-           помещались в одну строку — flex-wrap переносил кнопку отправки
-           вниз, и её не было видно без скролла. Сужаем именно это поле и
-           не даём кнопке сжиматься/переноситься. */
-        #composerRow {
-            flex-wrap: nowrap;
-        }
-
-        #composerRow #messageText {
-            min-width: 0;
-            flex: 1 1 auto;
-            padding: 10px 12px;
-        }
-
-        #composerRow #sendMessageBtn {
-            flex: 0 0 auto;
-            padding: 10px 14px;
-            white-space: nowrap;
-        }
-
         .status {
             border-radius: 12px;
         }
@@ -6822,6 +6799,22 @@
         let activeStickerSetId = null;
         let pendingStickerSetMetaIds = null;   // ids, которые мы запросили как STICKER_SET
         let pendingStickerItemsSetId = null;   // setId, для которого мы запросили STICKER
+        let pendingFavoriteStickerSync = false;
+
+        // Избранные паки хранятся не только на сервере (opcode 29/259), но и
+        // локально — раньше при перезагрузке страницы список избранного
+        // "терялся": он жил только в переменной в памяти и с сервера при
+        // старте не перезапрашивался (специально, чтобы не ловить гонку двух
+        // параллельных assetsUpdate-ответов). Теперь запрашиваем правильно —
+        // ПОСЛЕДОВАТЕЛЬНО, отдельным шагом после основной загрузки — а localStorage
+        // даёт мгновенное отображение ещё до ответа сервера.
+        function getPersistedFavoriteStickerSetIds() {
+            try { return JSON.parse(localStorage.getItem('maxclient_favorite_sticker_sets') || '[]'); }
+            catch (e) { return []; }
+        }
+        function savePersistedFavoriteStickerSetIds(ids) {
+            try { localStorage.setItem('maxclient_favorite_sticker_sets', JSON.stringify(ids)); } catch (e) { }
+        }
 
         function toggleStickerPanel() {
             const panel = document.getElementById('stickerPanel');
@@ -6838,11 +6831,7 @@
         function loadStickerSections() {
             stickersLoading = true;
             panelSetLoadingHtml('Загрузка стикеров...');
-            // Отдельным запросом (type: FAVORITE_STICKER) можно было бы дополнительно
-            // подтянуть уже существующие избранные паки с сервера, но чтобы не
-            // гоняться за состоянием гонки между двумя параллельными assetsUpdate-
-            // ответами на один и тот же opcode, ограничиваемся основным списком;
-            // избранное, помеченное в этой сессии, всё равно работает (opcode 29/259).
+            favoriteStickerSetIds = getPersistedFavoriteStickerSetIds();
             send(27, { type: 'STICKER', sync: 0 });
         }
 
@@ -6851,10 +6840,44 @@
             if (panel) panel.innerHTML = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${escapeHtml(text)}</div>`;
         }
 
+        // Общий финал загрузки: помечает готовность, ОДИН раз запрашивает
+        // актуальный список избранного с сервера (уже после того как основная
+        // загрузка полностью завершилась — без гонки с ней) и перерисовывает.
+        function finishStickersLoad() {
+            stickersLoaded = true;
+            stickersLoading = false;
+            if (!pendingFavoriteStickerSync) {
+                pendingFavoriteStickerSync = true;
+                send(27, { type: 'FAVORITE_STICKER', sync: 0 });
+            }
+            renderStickerPanel();
+        }
+
         // Вызывается из ws.onmessage при получении ответа на opcode 27 (assetsUpdate).
         function handleAssetsUpdateResponse(payload) {
             const sections = payload?.sections;
             if (!Array.isArray(sections)) return;
+
+            if (pendingFavoriteStickerSync) {
+                pendingFavoriteStickerSync = false;
+                sections.forEach(s => {
+                    if (s && s.id === 'FAVORITE_STICKER_SETS' && Array.isArray(s.stickerSets)) {
+                        favoriteStickerSetIds = s.stickerSets.slice();
+                        savePersistedFavoriteStickerSetIds(favoriteStickerSetIds);
+                        const seen = new Set(stickerSetOrder);
+                        stickerSetOrder = [...favoriteStickerSetIds.filter(id => !seen.has(id)), ...stickerSetOrder];
+                        const missing = favoriteStickerSetIds.filter(id => !stickerSetsById[id]);
+                        if (missing.length) {
+                            pendingStickerSetMetaIds = missing;
+                            send(28, { type: 'STICKER_SET', ids: missing });
+                            return;
+                        }
+                    }
+                });
+                renderStickerPanel();
+                return;
+            }
+
             const newSetIds = [];
             let nextMarker = 0;
             sections.forEach(s => {
@@ -6886,9 +6909,7 @@
                     return; // рендер — после того как метаданные паков подгрузятся
                 }
             }
-            stickersLoaded = true;
-            stickersLoading = false;
-            renderStickerPanel();
+            finishStickersLoad();
         }
 
         // Вызывается из ws.onmessage при получении ответа на opcode 28 (assetsGetByIds).
@@ -6908,9 +6929,7 @@
                         }
                     });
                 }
-                stickersLoaded = true;
-                stickersLoading = false;
-                renderStickerPanel();
+                finishStickersLoad();
                 return;
             }
             if (pendingStickerItemsSetId != null) {
@@ -7015,6 +7034,7 @@
                 favoriteStickerSetIds = [setId, ...favoriteStickerSetIds];
                 send(29, { type: 'FAVORITE_STICKER_SET', id: setId });
             }
+            savePersistedFavoriteStickerSetIds(favoriteStickerSetIds);
             renderStickerPanel();
         }
 
@@ -10398,13 +10418,7 @@
         // помещается на экран.
 
         let _reactionPickerEls = null;
-        // Время последнего показа панели — нужно, чтобы отличить настоящий
-        // клик по подложке от "призрачного" синтетического click, который
-        // браузер досылает после touchend по тем же экранным координатам:
-        // подложка появляется точно в момент touchend/tap, и такой клик
-        // попадает по ней, мгновенно закрывая панель ("появляется на 0.1 сек").
-        let _reactionPickerShownAt = 0;
-        const GHOST_CLICK_GUARD_MS = 350;
+        let _reactionPickerOpenedAt = 0;
         function _ensureReactionPickerEls() {
             if (_reactionPickerEls) return _reactionPickerEls;
             const backdrop = document.createElement('div');
@@ -10413,11 +10427,12 @@
             popup.id = 'reactionPickerPopup';
             document.body.appendChild(backdrop);
             document.body.appendChild(popup);
-            backdrop.addEventListener('click', () => {
-                if (Date.now() - _reactionPickerShownAt < GHOST_CLICK_GUARD_MS) return;
+            const dismiss = () => {
+                if (Date.now() - _reactionPickerOpenedAt < 400) return;
                 hideReactionPicker();
-            });
-            backdrop.addEventListener('touchstart', hideReactionPicker, { passive: true });
+            };
+            backdrop.addEventListener('click', dismiss);
+            backdrop.addEventListener('touchstart', dismiss, { passive: true });
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') hideReactionPicker();
             });
@@ -10432,8 +10447,8 @@
         }
 
         function showReactionPicker(x, y, m) {
-            _reactionPickerShownAt = Date.now();
             const { backdrop, popup } = _ensureReactionPickerEls();
+            _reactionPickerOpenedAt = Date.now();
             popup.innerHTML = '';
             Object.keys(EMOJI_CDN_URLS).forEach(emoji => {
                 const btn = document.createElement('div');
@@ -10618,12 +10633,7 @@
         const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
         let _msgActionPanelEls = null;
-        // См. аналогичный комментарий у _reactionPickerShownAt выше: без этой
-        // отметки времени "призрачный" click, который браузер досылает вслед
-        // за touchend/долгим нажатием, попадает по только что показанной
-        // подложке (она уже стоит на тех же координатах) и тут же закрывает
-        // панель — снаружи это выглядит как "открылась и сразу закрылась".
-        let _msgActionPanelShownAt = 0;
+        let _msgActionPanelOpenedAt = 0;
         function _ensureMsgActionPanelEls() {
             if (_msgActionPanelEls) return _msgActionPanelEls;
             const backdrop = document.createElement('div');
@@ -10632,11 +10642,17 @@
             panel.id = 'msgActionPanel';
             document.body.appendChild(backdrop);
             document.body.appendChild(panel);
-            backdrop.addEventListener('click', () => {
-                if (Date.now() - _msgActionPanelShownAt < GHOST_CLICK_GUARD_MS) return;
+            // На тач-устройствах после touchend, которым была открыта панель,
+            // браузер ещё досылает синтетический click по тем же экранным
+            // координатам — а там теперь оказывается свежепоявившаяся
+            // подложка на весь экран. Без этой проверки по времени она сама
+            // же немедленно закрывала только что открытую панель ("мигание").
+            const dismiss = () => {
+                if (Date.now() - _msgActionPanelOpenedAt < 400) return;
                 hideMessageActionPanel();
-            });
-            backdrop.addEventListener('touchstart', hideMessageActionPanel, { passive: true });
+            };
+            backdrop.addEventListener('click', dismiss);
+            backdrop.addEventListener('touchstart', dismiss, { passive: true });
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') hideMessageActionPanel();
             });
@@ -10651,8 +10667,8 @@
         }
 
         function showMessageActionPanel(x, y, m, isOwn) {
-            _msgActionPanelShownAt = Date.now();
             const { backdrop, panel } = _ensureMsgActionPanelEls();
+            _msgActionPanelOpenedAt = Date.now();
             panel.innerHTML = '';
 
             const stickerAttach = (m.attaches && m.attaches.length === 1 && m.attaches[0]._type === 'STICKER')
@@ -10724,6 +10740,15 @@
                     addPackBtn.onclick = () => {
                         hideMessageActionPanel();
                         favoriteStickerSetIds = [setId, ...favoriteStickerSetIds.filter(id => id !== setId)];
+                        savePersistedFavoriteStickerSetIds(favoriteStickerSetIds);
+                        // Просто пометить избранным недостаточно — панели
+                        // стикеров ещё нужны метаданные пака (имя/иконка/список
+                        // стикеров), иначе он не появится там вкладкой.
+                        if (!stickerSetOrder.includes(setId)) stickerSetOrder = [setId, ...stickerSetOrder];
+                        if (!stickerSetsById[setId]) {
+                            pendingStickerSetMetaIds = [setId];
+                            send(28, { type: 'STICKER_SET', ids: [setId] });
+                        }
                         send(29, { type: 'FAVORITE_STICKER_SET', id: setId });
                         log('✅ Стикерпак добавлен', 'success');
                     };
