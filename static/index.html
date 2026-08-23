@@ -3214,6 +3214,29 @@
             color: #fff;
         }
 
+        /* Строка ввода сообщения (#composerRow) — особый случай .input-group:
+           там кроме поля и кнопки ещё 2-3 иконки слева, поэтому общий
+           min-width: 150px у .input-group input плюс широкая кнопка
+           "Отправить" (padding 10px 20px, nowrap) на узких экранах не
+           помещались в одну строку — flex-wrap переносил кнопку отправки
+           вниз, и её не было видно без скролла. Сужаем именно это поле и
+           не даём кнопке сжиматься/переноситься. */
+        #composerRow {
+            flex-wrap: nowrap;
+        }
+
+        #composerRow #messageText {
+            min-width: 0;
+            flex: 1 1 auto;
+            padding: 10px 12px;
+        }
+
+        #composerRow #sendMessageBtn {
+            flex: 0 0 auto;
+            padding: 10px 14px;
+            white-space: nowrap;
+        }
+
         .status {
             border-radius: 12px;
         }
@@ -10375,6 +10398,13 @@
         // помещается на экран.
 
         let _reactionPickerEls = null;
+        // Время последнего показа панели — нужно, чтобы отличить настоящий
+        // клик по подложке от "призрачного" синтетического click, который
+        // браузер досылает после touchend по тем же экранным координатам:
+        // подложка появляется точно в момент touchend/tap, и такой клик
+        // попадает по ней, мгновенно закрывая панель ("появляется на 0.1 сек").
+        let _reactionPickerShownAt = 0;
+        const GHOST_CLICK_GUARD_MS = 350;
         function _ensureReactionPickerEls() {
             if (_reactionPickerEls) return _reactionPickerEls;
             const backdrop = document.createElement('div');
@@ -10383,7 +10413,10 @@
             popup.id = 'reactionPickerPopup';
             document.body.appendChild(backdrop);
             document.body.appendChild(popup);
-            backdrop.addEventListener('click', hideReactionPicker);
+            backdrop.addEventListener('click', () => {
+                if (Date.now() - _reactionPickerShownAt < GHOST_CLICK_GUARD_MS) return;
+                hideReactionPicker();
+            });
             backdrop.addEventListener('touchstart', hideReactionPicker, { passive: true });
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') hideReactionPicker();
@@ -10399,6 +10432,7 @@
         }
 
         function showReactionPicker(x, y, m) {
+            _reactionPickerShownAt = Date.now();
             const { backdrop, popup } = _ensureReactionPickerEls();
             popup.innerHTML = '';
             Object.keys(EMOJI_CDN_URLS).forEach(emoji => {
@@ -10446,10 +10480,150 @@
             });
         }
 
-        // ---- Панель по одиночному тапу: быстрые реакции + Ответить/Удалить ----
+        // ---- Жесты на сообщении: свайп влево = ответить, долгое нажатие/тап
+        //      открывает панель действий (для стикера — свой набор кнопок) ----
+        const SWIPE_REPLY_THRESHOLD = 60;
+        const SWIPE_REPLY_MAX = 76;
+        const LONG_PRESS_MS = 450;
+        // На тач-экранах браузер после touchend ещё присылает "призрачные"
+        // mousedown/mouseup для совместимости со старым кодом — без этой
+        // отметки времени они срабатывали бы вторично и результат (например,
+        // повторная отправка стикера) дублировался.
+        let _lastTouchGestureAt = 0;
+
+        function attachMessageGestures(el, m, isOwn, stickerAttach) {
+            el.style.position = 'relative';
+            el.style.touchAction = 'pan-y';
+
+            const replyIcon = document.createElement('span');
+            replyIcon.textContent = '↩️';
+            replyIcon.style.cssText = 'position:absolute;top:50%;right:-30px;transform:translateY(-50%);font-size:16px;opacity:0;pointer-events:none;transition:opacity .1s;';
+            el.appendChild(replyIcon);
+
+            let startX = 0, startY = 0, dx = 0, swiping = false, longPressTimer = null, longPressFired = false;
+
+            function clearLongPress() {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+            }
+
+            function resetSwipeVisuals() {
+                el.style.transform = '';
+                replyIcon.style.opacity = '0';
+            }
+
+            function onStart(x, y) {
+                startX = x; startY = y; dx = 0; swiping = false; longPressFired = false;
+                clearLongPress();
+                longPressTimer = setTimeout(() => {
+                    longPressFired = true;
+                    showMessageActionPanel(startX, startY, m, isOwn);
+                }, LONG_PRESS_MS);
+            }
+
+            function onMove(x, y) {
+                const deltaX = x - startX;
+                const deltaY = y - startY;
+                if (!swiping && Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                    swiping = true;
+                    clearLongPress();
+                }
+                if (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6) clearLongPress();
+                if (!swiping) return;
+                dx = Math.max(-SWIPE_REPLY_MAX, Math.min(0, deltaX));
+                el.style.transform = `translateX(${dx}px)`;
+                replyIcon.style.opacity = String(Math.min(1, -dx / SWIPE_REPLY_THRESHOLD));
+            }
+
+            // Одиночный тап — что для обычного сообщения, что для стикера —
+            // открывает одну и ту же панель действий; набор кнопок внутри
+            // отличается (см. showMessageActionPanel: для стикера там нет
+            // эмодзи-реакций, зато есть "Отправить ещё раз" и "Добавить
+            // стикерпак"). Прямая переотправка стикера прямо по тапу убрана —
+            // так удобнее случайно не запостить стикер второй раз.
+            //
+            // Порог полноценного свайпа (SWIPE_REPLY_THRESHOLD) — единственное,
+            // что решает, был ли это "свайп-ответ". Раньше здесь дополнительно
+            // проверялся флаг swiping, из-за чего обычный тап с небольшим
+            // естественным дрожанием пальца (пара пикселей — на реальном
+            // экране это норма, в отличие от эмулятора) переводил жест в
+            // "режим свайпа", порог 60px не набирался, и тап целиком
+            // "проглатывался" — не открывалась ни панель, ни ответ. Теперь
+            // если полный порог не достигнут — это в любом случае тап.
+            function onEnd() {
+                clearLongPress();
+                const triggered = dx <= -SWIPE_REPLY_THRESHOLD;
+                resetSwipeVisuals();
+                if (triggered) {
+                    replyToMessage(m);
+                } else if (!longPressFired) {
+                    showMessageActionPanel(startX, startY, m, isOwn);
+                }
+                swiping = false;
+            }
+
+            el.addEventListener('touchstart', (e) => {
+                _lastTouchGestureAt = Date.now();
+                const t = e.touches[0];
+                onStart(t.clientX, t.clientY);
+            }, { passive: true });
+            el.addEventListener('touchmove', (e) => {
+                _lastTouchGestureAt = Date.now();
+                const t = e.touches[0];
+                onMove(t.clientX, t.clientY);
+            }, { passive: true });
+            el.addEventListener('touchend', () => {
+                _lastTouchGestureAt = Date.now();
+                onEnd();
+            });
+            el.addEventListener('touchcancel', () => {
+                _lastTouchGestureAt = Date.now();
+                clearLongPress(); resetSwipeVisuals(); swiping = false;
+            });
+
+            // Мышь — только для десктопа. Если событие пришло сразу после
+            // touch-жеста на этом же устройстве (браузер шлёт "призрачные"
+            // mousedown/mouseup вслед за touchend) — игнорируем, чтобы не
+            // выполнить то же самое действие дважды.
+            let mouseDown = false;
+            el.addEventListener('mousedown', (e) => {
+                if (Date.now() - _lastTouchGestureAt < 700) return;
+                mouseDown = true;
+                onStart(e.clientX, e.clientY);
+            });
+            el.addEventListener('mousemove', (e) => {
+                if (!mouseDown) return;
+                onMove(e.clientX, e.clientY);
+            });
+            window.addEventListener('mouseup', () => {
+                if (!mouseDown) return;
+                mouseDown = false;
+                onEnd();
+            });
+        }
+
+        // Повторно отправляет тот же стикер в текущий чат по одиночному тапу
+        // на уже полученный/отправленный стикер (быстрый способ переиспользовать
+        // стикер, как двойной тап в Телеграме).
+        function resendStickerAttach(attach) {
+            if (currentChatId == null || activeBotChatId) return;
+            const stickerId = attach.id ?? attach.stickerId;
+            if (stickerId == null) return;
+            send(64, {
+                chatId: currentChatId,
+                message: { text: '', cid: Date.now(), attaches: [{ _type: 'STICKER', stickerId }] },
+                notify: true
+            });
+        }
+
         const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
         let _msgActionPanelEls = null;
+        // См. аналогичный комментарий у _reactionPickerShownAt выше: без этой
+        // отметки времени "призрачный" click, который браузер досылает вслед
+        // за touchend/долгим нажатием, попадает по только что показанной
+        // подложке (она уже стоит на тех же координатах) и тут же закрывает
+        // панель — снаружи это выглядит как "открылась и сразу закрылась".
+        let _msgActionPanelShownAt = 0;
         function _ensureMsgActionPanelEls() {
             if (_msgActionPanelEls) return _msgActionPanelEls;
             const backdrop = document.createElement('div');
@@ -10458,7 +10632,10 @@
             panel.id = 'msgActionPanel';
             document.body.appendChild(backdrop);
             document.body.appendChild(panel);
-            backdrop.addEventListener('click', hideMessageActionPanel);
+            backdrop.addEventListener('click', () => {
+                if (Date.now() - _msgActionPanelShownAt < GHOST_CLICK_GUARD_MS) return;
+                hideMessageActionPanel();
+            });
             backdrop.addEventListener('touchstart', hideMessageActionPanel, { passive: true });
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') hideMessageActionPanel();
@@ -10474,40 +10651,48 @@
         }
 
         function showMessageActionPanel(x, y, m, isOwn) {
+            _msgActionPanelShownAt = Date.now();
             const { backdrop, panel } = _ensureMsgActionPanelEls();
             panel.innerHTML = '';
 
-            const emojiRow = document.createElement('div');
-            emojiRow.className = 'map-emoji-row';
-            QUICK_REACTION_EMOJIS.forEach(emoji => {
-                const btn = document.createElement('div');
-                btn.className = 'map-emoji';
-                const src = (typeof getEmojiSrc === 'function' ? getEmojiSrc(emoji) : null) || EMOJI_CDN_URLS[emoji];
-                if (src) {
-                    const img = document.createElement('img');
-                    img.src = src;
-                    img.alt = emoji;
-                    img.onerror = function () { btn.innerHTML = ''; btn.textContent = emoji; };
-                    btn.appendChild(img);
-                } else {
-                    btn.textContent = emoji;
-                }
-                btn.onclick = () => {
-                    sendReaction(m, emoji);
+            const stickerAttach = (m.attaches && m.attaches.length === 1 && m.attaches[0]._type === 'STICKER')
+                ? m.attaches[0] : null;
+
+            // Для стикеров не показываем ряд эмодзи-реакций — по просьбе:
+            // на стикер нельзя ставить эмодзи-реакцию.
+            if (!stickerAttach) {
+                const emojiRow = document.createElement('div');
+                emojiRow.className = 'map-emoji-row';
+                QUICK_REACTION_EMOJIS.forEach(emoji => {
+                    const btn = document.createElement('div');
+                    btn.className = 'map-emoji';
+                    const src = (typeof getEmojiSrc === 'function' ? getEmojiSrc(emoji) : null) || EMOJI_CDN_URLS[emoji];
+                    if (src) {
+                        const img = document.createElement('img');
+                        img.src = src;
+                        img.alt = emoji;
+                        img.onerror = function () { btn.innerHTML = ''; btn.textContent = emoji; };
+                        btn.appendChild(img);
+                    } else {
+                        btn.textContent = emoji;
+                    }
+                    btn.onclick = () => {
+                        sendReaction(m, emoji);
+                        hideMessageActionPanel();
+                    };
+                    emojiRow.appendChild(btn);
+                });
+                const moreBtn = document.createElement('div');
+                moreBtn.className = 'map-emoji map-more';
+                moreBtn.textContent = '➕';
+                moreBtn.title = 'Больше реакций';
+                moreBtn.onclick = () => {
                     hideMessageActionPanel();
+                    showReactionPicker(x, y, m);
                 };
-                emojiRow.appendChild(btn);
-            });
-            const moreBtn = document.createElement('div');
-            moreBtn.className = 'map-emoji map-more';
-            moreBtn.textContent = '➕';
-            moreBtn.title = 'Больше реакций';
-            moreBtn.onclick = () => {
-                hideMessageActionPanel();
-                showReactionPicker(x, y, m);
-            };
-            emojiRow.appendChild(moreBtn);
-            panel.appendChild(emojiRow);
+                emojiRow.appendChild(moreBtn);
+                panel.appendChild(emojiRow);
+            }
 
             const replyBtn = document.createElement('div');
             replyBtn.className = 'map-action';
@@ -10517,6 +10702,34 @@
                 replyToMessage(m);
             };
             panel.appendChild(replyBtn);
+
+            if (stickerAttach) {
+                const sendBtn = document.createElement('div');
+                sendBtn.className = 'map-action';
+                sendBtn.textContent = '↪️ Отправить ещё раз';
+                sendBtn.onclick = () => {
+                    hideMessageActionPanel();
+                    resendStickerAttach(stickerAttach);
+                };
+                panel.appendChild(sendBtn);
+
+                // Добавить стикерпак, из которого этот стикер — работает, только
+                // если у вложения есть setId (см. StickerItem в Komet); сервер
+                // не всегда присылает это поле в самом сообщении.
+                const setId = stickerAttach.setId ?? stickerAttach.stickerSetId;
+                if (setId != null) {
+                    const addPackBtn = document.createElement('div');
+                    addPackBtn.className = 'map-action';
+                    addPackBtn.textContent = '➕ Добавить стикерпак';
+                    addPackBtn.onclick = () => {
+                        hideMessageActionPanel();
+                        favoriteStickerSetIds = [setId, ...favoriteStickerSetIds.filter(id => id !== setId)];
+                        send(29, { type: 'FAVORITE_STICKER_SET', id: setId });
+                        log('✅ Стикерпак добавлен', 'success');
+                    };
+                    panel.appendChild(addPackBtn);
+                }
+            }
 
             if (!m.deleted) {
                 const deleteBtn = document.createElement('div');
@@ -10802,13 +11015,14 @@
                 avatarHtml = `<div class="msg-avatar" title="${escapeHtml(memberName)}"${bg} onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${inner}</div>`;
                 senderNameHtml = `<div class="msg-sender-name" style="color:${senderNameColor(m.sender)}" onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${escapeHtml(memberName)}</div>`;
             }
-            // Одиночный тап/клик сразу открывает панель быстрых реакций +
-            // Ответить/Удалить — без ожидания возможного двойного тапа
-            // (раньше тут была задержка в 250мс и отдельная логика
-            // двойного тапа/клика, которая ставила ❤️ — убрано).
-            el.addEventListener('click', (e) => {
-                showMessageActionPanel(e.clientX, e.clientY, m, isOwn);
-            });
+            // Одиночный тап/клик по обычному сообщению открывает панель быстрых
+            // реакций + Ответить/Удалить. Для сообщений-стикеров тап вместо
+            // этого сразу переотправляет тот же стикер (см. attachMessageGestures) —
+            // а реакции/ответ/удаление там доступны по долгому нажатию.
+            // Свайв влево на любом сообщении — быстрый способ ответить на него.
+            const stickerAttach = (m.attaches && m.attaches.length === 1 && m.attaches[0]._type === 'STICKER')
+                ? m.attaches[0] : null;
+            attachMessageGestures(el, m, isOwn, stickerAttach);
             let attachesHtml = '';
             let keyboardHtml = '';
             let encBadgeHtml = '';
