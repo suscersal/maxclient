@@ -4565,7 +4565,12 @@
         <div id="botMenuPanel"
             style="display:none;flex-direction:column;gap:4px;padding:6px 12px;border-top:1px solid #eee;max-height:160px;overflow-y:auto;">
         </div>
-        <div id="stickerPanel" style="display:none;flex-direction:column;gap:6px;padding:8px 12px;border-top:1px solid var(--tg-border);max-height:260px;overflow-y:auto;background:var(--tg-panel);"></div>
+        <div id="stickerPanel" style="display:none;flex-direction:column;gap:6px;padding:8px 12px;border-top:1px solid var(--tg-border);max-height:260px;overflow-y:auto;background:var(--tg-panel);">
+            <input type="text" id="stickerSearchInput" placeholder="Поиск стикерпака"
+                oninput="onStickerSearchInput(this.value)"
+                style="flex:0 0 auto;width:100%;padding:8px 10px;margin-bottom:6px;border:1px solid var(--tg-border);border-radius:8px;background:var(--tg-bg);color:var(--tg-text);font-size:13px;box-sizing:border-box;">
+            <div id="stickerPanelBody" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
             <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
@@ -6797,9 +6802,40 @@
         let stickersLoaded = false;
         let stickersLoading = false;
         let activeStickerSetId = null;
-        let pendingStickerSetMetaIds = null;   // ids, которые мы запросили как STICKER_SET
-        let pendingStickerItemsSetId = null;   // setId, для которого мы запросили STICKER
+        let stickerSearchQuery = '';
         let pendingFavoriteStickerSync = false;
+
+        // Все запросы assetsGetByIds (opcode 28) идут строго ОДИН за другим через
+        // эту очередь, а не параллельно с разными "pending"-флагами. Раньше было
+        // три отдельных флага (для метаданных пака / стикеров пака / стикеров
+        // вкладки "Избранное"), и если два запроса оказывались в полёте
+        // одновременно (что реально случалось: избранное досинхронизируется
+        // сразу после основной загрузки, а панель тем временем уже пытается
+        // догрузить стикеры для вкладки "Избранное"), ответ на один запрос по
+        // ошибке обрабатывался как ответ на другой — отсюда "не те" стикеры в
+        // избранном. Теперь ответ всегда однозначно привязан к своему запросу.
+        let stickerFetchQueue = [];
+        let stickerFetchInFlight = null;
+
+        function queueStickerFetch(payload, kind, extra) {
+            stickerFetchQueue.push({ payload, kind, extra });
+            pumpStickerFetchQueue();
+        }
+
+        function pumpStickerFetchQueue() {
+            if (stickerFetchInFlight || !stickerFetchQueue.length) return;
+            stickerFetchInFlight = stickerFetchQueue.shift();
+            send(28, stickerFetchInFlight.payload);
+        }
+
+        // renderStickerPanel() может вызываться повторно ещё до того, как
+        // предыдущий запрос по той же вкладке успел отработать (например,
+        // если пользователь быстро переключает вкладки) — эта проверка не
+        // даёт поставить в очередь дубликат того же самого запроса.
+        function isStickerFetchPending(kind, matchExtra) {
+            if (stickerFetchInFlight && stickerFetchInFlight.kind === kind && matchExtra(stickerFetchInFlight.extra)) return true;
+            return stickerFetchQueue.some(r => r.kind === kind && matchExtra(r.extra));
+        }
 
         // Избранные паки хранятся не только на сервере (opcode 29/259), но и
         // локально — раньше при перезагрузке страницы список избранного
@@ -6836,13 +6872,14 @@
         }
 
         function panelSetLoadingHtml(text) {
-            const panel = document.getElementById('stickerPanel');
-            if (panel) panel.innerHTML = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${escapeHtml(text)}</div>`;
+            const body = document.getElementById('stickerPanelBody');
+            if (body) body.innerHTML = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${escapeHtml(text)}</div>`;
         }
 
-        // Общий финал загрузки: помечает готовность, ОДИН раз запрашивает
-        // актуальный список избранного с сервера (уже после того как основная
-        // загрузка полностью завершилась — без гонки с ней) и перерисовывает.
+        // Общий финал ПЕРВИЧНОЙ загрузки: помечает готовность, ОДИН раз
+        // запрашивает актуальный список избранного с сервера (уже после того
+        // как основная загрузка полностью завершилась — без гонки с ней) и
+        // перерисовывает.
         function finishStickersLoad() {
             stickersLoaded = true;
             stickersLoading = false;
@@ -6868,8 +6905,7 @@
                         stickerSetOrder = [...favoriteStickerSetIds.filter(id => !seen.has(id)), ...stickerSetOrder];
                         const missing = favoriteStickerSetIds.filter(id => !stickerSetsById[id]);
                         if (missing.length) {
-                            pendingStickerSetMetaIds = missing;
-                            send(28, { type: 'STICKER_SET', ids: missing });
+                            queueStickerFetch({ type: 'STICKER_SET', ids: missing }, 'favSetMeta');
                             return;
                         }
                     }
@@ -6885,11 +6921,25 @@
                 if (s.id === 'NEW_STICKER_SETS' && Array.isArray(s.stickerSets)) {
                     newSetIds.push(...s.stickerSets);
                     if (typeof s.marker === 'number') nextMarker = s.marker;
-                } else if (s.id === 'FAVORITE_STICKER_SETS' && Array.isArray(s.stickerSets)) {
-                    favoriteStickerSetIds = s.stickerSets.slice();
                 } else if (s.type === 'RECENTS' && Array.isArray(s.recentsList)) {
-                    recentStickerIds = s.recentsList.slice();
+                    // Записи здесь — объекты {type:'STICKER', stickerId:N}, а не
+                    // голые числа (см. StickersModule._parseRecents в Komet) —
+                    // раньше это сохранялось как есть, и при клике на "недавний"
+                    // стикер в запрос улетал целый объект вместо числа, из-за
+                    // чего сервер отвечал ошибкой отправки.
+                    recentStickerIds = s.recentsList
+                        .filter(e => e && e.type === 'STICKER' && (typeof e.stickerId === 'number' || typeof e.id === 'number'))
+                        .map(e => e.stickerId ?? e.id);
                 }
+                // ВАЖНО: секция 'FAVORITE_STICKER_SETS' здесь намеренно НЕ
+                // обрабатывается — в Komet (_loadSections()) её тоже нет в этом
+                // запросе, избранное читается только отдельным запросом
+                // {type:'FAVORITE_STICKER'} (см. ветку pendingFavoriteStickerSync
+                // выше). Раньше здесь была лишняя, ничем не подтверждённая
+                // ветка — судя по всему, сервер в ЭТОМ ответе присылает под
+                // похожим на вид ключом что-то другое (не настоящее избранное,
+                // а фактически все паки), и она затирала правильно
+                // загруженное избранное мусором.
             });
             // Если паков больше, чем влезло в первую страницу — сервер прислал
             // marker; донагружаем остальные страницы через assetsGet (opcode 26),
@@ -6904,8 +6954,7 @@
                 stickerSetOrder = order;
                 const missing = order.filter(id => !stickerSetsById[id]);
                 if (missing.length) {
-                    pendingStickerSetMetaIds = missing;
-                    send(28, { type: 'STICKER_SET', ids: missing });
+                    queueStickerFetch({ type: 'STICKER_SET', ids: missing }, 'initialSetMeta');
                     return; // рендер — после того как метаданные паков подгрузятся
                 }
             }
@@ -6913,9 +6962,15 @@
         }
 
         // Вызывается из ws.onmessage при получении ответа на opcode 28 (assetsGetByIds).
+        // Ответ всегда относится к запросу, который сейчас стоит "в полёте"
+        // (stickerFetchInFlight) — параллельных запросов через эту очередь
+        // не бывает, поэтому перепутать с чужим ответом невозможно.
         function handleAssetsGetByIdsResponse(payload) {
-            if (pendingStickerSetMetaIds) {
-                pendingStickerSetMetaIds = null;
+            const req = stickerFetchInFlight;
+            stickerFetchInFlight = null;
+            if (!req) { pumpStickerFetchQueue(); return; }
+
+            if (req.kind === 'initialSetMeta' || req.kind === 'favSetMeta') {
                 const list = payload?.stickerSets;
                 if (Array.isArray(list)) {
                     list.forEach(s => {
@@ -6929,12 +6984,9 @@
                         }
                     });
                 }
-                finishStickersLoad();
-                return;
-            }
-            if (pendingStickerItemsSetId != null) {
-                const setId = pendingStickerItemsSetId;
-                pendingStickerItemsSetId = null;
+                if (req.kind === 'initialSetMeta') finishStickersLoad();
+                else renderStickerPanel();
+            } else if (req.kind === 'itemsForSet' || req.kind === 'itemsForView') {
                 const list = payload?.stickers;
                 if (Array.isArray(list)) {
                     list.forEach(s => {
@@ -6948,19 +7000,51 @@
                     });
                 }
                 renderStickerPanel();
-                return;
             }
+            pumpStickerFetchQueue();
+        }
+
+        function gatherStickerIdsForView(view) {
+            if (view === 'fav') {
+                const ids = [];
+                favoriteStickerSetIds.forEach(setId => {
+                    const set = stickerSetsById[setId];
+                    if (set) ids.push(...set.stickerIds);
+                });
+                return ids;
+            }
+            if (view === 'recent') return recentStickerIds.slice();
+            return null;
         }
 
         function renderStickerPanel() {
             const panel = document.getElementById('stickerPanel');
-            if (!panel) return;
+            const body = document.getElementById('stickerPanelBody');
+            if (!panel || !body) return;
             if (!stickerSetOrder.length) {
-                panel.innerHTML = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Нет доступных стикерпаков</div>';
+                body.innerHTML = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Нет доступных стикерпаков</div>';
                 return;
             }
-            if (activeStickerSetId == null) activeStickerSetId = stickerSetOrder[0];
-            const tabsHtml = stickerSetOrder.map(id => {
+            if (activeStickerSetId == null && !stickerSearchQuery) {
+                activeStickerSetId = favoriteStickerSetIds.length ? 'fav' : (recentStickerIds.length ? 'recent' : stickerSetOrder[0]);
+            }
+
+            const q = (stickerSearchQuery || '').trim().toLowerCase();
+            const visiblePackIds = q
+                ? stickerSetOrder.filter(id => (stickerSetsById[id]?.name || '').toLowerCase().includes(q))
+                : stickerSetOrder;
+
+            const specialTabsHtml = q ? '' : [
+                favoriteStickerSetIds.length ? { id: 'fav', icon: '⭐', title: 'Избранные' } : null,
+                recentStickerIds.length ? { id: 'recent', icon: '🕐', title: 'Недавние' } : null,
+            ].filter(Boolean).map(t => `
+                <button type="button" onclick="selectStickerSet('${t.id}')" title="${t.title}"
+                    style="flex:0 0 auto;width:36px;height:36px;padding:4px;border:none;background:${activeStickerSetId === t.id ? 'var(--tg-blue)' : 'transparent'};border-radius:8px;cursor:pointer;font-size:18px;line-height:28px;">
+                    ${t.icon}
+                </button>
+            `).join('');
+
+            const packTabsHtml = visiblePackIds.map(id => {
                 const set = stickerSetsById[id];
                 if (!set) return '';
                 const active = id === activeStickerSetId;
@@ -6968,31 +7052,34 @@
                     ? `<img src="${set.iconUrl}" alt="${escapeHtml(set.name)}" style="width:28px;height:28px;object-fit:contain;display:block;" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🙂',style:'font-size:20px;'}))">`
                     : `<span style="font-size:20px;display:block;width:28px;height:28px;text-align:center;line-height:28px;">🙂</span>`;
                 return `
-                <button type="button" onclick="selectStickerSet(${id})"
+                <button type="button" onclick="selectStickerSet(${id})" title="${escapeHtml(set.name)}"
                     style="flex:0 0 auto;width:36px;height:36px;padding:4px;border:none;background:${active ? 'var(--tg-blue)' : 'transparent'};border-radius:8px;cursor:pointer;opacity:${active ? '1' : '0.6'};">
                     ${iconHtml}
                 </button>
             `;
             }).join('');
 
-            const set = stickerSetsById[activeStickerSetId];
-            let gridHtml = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Загрузка...</div>';
-            if (set) {
-                const missing = set.stickerIds.filter(id => !stickerItemsById[id]);
+            let sectionLabel = '';
+            let favBtnHtml = '';
+            let gridHtml = activeStickerSetId == null
+                ? '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Ничего не найдено</div>'
+                : '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Загрузка...</div>';
+            const view = (activeStickerSetId === 'fav' || activeStickerSetId === 'recent') ? activeStickerSetId : null;
+
+            if (view) {
+                sectionLabel = view === 'fav' ? 'Избранные' : 'Недавние';
+                const ids = gatherStickerIdsForView(view);
+                const missing = ids.filter(id => !stickerItemsById[id]);
                 if (missing.length) {
-                    pendingStickerItemsSetId = activeStickerSetId;
-                    send(28, { type: 'STICKER', ids: missing });
+                    if (!isStickerFetchPending('itemsForView', e => e && e.view === view)) {
+                        queueStickerFetch({ type: 'STICKER', ids: missing }, 'itemsForView', { view });
+                    }
+                } else if (!ids.length) {
+                    gridHtml = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${view === 'fav' ? 'Нет избранных стикеров' : 'Пока нет недавних стикеров'}</div>`;
                 } else {
-                    const isFav = favoriteStickerSetIds.includes(activeStickerSetId);
                     gridHtml = `
-                    <div style="display:flex;justify-content:flex-end;padding:0 2px 4px;">
-                        <button type="button" onclick="toggleFavoriteStickerSet(${activeStickerSetId})"
-                            style="border:none;background:none;cursor:pointer;font-size:16px;color:var(--tg-text);" title="В избранное">
-                            ${isFav ? '⭐' : '☆'}
-                        </button>
-                    </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
-                        ${set.stickerIds.map(id => {
+                        ${ids.map(id => {
                         const st = stickerItemsById[id];
                         if (!st) return '';
                         const src = st.url ? '/img?url=' + encodeURIComponent(st.url) : '';
@@ -7002,12 +7089,63 @@
                     </div>
                 `;
                 }
+            } else {
+                const set = stickerSetsById[activeStickerSetId];
+                if (set) {
+                    sectionLabel = set.name || '';
+                    const missing = set.stickerIds.filter(id => !stickerItemsById[id]);
+                    if (missing.length) {
+                        if (!isStickerFetchPending('itemsForSet', e => e && e.setId === activeStickerSetId)) {
+                            queueStickerFetch({ type: 'STICKER', ids: missing }, 'itemsForSet', { setId: activeStickerSetId });
+                        }
+                    } else {
+                        const isFav = favoriteStickerSetIds.includes(activeStickerSetId);
+                        gridHtml = `
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+                            ${set.stickerIds.map(id => {
+                            const st = stickerItemsById[id];
+                            if (!st) return '';
+                            const src = st.url ? '/img?url=' + encodeURIComponent(st.url) : '';
+                            return `<img src="${src}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:contain;cursor:pointer;"
+                                        onclick="sendStickerMessage(${id})" onerror="this.style.opacity='0.3'">`;
+                        }).join('')}
+                        </div>
+                    `;
+                        favBtnHtml = `
+                        <button type="button" onclick="toggleFavoriteStickerSet(${activeStickerSetId})"
+                            style="border:none;background:none;cursor:pointer;font-size:16px;color:var(--tg-text);" title="В избранное">
+                            ${isFav ? '⭐' : '☆'}
+                        </button>`;
+                    }
+                }
             }
 
-            panel.innerHTML = `
-                <div style="flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;height:44px;align-items:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--tg-border);">${tabsHtml}</div>
+            body.innerHTML = `
+                <div style="flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;height:44px;align-items:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--tg-border);">${specialTabsHtml}${packTabsHtml}</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px 4px;">
+                    <span style="font-size:13px;font-weight:600;color:var(--tg-text-secondary);">${escapeHtml(sectionLabel)}</span>
+                    ${favBtnHtml}
+                </div>
                 ${gridHtml}
             `;
+        }
+
+        function onStickerSearchInput(value) {
+            stickerSearchQuery = value.trim();
+            if (stickerSearchQuery) {
+                const q = stickerSearchQuery.toLowerCase();
+                const matches = stickerSetOrder.filter(id => (stickerSetsById[id]?.name || '').toLowerCase().includes(q));
+                if (!matches.includes(activeStickerSetId)) {
+                    activeStickerSetId = matches.length ? matches[0] : null;
+                }
+            }
+            // Раньше renderStickerPanel() пересоздавал весь #stickerPanel целиком,
+            // включая сам <input>, на каждое нажатие клавиши — из-за этого на
+            // части мобильных браузеров клавиатура иногда закрывалась сама
+            // (поле ввода на мгновение исчезало и создавалось заново). Теперь
+            // рендер пишет только в #stickerPanelBody, а сам <input> — снаружи
+            // и не трогается вообще, так что фокус никогда не теряется.
+            renderStickerPanel();
         }
 
         function selectStickerSet(setId) {
@@ -10297,6 +10435,10 @@
             if (attach?._type === 'GIF') {
                 return '🎞️ GIF';
             }
+            if (attach?._type === 'STICKER') {
+                const emoji = Array.isArray(attach.tags) && attach.tags.length ? attach.tags[0] : '🖼️';
+                return `${emoji} Стикер`;
+            }
             if (m.text && !isTranslationKey) return m.text.slice(0, 80);
             if (attach) {
                 const labels = {
@@ -10621,7 +10763,12 @@
         // стикер, как двойной тап в Телеграме).
         function resendStickerAttach(attach) {
             if (currentChatId == null || activeBotChatId) return;
-            const stickerId = attach.id ?? attach.stickerId;
+            // В реальном вложении сообщения поле называется stickerId, а не id
+            // (см. пример payload'а: {"setId":1102,"stickerId":2471246,...}) —
+            // раньше был обратный приоритет (id ?? stickerId), и если у вложения
+            // случайно оказывался ещё и левый "id" (общий для разных типов
+            // вложений), пересылался не тот стикер.
+            const stickerId = attach.stickerId ?? attach.id;
             if (stickerId == null) return;
             send(64, {
                 chatId: currentChatId,
@@ -10746,8 +10893,7 @@
                         // стикеров), иначе он не появится там вкладкой.
                         if (!stickerSetOrder.includes(setId)) stickerSetOrder = [setId, ...stickerSetOrder];
                         if (!stickerSetsById[setId]) {
-                            pendingStickerSetMetaIds = [setId];
-                            send(28, { type: 'STICKER_SET', ids: [setId] });
+                            queueStickerFetch({ type: 'STICKER_SET', ids: [setId] }, 'favSetMeta');
                         }
                         send(29, { type: 'FAVORITE_STICKER_SET', id: setId });
                         log('✅ Стикерпак добавлен', 'success');
@@ -12484,15 +12630,15 @@
                             page.stickerSets.forEach(id => { if (!stickerSetOrder.includes(id)) stickerSetOrder.push(id); });
                             const missing = page.stickerSets.filter(id => !stickerSetsById[id]);
                             if (missing.length) {
-                                pendingStickerSetMetaIds = missing;
-                                send(28, { type: 'STICKER_SET', ids: missing });
+                                queueStickerFetch({ type: 'STICKER_SET', ids: missing }, 'favSetMeta');
                             }
                         }
                         return;
                     }
                     if (data.opcode === 28 && data.cmd === 256) {
-                        // assetsGetByIds — метаданные паков ИЛИ сами стикеры набора
-                        // (см. pendingStickerSetMetaIds/pendingStickerItemsSetId)
+                        // assetsGetByIds — метаданные паков ИЛИ сами стикеры набора/вкладки
+                        // (см. stickerFetchInFlight/stickerFetchQueue — строгая очередь,
+                        // без гонки между несколькими одновременными запросами)
                         handleAssetsGetByIdsResponse(data.payload);
                         return;
                     }
