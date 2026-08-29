@@ -2663,7 +2663,7 @@ class MaxClient:
                 "deviceLocale": "ru",
                 "osVersion": profile["osVersion"],
                 "deviceName": profile["deviceName"],
-                "appVersion": get_latest_app_version(),
+                "appVersion": "26.29.1",#get_latest_app_version(),
                 "screen": profile["screen"],
                 "timezone": "Europe/Moscow",
                 "pushDeviceType": "GCM",
