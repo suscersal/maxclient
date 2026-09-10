@@ -142,7 +142,36 @@ DEVICE_CATALOG_FILE = os.getenv("DEVICE_CATALOG_FILE", os.path.join(
     os.path.dirname(SESSION_FILE), "device_catalog.json"))
 DEVICE_CATALOG_REFRESH_HOURS = 24 * 7  # раз в неделю доскачиваем свежую версию
 VERSION_CACHE_HOURS = 24
-FALLBACK_APP_VERSION = "26.15.0"
+
+def _build_otp_payload(phone: str, auth_type: str) -> dict:
+    p = {"phone": phone, "type": auth_type, "language": "ru"}
+    try:
+        sess = load_session()
+        cs = sess.get("callsSeed"); did = sess.get("deviceId") or ""
+        if cs is not None and did:
+            p["mode"] = _compute_auth_mode(int(cs), did)
+    except Exception as e:
+        pass
+    return p
+
+FALLBACK_APP_VERSION = "26.29.1"
+
+
+def _compute_auth_mode(calls_seed: int, device_id: str) -> list:
+    """ChatCacheFingerprint.compute из Komet (lib/core/protocol/chat_cache_fingerprint.dart).
+    Хэши взяты из Komet-main__2_.zip — актуальная версия для 26.29.1.
+    Поле 'mode' добавляется в OTP-запрос (opcode 17)."""
+    import hashlib, struct as _struct
+    # Актуальные дайджесты из chat_cache_fingerprint.dart (Komet 26.29.1)
+    SIG = bytes.fromhex('1684414033eb263e2c615f8b7df5ed8793850a07656304997fbf07e9e21e1e93')
+    DEX = bytes.fromhex('38cff46f392dc1734c308be011c2f0d8da152a390b41063dbb2c913e3032f4b3')
+    SO  = bytes.fromhex('634ecc42b246784d975f180b4fecf903df235cdf0476da47163a85630eb1a6a8')
+    # seed: int64 big-endian (как в _int64BigEndian в Dart)
+    seed = _struct.pack('>q', calls_seed)
+    dev  = device_id.encode('utf-8')
+    sha  = lambda a, b, c: hashlib.sha256(a + b + c).digest()
+    # порядок: SIG, DEX, SO (как в compute())
+    return list(sha(SIG, seed, dev) + sha(DEX, seed, dev) + sha(SO, seed, dev))
 
 # --- Локальная проверка сообщений на скам (опционально, выключено по умолчанию) ---
 # Использует ЛЮБОЙ локальный сервер инференса с OpenAI-совместимым
@@ -2297,133 +2326,133 @@ DEVICE_PROFILES = {
         "label": "Samsung Galaxy S24 Ultra / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S24 Ultra", "screen": "xxxhdpi 480dpi 1440x3120",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "samsung_s24": {
         "label": "Samsung Galaxy S24 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S24", "screen": "xxhdpi 480dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "samsung_s23": {
         "label": "Samsung Galaxy S23 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S23", "screen": "xxhdpi 480dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "samsung_a55": {
         "label": "Samsung Galaxy A55 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy A55", "screen": "xhdpi 420dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "pixel_9_pro": {
         "label": "Google Pixel 9 Pro / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 9 Pro", "screen": "xxxhdpi 495dpi 1280x2856",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "pixel_9": {
         "label": "Google Pixel 9 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 9", "screen": "xxhdpi 422dpi 1080x2424",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "pixel_8": {
         "label": "Google Pixel 8 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 8", "screen": "xxhdpi 420dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "pixel_7": {
         "label": "Google Pixel 7 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Google Pixel 7", "screen": "xxhdpi 416dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "xiaomi_14": {
         "label": "Xiaomi 14 / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Xiaomi 14", "screen": "xxxhdpi 480dpi 1200x2670",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "redmi_note_14": {
         "label": "Xiaomi Redmi Note 14 / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Xiaomi Redmi Note 14", "screen": "xhdpi 395dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "poco_x6": {
         "label": "Poco X6 Pro / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Poco X6 Pro", "screen": "xhdpi 440dpi 1220x2712",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "oneplus_13": {
         "label": "OnePlus 13 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "OnePlus 13", "screen": "xxxhdpi 510dpi 1440x3168",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "oneplus_nord_5": {
         "label": "OnePlus Nord 5 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "OnePlus Nord 5", "screen": "xhdpi 450dpi 1272x2800",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "honor_magic6": {
         "label": "Honor Magic6 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Honor Magic6", "screen": "xxhdpi 460dpi 1200x2670",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "huawei_p60": {
         "label": "Huawei P60 / Android 12",
         "deviceType": "ANDROID", "osVersion": "Android 12",
         "deviceName": "Huawei P60", "screen": "xxhdpi 460dpi 1220x2700",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "oppo_reno12": {
         "label": "Oppo Reno 12 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Oppo Reno 12", "screen": "xhdpi 403dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "vivo_x100": {
         "label": "Vivo X100 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Vivo X100", "screen": "xxhdpi 450dpi 1260x2800",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "realme_12_pro": {
         "label": "realme 12 Pro / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "realme 12 Pro", "screen": "xhdpi 401dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "motorola_edge50": {
         "label": "Motorola Edge 50 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Motorola Edge 50", "screen": "xhdpi 402dpi 1220x2712",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "nothing_phone_2a": {
         "label": "Nothing Phone (2a) / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Nothing Phone (2a)", "screen": "xhdpi 394dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "sony_xperia_1_vi": {
         "label": "Sony Xperia 1 VI / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Sony Xperia 1 VI", "screen": "xxhdpi 460dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
     "asus_zenfone_11": {
         "label": "Asus Zenfone 11 Ultra / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Asus Zenfone 11 Ultra", "screen": "xhdpi 395dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": 6498,
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
     },
 }
 DEFAULT_DEVICE_PROFILE = "samsung_s23"
@@ -2479,7 +2508,7 @@ def get_active_profile() -> dict:
             "deviceName": name,
             "screen": screen,
             "arch": "arm64-v8a",
-            "buildNumber": 6498,
+            "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
         }
     if pid not in DEVICE_PROFILES:
         pid = DEFAULT_DEVICE_PROFILE
@@ -2517,6 +2546,16 @@ VERSION_CHECK_URL = "https://ru-oneme-app.en.uptodown.com/android"
 def get_latest_app_version() -> str:
     sess = load_session()
     cached = sess.get("appVersionCache")
+    # Инвалидируем кэш если там старая версия (до 26.29.1)
+    if cached:
+        cached_ver = cached.get("version", "0")
+        try:
+            parts = [int(x) for x in cached_ver.split(".")]
+            fallback_parts = [int(x) for x in FALLBACK_APP_VERSION.split(".")]
+            if parts < fallback_parts:
+                cached = None  # сбрасываем устаревший кэш
+        except Exception:
+            pass
     if cached and time.time() - cached.get("checkedAt", 0) < VERSION_CACHE_HOURS * 3600:
         return cached.get("version", FALLBACK_APP_VERSION)
     try:
@@ -2663,7 +2702,7 @@ class MaxClient:
                 "deviceLocale": "ru",
                 "osVersion": profile["osVersion"],
                 "deviceName": profile["deviceName"],
-                "appVersion": "26.29.1",#get_latest_app_version(),
+                "appVersion": get_latest_app_version(),
                 "screen": profile["screen"],
                 "timezone": "Europe/Moscow",
                 "pushDeviceType": "GCM",
@@ -2694,6 +2733,7 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
     saved_token = get_saved_auth_token() if use_token else None
     client = MaxClient()
     client.connect(existing_token=saved_token)
+    _fetch_once_active.set()
     try:
         deadline = time.time() + timeout
 
@@ -2710,6 +2750,15 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                 handshake_ok = packet["cmd"] == 256
                 if handshake_ok:
                     logger.info("[fetch_once] Handshake successful")
+                    logger.info(f"[fetch_once] Handshake payload keys: {list(packet.get('payload', {}).keys())}")
+                    # Сохраняем callsSeed — нужен для поля mode в OTP-запросе
+                    calls_seed = packet.get("payload", {}).get("callsSeed")
+                    logger.info(f"[fetch_once] callsSeed from handshake: {calls_seed!r}")
+                    if calls_seed is not None:
+                        sess = load_session()
+                        sess["callsSeed"] = int(calls_seed)
+                        save_session(sess)
+                        logger.info(f"[fetch_once] callsSeed saved: {calls_seed}")
                 else:
                     logger.warning(
                         f"[fetch_once] handshake failed: cmd={packet['cmd']}, payload={packet.get('payload')!r}")
@@ -2762,6 +2811,7 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                 packet = client.recv_packet()
             except socket.timeout:
                 continue
+            logger.info(f"[fetch_once] recv opcode={packet['opcode']} cmd={packet['cmd']}")
             if packet["opcode"] == wait_opcode:
                 return packet
             # Также обрабатываем другие ответы
@@ -2772,6 +2822,7 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
             f"[fetch_once] Timeout waiting for opcode {wait_opcode}")
         return None
     finally:
+        _fetch_once_active.clear()
         client.close()
 
 
@@ -2999,9 +3050,20 @@ def start_auth():
     logger.info(f"[auth] Starting auth for {phone}")
 
     try:
+        # Payload из Komet account.dart: phone + type + language + mode
+        _auth_payload = {"phone": phone, "type": "START_AUTH", "language": "ru"}
+        _sess0 = load_session()
+        _seed0 = _sess0.get("callsSeed")
+        _did0  = _sess0.get("deviceId") or ""
+        if _seed0 is not None and _did0:
+            try:
+                _auth_payload["mode"] = _compute_auth_mode(int(_seed0), _did0)
+                logger.info("[auth] mode field added")
+            except Exception as _me:
+                logger.warning(f"[auth] mode failed: {_me}")
         packet = fetch_once(
             17,
-            {"phone": phone, "type": "START_AUTH"},
+            _auth_payload,
             wait_opcode=17,
             timeout=15,
             use_token=False
@@ -3010,13 +3072,23 @@ def start_auth():
         logger.warning(f"[auth] Start auth failed: {e}")
         return jsonify({"error": str(e)}), 500
 
+    # fetch_once мог получить cmd=768 (ошибку) пока relay получил cmd=256 (успех)
+    # на тот же запрос — это нормально когда браузер дублирует opcode 17.
+    # Проверяем: если токен уже сохранён (relay успел обработать успешный ответ)
+    # — считаем авторизацию успешной.
     if not packet or packet["cmd"] != 256:
+        sess_check = load_session()
+        if sess_check.get("otpToken"):
+            logger.info("[auth] fetch_once got error but relay already saved token — OK")
+            return jsonify({"success": True, "message": "Код отправлен"})
         error_msg = packet.get("payload", {}).get(
             "localizedMessage", "Ошибка отправки кода") if packet else "Нет ответа"
+        logger.warning(f"[auth] error: {error_msg}")
         return jsonify({"error": error_msg}), 502
 
     # Сохраняем OTP токен
     otp_token = packet.get("payload", {}).get("token")
+    logger.info(f"[auth] Server response cmd={packet.get('cmd')} payload keys={list(packet.get('payload', {}).keys())} payload={packet.get('payload', {})!r}")
     if otp_token:
         sess = load_session()
         sess["otpToken"] = otp_token
@@ -3212,7 +3284,7 @@ def resend_code():
     try:
         packet = fetch_once(
             17,
-            {"phone": phone, "type": "START_AUTH"},
+            _build_otp_payload(phone, "START_AUTH"),
             wait_opcode=17,
             timeout=15,
             use_token=False
@@ -4167,6 +4239,9 @@ _scan_state = {
 }
 _scan_lock = threading.Lock()
 
+# fetch_once active flag — relay skips forwarding while set
+_fetch_once_active = threading.Event()
+
 
 def scan_all_cached_chats(self_id=None, chat_id_filter=None):
     """Сканирует закэшированные сообщения. Если chat_id_filter задан —
@@ -4925,6 +5000,31 @@ def relay(ws):
             opcode = req.get("opcode")
             payload = numify_big_int_strings(req.get("payload", {}))
 
+            # Поля, которые JS передаёт как base64-строки (чтобы пройти через
+            # JSON), но сервер MAX ожидает как бинарные данные (msgpack bin-тип).
+            # Клиент помечает такие поля в служебном ключе __binary__ (список
+            # имён), bridge декодирует их перед msgpack-сериализацией.
+            def _decode_binary_fields(obj, fields):
+                if not isinstance(obj, dict) or not fields:
+                    return
+                for key in fields:
+                    if key in obj and isinstance(obj[key], str):
+                        try:
+                            obj[key] = base64.b64decode(obj[key])
+                        except Exception:
+                            pass
+            binary_fields = payload.pop("__binary__", None)
+            if binary_fields:
+                _decode_binary_fields(payload, binary_fields)
+            # Рекурсивно обрабатываем attaches внутри message
+            msg_obj = payload.get("message", {})
+            if isinstance(msg_obj, dict):
+                for attach in msg_obj.get("attaches", []):
+                    if isinstance(attach, dict):
+                        af = attach.pop("__binary__", None)
+                        if af:
+                            _decode_binary_fields(attach, af)
+
             if "token" not in payload:
                 current_token = get_saved_auth_token()
                 if current_token:
@@ -4954,6 +5054,9 @@ def relay(ws):
                     continue
 
             if opcode is not None:
+                if _fetch_once_active.is_set():
+                    logger.debug(f"[relay] Skipped opcode={opcode} (fetch_once active)")
+                    continue
                 client.send(opcode, payload)
 
     except Exception as e:
@@ -5040,6 +5143,7 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
                         f"[session] Auth token saved from alt field: {auth_token[:20]}...")
 
             out_queue.put(packet)
+            maybe_push_notify(packet)
         except Exception as e:
             logger.error(
                 f"[recv_loop] Ошибка обработки пакета "
@@ -5047,6 +5151,176 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
                 f"{traceback.format_exc()}")
             print(f"[recv_loop] Ошибка обработки пакета: {e}", file=sys.stderr)
             continue
+
+
+# ============================================================
+# Web Push уведомления (без Firebase, стандартный Web Push API)
+# ============================================================
+# Для работы нужно:
+#   pip install pywebpush
+# VAPID-ключи генерируются один раз (уже сгенерированы ниже).
+# Браузер подписывается через /api/push/subscribe, bridge сам
+# рассылает push'и при получении входящих сообщений.
+
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", """-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgt4nzkYd3apLGG/+n
+qOcwg1UzzRqZP46ec9uQfgdnC7ShRANCAATZUKKOlOzOSfbCC+eoKbJPM3XAQrLG
+bnaAzzFbxTW8pbIXVjQHsaAiwyIFo83hNfS0sMGEZOvT6vpadQSSKStS
+-----END PRIVATE KEY-----""")
+
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY",
+    "BNlQoo6U7M5J9sIL56gpsk8zdcBCssZudoDPMVvFNbylshdWNAexoCLDIgWjzeE19LSwwYRk69Pq-lp1BJIpK1I")
+
+VAPID_CLAIMS = {"sub": os.getenv("VAPID_MAILTO", "mailto:admin@example.com")}
+
+# Хранилище подписок в памяти (и в файле рядом с bridge.py для персистентности).
+_PUSH_SUB_FILE = os.path.join(os.path.dirname(__file__), "push_subscriptions.json")
+_push_subscriptions = []  # список dict-объектов подписок
+
+def _load_push_subscriptions():
+    global _push_subscriptions
+    try:
+        if os.path.exists(_PUSH_SUB_FILE):
+            with open(_PUSH_SUB_FILE, "r") as f:
+                _push_subscriptions = json.load(f)
+            logger.info(f"[push] Загружено {len(_push_subscriptions)} подписок из файла")
+    except Exception as e:
+        logger.warning(f"[push] Не удалось загрузить подписки: {e}")
+
+def _save_push_subscriptions():
+    try:
+        with open(_PUSH_SUB_FILE, "w") as f:
+            json.dump(_push_subscriptions, f)
+    except Exception as e:
+        logger.warning(f"[push] Не удалось сохранить подписки: {e}")
+
+_load_push_subscriptions()
+
+def _send_web_push(subscription_info, data):
+    """Отправляет одно Web Push уведомление; возвращает True при успехе."""
+    try:
+        from pywebpush import webpush, WebPushException
+        webpush(
+            subscription_info=subscription_info,
+            data=json.dumps(data, ensure_ascii=False),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims=VAPID_CLAIMS,
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"[push] Ошибка отправки push: {e}")
+        return False
+
+def _broadcast_push(data):
+    """Рассылает push всем подписчикам; удаляет протухшие подписки."""
+    global _push_subscriptions
+    try:
+        from pywebpush import WebPushException
+    except ImportError:
+        logger.warning("[push] pywebpush не установлен, push не отправлен")
+        return
+    alive = []
+    for sub in list(_push_subscriptions):
+        ok = _send_web_push(sub, data)
+        if ok:
+            alive.append(sub)
+        else:
+            logger.info(f"[push] Удалена протухшая подписка: {sub.get('endpoint','?')[:60]}")
+    if len(alive) != len(_push_subscriptions):
+        _push_subscriptions = alive
+        _save_push_subscriptions()
+
+
+@app.route("/api/push/vapid-public-key")
+def push_vapid_public_key():
+    """Отдаёт VAPID public key браузеру для подписки."""
+    return jsonify({"publicKey": VAPID_PUBLIC_KEY})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def push_subscribe():
+    """Сохраняет Push-подписку от браузера."""
+    global _push_subscriptions
+    sub = request.get_json(force=True)
+    if not sub or not sub.get("endpoint"):
+        return jsonify({"error": "invalid subscription"}), 400
+    # Не дублируем одну и ту же подписку
+    endpoints = {s.get("endpoint") for s in _push_subscriptions}
+    if sub["endpoint"] not in endpoints:
+        _push_subscriptions.append(sub)
+        _save_push_subscriptions()
+        logger.info(f"[push] Новая подписка: {sub['endpoint'][:60]}")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+def push_unsubscribe():
+    """Удаляет Push-подписку (при отзыве разрешения или выходе)."""
+    global _push_subscriptions
+    data = request.get_json(force=True) or {}
+    endpoint = data.get("endpoint", "")
+    before = len(_push_subscriptions)
+    _push_subscriptions = [s for s in _push_subscriptions if s.get("endpoint") != endpoint]
+    if len(_push_subscriptions) != before:
+        _save_push_subscriptions()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/test", methods=["POST"])
+def push_test():
+    """Отправляет тестовое уведомление всем подписчикам (для проверки)."""
+    _broadcast_push({"title": "MAX", "body": "Тест push-уведомлений работает!"})
+    return jsonify({"ok": True, "subscribers": len(_push_subscriptions)})
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Отдаёт Service Worker с правильным MIME-типом и без кэша."""
+    resp = send_from_directory(os.path.dirname(__file__), "sw.js",
+                               mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+# Хук на входящие сообщения: рассылает push при получении пуша с opcode 128
+# (notifMessage). Вызывается из recv_loop через threading, поэтому thread-safe.
+def maybe_push_notify(packet):
+    """Вызвать при получении пакета от сервера MAX."""
+    if not _push_subscriptions:
+        return
+    try:
+        opcode = packet.get("opcode") if isinstance(packet, dict) else None
+        # opcode 128 = notifMessage (входящее сообщение, см. opcode_map.dart)
+        if opcode != 128:
+            return
+        payload = packet.get("payload") or {}
+        msg = payload.get("message") or {}
+        sender = payload.get("contact") or {}
+        chat = payload.get("chat") or {}
+        sender_name = (sender.get("names") or [{}])[0].get("firstName") \
+            or sender.get("name") \
+            or f"ID {sender.get('id', '?')}"
+        text = msg.get("text") or ""
+        attaches = msg.get("attaches") or []
+        if not text and attaches:
+            t = attaches[0].get("_type", "")
+            text = {"PHOTO": "📷 Фото", "VIDEO": "🎥 Видео", "STICKER": "😀 Стикер",
+                    "AUDIO": "🎵 Аудио", "FILE": "📎 Файл", "GIF": "🎞 GIF"}.get(t, "Вложение")
+        if not text:
+            return
+        chat_title = chat.get("theme") or chat.get("title") or sender_name
+        chat_id = payload.get("chatId") or chat.get("id")
+        import threading
+        threading.Thread(target=_broadcast_push, args=({
+            "title": chat_title,
+            "body": f"{sender_name}: {text[:120]}" if chat.get("type") == "CHAT" else text[:140],
+            "tag": f"chat-{chat_id}",
+            "chatId": chat_id,
+            "renotify": True,
+        },), daemon=True).start()
+    except Exception as e:
+        logger.warning(f"[push] maybe_push_notify error: {e}")
 
 
 if __name__ == "__main__":

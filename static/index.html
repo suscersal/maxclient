@@ -4511,8 +4511,30 @@
     <div id="chatsSection" class="section hidden">
         <div class="section-header-row">
             <h3>💬 Чаты</h3>
+            <button type="button" class="chat-profile-close" title="Новая история"
+                style="position:static;" onclick="openStoryCreator()">📷</button>
             <button type="button" id="newChatBtn" class="chat-profile-close" title="Новый чат"
-                style="position:static;margin-left:auto;" onclick="openNewChatModal()">✏️</button>
+                style="position:static;margin-left:4px;" onclick="openNewChatModal()">✏️</button>
+        </div>
+        <!-- Лента историй (прокручивается горизонтально, как в оф. MAX-приложении) -->
+        <div id="storiesFeed" style="display:none;flex-direction:row;gap:12px;overflow-x:auto;padding:8px 0 12px;scrollbar-width:none;-ms-overflow-style:none;"></div>
+        <!-- Модальный просмотрщик историй -->
+        <div id="storyViewer" style="display:none;position:fixed;inset:0;z-index:2000;background:#000;flex-direction:column;touch-action:none;">
+            <div id="storyViewerProgress" style="display:flex;gap:4px;padding:8px 12px 0;"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;">
+                <div id="storyViewerAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:0 0 auto;"></div>
+                <div id="storyViewerName" style="color:#fff;font-weight:600;font-size:15px;flex:1;"></div>
+                <div id="storyViewerTime" style="color:rgba(255,255,255,.6);font-size:12px;"></div>
+                <button onclick="closeStoryViewer()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:4px;">✕</button>
+            </div>
+            <div id="storyViewerMedia" style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+                <!-- Зоны тапа: влево (пред. история), вправо (след.) -->
+                <div onclick="storyViewerNav(-1)" style="position:absolute;left:0;top:0;width:35%;height:100%;z-index:1;"></div>
+                <div onclick="storyViewerNav(1)"  style="position:absolute;right:0;top:0;width:35%;height:100%;z-index:1;"></div>
+                <img id="storyViewerImg" style="max-width:100%;max-height:100%;object-fit:contain;display:none;" alt="">
+                <video id="storyViewerVideo" style="max-width:100%;max-height:100%;display:none;" playsinline autoplay muted></video>
+                <div id="storyViewerText" style="position:absolute;bottom:20px;left:0;right:0;text-align:center;color:#fff;font-size:16px;padding:0 20px;text-shadow:0 1px 4px rgba(0,0,0,.8);"></div>
+            </div>
         </div>
         <div id="localChatSearchWrap">
             <input type="text" id="localChatSearchInput"
@@ -4583,9 +4605,41 @@
                 style="display:none;flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">☰</button>
             <button type="button" id="stickerBtn" onclick="toggleStickerPanel()" title="Стикеры"
                 style="flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">😀</button>
+            <!-- Кружок: удерживай для записи, отпусти для отправки -->
+            <button type="button" id="videoNoteBtn" title="Видео-кружок (удержи для записи)"
+                style="flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;user-select:none;-webkit-user-select:none;">🔴</button>
             <input type="text" id="messageText" placeholder="Сообщение">
-
             <button id="sendMessageBtn" class="success">Отправить</button>
+        </div>
+
+        <!-- Полноэкранный экран записи кружка -->
+        <div id="videoNoteRecorder" style="display:none;position:fixed;inset:0;z-index:3000;background:#000;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+            <video id="videoNotePreview" autoplay muted playsinline
+                style="width:280px;height:280px;border-radius:50%;object-fit:cover;border:4px solid #e53935;"></video>
+            <div id="videoNoteTimer" style="color:#fff;font-size:28px;font-weight:700;">0:00</div>
+            <div style="display:flex;gap:20px;">
+                <button onclick="cancelVideoNote()"
+                    style="padding:14px 28px;border-radius:24px;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:16px;cursor:pointer;">Отмена</button>
+                <button id="videoNoteStopBtn" onclick="stopVideoNote()"
+                    style="padding:14px 28px;border-radius:24px;border:none;background:#e53935;color:#fff;font-size:16px;font-weight:700;cursor:pointer;">Отправить ⬤</button>
+            </div>
+        </div>
+
+        <!-- Экран создания истории -->
+        <div id="storyCreator" style="display:none;position:fixed;inset:0;z-index:3000;background:#111;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+            <div style="color:#fff;font-size:18px;font-weight:700;">Новая история</div>
+            <div id="storyCreatorPreview" style="width:260px;height:400px;background:#222;border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+                <span style="color:rgba(255,255,255,.4);font-size:14px;">Выберите фото</span>
+            </div>
+            <input type="file" id="storyFileInput" accept="image/*" style="display:none;" onchange="onStoryFileChosen(this)">
+            <div style="display:flex;gap:12px;">
+                <button onclick="document.getElementById('storyFileInput').click()"
+                    style="padding:12px 24px;border-radius:20px;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:15px;cursor:pointer;">📷 Выбрать фото</button>
+                <button onclick="submitStory()"
+                    style="padding:12px 24px;border-radius:20px;border:none;background:#0d6efd;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">Опубликовать</button>
+            </div>
+            <button onclick="closeStoryCreator()"
+                style="background:none;border:none;color:rgba(255,255,255,.5);font-size:14px;cursor:pointer;">Отмена</button>
         </div>
         <button type="button" id="joinChatBtn" class="hidden success"
             style="width:calc(100% - 24px);margin:8px 12px;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;"
@@ -6705,6 +6759,7 @@
                 document.getElementById('attachBtn').style.display = 'none';
                 document.getElementById('botMenuBtn').style.display = '';
                 document.getElementById('stickerBtn').style.display = 'none';
+                document.getElementById('videoNoteBtn').style.display = 'none';
                 document.getElementById('stickerPanel').style.display = 'none';
                 document.getElementById('messageText').placeholder = 'Сообщение боту...';
                 document.getElementById('messageText').value = '';
@@ -6725,6 +6780,200 @@
         // из чата по кнопке «Назад», чтобы элементы бота (меню-кнопка ☰,
         // reply-клавиатура, карточка «Запустить бота») не оставались висеть,
         // если до этого был открыт чат с кастомным ботом.
+        // ══════════════════════════════════════════════════════════════════
+        // Видео-кружки (videoType: 1)
+        // Удержи 🔴 → запись, отпусти или нажми «Отправить» → upload → send
+        // ══════════════════════════════════════════════════════════════════
+        let _vnStream = null;
+        let _vnRecorder = null;
+        let _vnChunks = [];
+        let _vnTimerInterval = null;
+        let _vnSeconds = 0;
+        const VN_MAX_SECONDS = 60;
+
+        function initVideoNoteBtn() {
+            const btn = document.getElementById('videoNoteBtn');
+            if (!btn) return;
+
+            // Touch: начать по touchstart, остановить по touchend
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                startVideoNote();
+            }, { passive: false });
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                stopVideoNote();
+            }, { passive: false });
+            btn.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                cancelVideoNote();
+            }, { passive: false });
+
+            // Мышь: click opens recorder (т.к. удержание мышью неудобно на мобиле
+            // через браузер) — просто открывает экран, стоп по кнопке
+            btn.addEventListener('click', () => {
+                if (_vnRecorder && _vnRecorder.state === 'recording') return;
+                startVideoNote();
+            });
+        }
+
+        async function startVideoNote() {
+            if (_vnRecorder && _vnRecorder.state === 'recording') return;
+            if (currentChatId == null || activeBotChatId) return;
+            try {
+                _vnStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 }, audio: true });
+            } catch (e) {
+                log('❌ Нет доступа к камере/микрофону: ' + e.message, 'error');
+                return;
+            }
+            _vnChunks = [];
+            _vnSeconds = 0;
+            const preview = document.getElementById('videoNotePreview');
+            preview.srcObject = _vnStream;
+            document.getElementById('videoNoteRecorder').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            document.getElementById('videoNoteTimer').textContent = '0:00';
+
+            const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+                .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+            _vnRecorder = new MediaRecorder(_vnStream, { mimeType: mime });
+            _vnRecorder.ondataavailable = e => { if (e.data.size > 0) _vnChunks.push(e.data); };
+            _vnRecorder.onstop = () => _finishVideoNote(mime);
+            _vnRecorder.start(200);
+
+            _vnTimerInterval = setInterval(() => {
+                _vnSeconds++;
+                const m = Math.floor(_vnSeconds / 60), s = _vnSeconds % 60;
+                document.getElementById('videoNoteTimer').textContent = `${m}:${s.toString().padStart(2, '0')}`;
+                if (_vnSeconds >= VN_MAX_SECONDS) stopVideoNote();
+            }, 1000);
+        }
+
+        function stopVideoNote() {
+            if (!_vnRecorder || _vnRecorder.state !== 'recording') return;
+            clearInterval(_vnTimerInterval);
+            _vnRecorder.stop();
+        }
+
+        function cancelVideoNote() {
+            clearInterval(_vnTimerInterval);
+            if (_vnRecorder && _vnRecorder.state === 'recording') _vnRecorder.stop();
+            _vnStream?.getTracks().forEach(t => t.stop());
+            _vnStream = null;
+            _vnRecorder = null;
+            document.getElementById('videoNoteRecorder').style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        async function _finishVideoNote(mime) {
+            _vnStream?.getTracks().forEach(t => t.stop());
+            document.getElementById('videoNoteRecorder').style.display = 'none';
+            document.body.style.overflow = '';
+
+            if (!_vnChunks.length) return;
+            const blob = new Blob(_vnChunks, { type: mime });
+            _vnChunks = [];
+
+            log('⏳ Загрузка кружка...', 'info');
+            try {
+                const fd = new FormData();
+                fd.append('file', blob, 'videonote.webm');
+                const resp = await fetch('/api/upload-file', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!data.success || !data.token) {
+                    log('❌ ' + (data.error || 'Не удалось загрузить кружок'), 'error');
+                    return;
+                }
+                // videoType: 1 = кружок (см. sendVideoNoteMessage в Komet)
+                send(64, {
+                    chatId: currentChatId,
+                    message: {
+                        cid: -Date.now(),
+                        isLive: false,
+                        detectShare: false,
+                        elements: [],
+                        attaches: [{
+                            _type: 'VIDEO',
+                            videoType: 1,
+                            token: data.token,
+                            duration: _vnSeconds,
+                            // wave — 80 нулевых байт, кодируем в base64 для передачи
+                            // через JSON; bridge.py декодирует его обратно в bytes
+                            // перед msgpack-сериализацией (иначе сервер MAX
+                            // получает JSON-массив вместо binary и отклоняет пакет).
+                            wave: btoa(String.fromCharCode(...new Uint8Array(80))),
+                            __binary__: ['wave'],
+                        }]
+                    },
+                    notify: true
+                });
+                log('✅ Кружок отправлен', 'success');
+            } catch (e) {
+                log('❌ Ошибка загрузки кружка: ' + e.message, 'error');
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // Истории — создание и публикация (storiesSend, opcode 215)
+        // ══════════════════════════════════════════════════════════════════
+        let _storyFile = null;
+        let _storyDataUrl = null;
+
+        function openStoryCreator() {
+            _storyFile = null;
+            _storyDataUrl = null;
+            const prev = document.getElementById('storyCreatorPreview');
+            prev.innerHTML = '<span style="color:rgba(255,255,255,.4);font-size:14px;">Выберите фото</span>';
+            document.getElementById('storyCreator').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeStoryCreator() {
+            document.getElementById('storyCreator').style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        function onStoryFileChosen(input) {
+            const file = input.files[0];
+            if (!file) return;
+            _storyFile = file;
+            const reader = new FileReader();
+            reader.onload = e => {
+                _storyDataUrl = e.target.result;
+                const prev = document.getElementById('storyCreatorPreview');
+                prev.innerHTML = `<img src="${_storyDataUrl}" style="width:100%;height:100%;object-fit:cover;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function submitStory() {
+            if (!_storyFile) { log('❌ Выберите фото для истории', 'error'); return; }
+            log('⏳ Загрузка истории...', 'info');
+            try {
+                const fd = new FormData();
+                fd.append('file', _storyFile);
+                const resp = await fetch('/api/upload-photo', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!data.success || !data.photoToken) {
+                    log('❌ ' + (data.error || 'Не удалось загрузить фото'), 'error');
+                    return;
+                }
+                // storiesSend (opcode 215) — payload из Komet StickersModule.publishPhoto
+                send(215, {
+                    stories: [{
+                        cid: Date.now(),
+                        settings: 1,       // 1 = видно всем, 2 = только контактам
+                        media: { _type: 'PHOTO', photoToken: data.photoToken },
+                        expiration: 86400, // 24 часа
+                    }]
+                });
+                closeStoryCreator();
+                log('✅ История опубликована', 'success');
+            } catch (e) {
+                log('❌ Ошибка публикации истории: ' + e.message, 'error');
+            }
+        }
+
         function exitBotChatInlineMode() {
             if (!activeBotChatId) return;
             activeBotChatId = null;
@@ -6734,6 +6983,7 @@
             document.getElementById('attachBtn').style.display = '';
             document.getElementById('botMenuBtn').style.display = 'none';
             document.getElementById('stickerBtn').style.display = '';
+            document.getElementById('videoNoteBtn').style.display = '';
             document.getElementById('e2eToggleWrap').style.display = '';
             document.getElementById('messageText').placeholder = 'Сообщение';
         }
@@ -6803,7 +7053,7 @@
         let stickersLoading = false;
         let activeStickerSetId = null;
         let stickerSearchQuery = '';
-        let pendingFavoriteStickerSync = false;
+        let pendingFavoriteStickerSync = false; // не используется, оставлен для совместимости
 
         // Все запросы assetsGetByIds (opcode 28) идут строго ОДИН за другим через
         // эту очередь, а не параллельно с разными "pending"-флагами. Раньше было
@@ -6867,7 +7117,6 @@
         function loadStickerSections() {
             stickersLoading = true;
             panelSetLoadingHtml('Загрузка стикеров...');
-            favoriteStickerSetIds = getPersistedFavoriteStickerSetIds();
             send(27, { type: 'STICKER', sync: 0 });
         }
 
@@ -6883,10 +7132,6 @@
         function finishStickersLoad() {
             stickersLoaded = true;
             stickersLoading = false;
-            if (!pendingFavoriteStickerSync) {
-                pendingFavoriteStickerSync = true;
-                send(27, { type: 'FAVORITE_STICKER', sync: 0 });
-            }
             renderStickerPanel();
         }
 
@@ -6894,25 +7139,6 @@
         function handleAssetsUpdateResponse(payload) {
             const sections = payload?.sections;
             if (!Array.isArray(sections)) return;
-
-            if (pendingFavoriteStickerSync) {
-                pendingFavoriteStickerSync = false;
-                sections.forEach(s => {
-                    if (s && s.id === 'FAVORITE_STICKER_SETS' && Array.isArray(s.stickerSets)) {
-                        favoriteStickerSetIds = s.stickerSets.slice();
-                        savePersistedFavoriteStickerSetIds(favoriteStickerSetIds);
-                        const seen = new Set(stickerSetOrder);
-                        stickerSetOrder = [...favoriteStickerSetIds.filter(id => !seen.has(id)), ...stickerSetOrder];
-                        const missing = favoriteStickerSetIds.filter(id => !stickerSetsById[id]);
-                        if (missing.length) {
-                            queueStickerFetch({ type: 'STICKER_SET', ids: missing }, 'favSetMeta');
-                            return;
-                        }
-                    }
-                });
-                renderStickerPanel();
-                return;
-            }
 
             const newSetIds = [];
             let nextMarker = 0;
@@ -6922,24 +7148,10 @@
                     newSetIds.push(...s.stickerSets);
                     if (typeof s.marker === 'number') nextMarker = s.marker;
                 } else if (s.type === 'RECENTS' && Array.isArray(s.recentsList)) {
-                    // Записи здесь — объекты {type:'STICKER', stickerId:N}, а не
-                    // голые числа (см. StickersModule._parseRecents в Komet) —
-                    // раньше это сохранялось как есть, и при клике на "недавний"
-                    // стикер в запрос улетал целый объект вместо числа, из-за
-                    // чего сервер отвечал ошибкой отправки.
                     recentStickerIds = s.recentsList
                         .filter(e => e && e.type === 'STICKER' && (typeof e.stickerId === 'number' || typeof e.id === 'number'))
                         .map(e => e.stickerId ?? e.id);
                 }
-                // ВАЖНО: секция 'FAVORITE_STICKER_SETS' здесь намеренно НЕ
-                // обрабатывается — в Komet (_loadSections()) её тоже нет в этом
-                // запросе, избранное читается только отдельным запросом
-                // {type:'FAVORITE_STICKER'} (см. ветку pendingFavoriteStickerSync
-                // выше). Раньше здесь была лишняя, ничем не подтверждённая
-                // ветка — судя по всему, сервер в ЭТОМ ответе присылает под
-                // похожим на вид ключом что-то другое (не настоящее избранное,
-                // а фактически все паки), и она затирала правильно
-                // загруженное избранное мусором.
             });
             // Если паков больше, чем влезло в первую страницу — сервер прислал
             // marker; донагружаем остальные страницы через assetsGet (opcode 26),
@@ -6984,6 +7196,8 @@
                         }
                     });
                 }
+                if (req.kind === 'favSetMeta') {
+                }
                 if (req.kind === 'initialSetMeta') finishStickersLoad();
                 else renderStickerPanel();
             } else if (req.kind === 'itemsForSet' || req.kind === 'itemsForView') {
@@ -6999,20 +7213,14 @@
                         }
                     });
                 }
+                if (req.kind === 'itemsForView') {
+                }
                 renderStickerPanel();
             }
             pumpStickerFetchQueue();
         }
 
         function gatherStickerIdsForView(view) {
-            if (view === 'fav') {
-                const ids = [];
-                favoriteStickerSetIds.forEach(setId => {
-                    const set = stickerSetsById[setId];
-                    if (set) ids.push(...set.stickerIds);
-                });
-                return ids;
-            }
             if (view === 'recent') return recentStickerIds.slice();
             return null;
         }
@@ -7026,7 +7234,7 @@
                 return;
             }
             if (activeStickerSetId == null && !stickerSearchQuery) {
-                activeStickerSetId = favoriteStickerSetIds.length ? 'fav' : (recentStickerIds.length ? 'recent' : stickerSetOrder[0]);
+                activeStickerSetId = recentStickerIds.length ? 'recent' : stickerSetOrder[0];
             }
 
             const q = (stickerSearchQuery || '').trim().toLowerCase();
@@ -7035,7 +7243,6 @@
                 : stickerSetOrder;
 
             const specialTabsHtml = q ? '' : [
-                favoriteStickerSetIds.length ? { id: 'fav', icon: '⭐', title: 'Избранные' } : null,
                 recentStickerIds.length ? { id: 'recent', icon: '🕐', title: 'Недавние' } : null,
             ].filter(Boolean).map(t => `
                 <button type="button" onclick="selectStickerSet('${t.id}')" title="${t.title}"
@@ -7064,10 +7271,10 @@
             let gridHtml = activeStickerSetId == null
                 ? '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Ничего не найдено</div>'
                 : '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Загрузка...</div>';
-            const view = (activeStickerSetId === 'fav' || activeStickerSetId === 'recent') ? activeStickerSetId : null;
+            const view = activeStickerSetId === 'recent' ? 'recent' : null;
 
             if (view) {
-                sectionLabel = view === 'fav' ? 'Избранные' : 'Недавние';
+                sectionLabel = 'Недавние';
                 const ids = gatherStickerIdsForView(view);
                 const missing = ids.filter(id => !stickerItemsById[id]);
                 if (missing.length) {
@@ -7075,7 +7282,7 @@
                         queueStickerFetch({ type: 'STICKER', ids: missing }, 'itemsForView', { view });
                     }
                 } else if (!ids.length) {
-                    gridHtml = `<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">${view === 'fav' ? 'Нет избранных стикеров' : 'Пока нет недавних стикеров'}</div>`;
+                    gridHtml = '<div style="padding:10px;color:var(--tg-text-secondary);font-size:13px;">Пока нет недавних стикеров</div>';
                 } else {
                     gridHtml = `
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
@@ -7751,12 +7958,32 @@
         }
 
         function renderDevicePage() {
+            const pushPerm = ('Notification' in window) ? Notification.permission : 'unsupported';
+            const pushLabel = pushPerm === 'granted' ? '🔔 Уведомления включены'
+                : pushPerm === 'denied' ? '🔕 Уведомления заблокированы (разрешить в настройках браузера)'
+                : '🔔 Включить push-уведомления';
             return `
         <div style="padding:4px 0;">
             <div style="font-size:13px;color:#888;margin-bottom:12px;">
                 Эти данные передаются серверу MAX при подключении (какое устройство и версия
                 системы "видит" сервер). Смена профиля или Device ID не требует новой
                 авторизации.
+            </div>
+
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <label style="font-size:13px;font-weight:600;">Push-уведомления о новых сообщениях</label>
+                <div style="font-size:12px;color:#888;margin-bottom:4px;">
+                    Работает без Firebase — стандартный Web Push через bridge.py.<br>
+                    Требует HTTPS и установки <code>pip install pywebpush</code> на сервере.
+                </div>
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;"
+                    onclick="requestPushPermission()" ${pushPerm === 'denied' ? 'disabled' : ''}>
+                    ${pushLabel}
+                </button>
+                ${pushPerm === 'granted' ? `
+                <button class="settings-menu-item" style="width:auto;padding:6px 12px;font-size:12px;margin-top:4px;" onclick="fetch('/api/push/test',{method:'POST'}).then(()=>log('🔔 Тестовое уведомление отправлено','success'))">
+                    Отправить тестовое уведомление
+                </button>` : ''}
             </div>
 
             <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
@@ -7920,6 +8147,281 @@
             .render();
 
         applyLogPanelVisibility();
+
+        // ── Web Push уведомления ──────────────────────────────────────────────
+        // Регистрируем Service Worker и подписываемся на push-уведомления при
+        // входящих сообщениях. Не требует Firebase — работает через стандартный
+        // Web Push API с VAPID-ключами. bridge.py сам рассылает push'и через
+        // /api/push/subscribe (HTTPS обязателен; на localhost работает по
+        // исключению Chrome).
+        let _pushSubscription = null;
+
+        async function initWebPush() {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+            try {
+                const reg = await navigator.serviceWorker.register('/sw.js');
+                const existing = await reg.pushManager.getSubscription();
+                if (existing) { _pushSubscription = existing; return; }
+                // Получаем VAPID public key от бриджа и подписываемся
+                const resp = await fetch('/api/push/vapid-public-key');
+                const { publicKey } = await resp.json();
+                const sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: publicKey,
+                });
+                _pushSubscription = sub;
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(sub.toJSON()),
+                });
+                log('🔔 Push-уведомления включены', 'success');
+            } catch (e) {
+                // Не критично — просто не будет push'ей пока нет разрешения
+                log('ℹ️ Push-уведомления недоступны: ' + e.message, 'info');
+            }
+        }
+
+        async function requestPushPermission() {
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                await initWebPush();
+            } else {
+                log('ℹ️ Разрешение на уведомления отклонено', 'info');
+            }
+        }
+
+        // Тихо инициализируем, если разрешение уже выдано ранее
+        if (Notification.permission === 'granted') initWebPush();
+        initVideoNoteBtn();
+
+        // ── Истории (Stories) ──────────────────────────────────────────────
+        // storiesList (opcode 210) → лента превью.
+        // storiesGetByOwner (opcode 211) → полные истории конкретного автора.
+        // storiesMark (opcode 214) → отметить историю просмотренной.
+        // notifStoriesUpdate (push opcode 230) → сервер прислал обновление ленты.
+
+        let _storiesPreviews = {};    // ownerId → {owner, totalCount, readCount, updateTime}
+        let _peerStories     = {};    // ownerId → [Story, ...]
+        let _storyViewOwnerIds = [];  // порядок авторов в просмотрщике
+        let _storyViewOwnerIdx = 0;   // текущий автор
+        let _storyViewStoryIdx = 0;   // текущая история в авторе
+        let _storyViewTimer   = null;
+        const STORY_DURATION_MS = 5000;
+
+        function loadStoriesFeed() {
+            send(208, { cursor: '', count: 30 });
+        }
+
+        function handleStoriesListResponse(payload) {
+            const raw = payload?.storiesPreviews;
+            if (!Array.isArray(raw)) return;
+            _storiesPreviews = {};
+            raw.forEach(p => {
+                const owner = p?.owner;
+                if (!owner || !owner.ownerId) return;
+                _storiesPreviews[owner.ownerId] = {
+                    owner,
+                    totalCount: p.totalCount || 0,
+                    readCount: p.readCount || 0,
+                    updateTime: p.updateTime || 0,
+                };
+            });
+            renderStoriesFeed();
+        }
+
+        function handleStoriesGetByOwnerResponse(payload) {
+            const raw = payload?.storiesPreviews;
+            if (!Array.isArray(raw)) return;
+            raw.forEach(p => {
+                const owner = p?.owner;
+                if (!owner || !owner.ownerId) return;
+                _peerStories[owner.ownerId] = (p.stories || []);
+                // Обновляем превью
+                if (_storiesPreviews[owner.ownerId]) {
+                    _storiesPreviews[owner.ownerId].readCount = p.readCount || _storiesPreviews[owner.ownerId].readCount;
+                }
+            });
+            // Если просмотрщик открыт — показываем загруженную историю
+            const ownerId = _storyViewOwnerIds[_storyViewOwnerIdx];
+            if (ownerId && document.getElementById('storyViewer').style.display !== 'none') {
+                showCurrentStory();
+            }
+        }
+
+        function renderStoriesFeed() {
+            const feed = document.getElementById('storiesFeed');
+            if (!feed) return;
+            const owners = Object.values(_storiesPreviews)
+                .filter(p => p.totalCount > 0)
+                .sort((a, b) => {
+                    // Непрочитанные вперёд, затем по времени обновления
+                    const aUnread = a.totalCount - a.readCount;
+                    const bUnread = b.totalCount - b.readCount;
+                    if ((aUnread > 0) !== (bUnread > 0)) return bUnread > 0 ? 1 : -1;
+                    return b.updateTime - a.updateTime;
+                });
+            if (!owners.length) { feed.style.display = 'none'; return; }
+            feed.style.display = 'flex';
+            feed.innerHTML = owners.map(p => {
+                const ownerId = p.owner.ownerId;
+                const unread = p.totalCount - p.readCount;
+                const hasUnread = unread > 0;
+                const name = contactNameFromPayload(contactsById[ownerId] || {}) || ('#' + ownerId);
+                const avatarUrl = avatarUrlForContact(ownerId);
+                const ring = hasUnread
+                    ? 'linear-gradient(135deg,#f9a825,#e53935)'
+                    : 'linear-gradient(135deg,#888,#555)';
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+                    : `<div style="width:100%;height:100%;border-radius:50%;background:${avatarGradient(ownerId)};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:22px;">${getInitials(name)}</div>`;
+                return `
+                <div onclick="openStoryViewer(${ownerId})"
+                     style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;width:64px;">
+                    <div style="width:60px;height:60px;border-radius:50%;padding:2px;background:${ring};box-sizing:border-box;">
+                        <div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid var(--tg-panel);box-sizing:border-box;">${avatarHtml}</div>
+                    </div>
+                    <span style="font-size:11px;color:var(--tg-text);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:64px;">${escapeHtml(name.split(' ')[0])}</span>
+                </div>`;
+            }).join('');
+        }
+
+        function avatarUrlForContact(ownerId) {
+            const c = contactsById[ownerId];
+            if (!c) return null;
+            const base = c.baseUrl || c.avatarUrl || c.photo || null;
+            if (!base) return null;
+            return base.startsWith('http') ? '/img?url=' + encodeURIComponent(base) : base;
+        }
+
+        function openStoryViewer(ownerId) {
+            // Строим порядок авторов: выбранный первым
+            const owners = Object.values(_storiesPreviews)
+                .filter(p => p.totalCount > 0)
+                .sort((a, b) => {
+                    const aUnread = a.totalCount - a.readCount;
+                    const bUnread = b.totalCount - b.readCount;
+                    if ((aUnread > 0) !== (bUnread > 0)) return bUnread > 0 ? 1 : -1;
+                    return b.updateTime - a.updateTime;
+                });
+            _storyViewOwnerIds = owners.map(p => p.owner.ownerId);
+            _storyViewOwnerIdx = Math.max(0, _storyViewOwnerIds.indexOf(ownerId));
+            _storyViewStoryIdx = 0;
+
+            const viewer = document.getElementById('storyViewer');
+            viewer.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            showCurrentStory();
+        }
+
+        function closeStoryViewer() {
+            clearStoryTimer();
+            document.getElementById('storyViewer').style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        function showCurrentStory() {
+            clearStoryTimer();
+            const ownerId = _storyViewOwnerIds[_storyViewOwnerIdx];
+            if (!ownerId) { closeStoryViewer(); return; }
+            const preview = _storiesPreviews[ownerId];
+            const stories = _peerStories[ownerId];
+
+            // Шапка: аватар + имя
+            const name = contactNameFromPayload(contactsById[ownerId] || {}) || ('#' + ownerId);
+            const avatarUrl = avatarUrlForContact(ownerId);
+            document.getElementById('storyViewerName').textContent = name;
+            document.getElementById('storyViewerAvatar').innerHTML = avatarUrl
+                ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;">`
+                : `<div style="width:100%;height:100%;background:${avatarGradient(ownerId)};display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">${escapeHtml(getInitials(name))}</div>`;
+
+            if (!stories || !stories.length) {
+                // Истории ещё не загружены — запрашиваем
+                document.getElementById('storyViewerMedia').innerHTML = `<div style="color:#fff;font-size:40px;">⏳</div>`;
+                send(210, { owners: [preview?.owner || { ownerId, type: 0 }] });
+                return;
+            }
+
+            if (_storyViewStoryIdx >= stories.length) _storyViewStoryIdx = stories.length - 1;
+            const story = stories[_storyViewStoryIdx];
+
+            // Прогресс-бар
+            const prog = document.getElementById('storyViewerProgress');
+            prog.innerHTML = stories.map((_, i) => `
+                <div style="flex:1;height:3px;border-radius:2px;background:${i < _storyViewStoryIdx ? '#fff' : i === _storyViewStoryIdx ? '#fff' : 'rgba(255,255,255,0.4)'};"></div>
+            `).join('');
+
+            // Время
+            const t = story.time ? new Date(story.time) : null;
+            document.getElementById('storyViewerTime').textContent = t ? t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+
+            // Медиа
+            const img = document.getElementById('storyViewerImg');
+            const vid = document.getElementById('storyViewerVideo');
+            const media = story.media;
+            img.style.display = 'none'; vid.style.display = 'none';
+            if (media && media._type === 'PHOTO' && (media.photoUrl || media.baseUrl || media.url)) {
+                const src = '/img?url=' + encodeURIComponent(media.photoUrl || media.baseUrl || media.url);
+                img.src = src; img.style.display = 'block';
+                _storyViewTimer = setTimeout(() => storyViewerNav(1), STORY_DURATION_MS);
+            } else if (media && media._type === 'VIDEO' && (media.mp4Url || media.videoUrl || media.baseUrl)) {
+                const src = media.mp4Url || media.videoUrl || media.baseUrl;
+                vid.src = src; vid.style.display = 'block'; vid.play();
+                vid.onended = () => storyViewerNav(1);
+            } else {
+                document.getElementById('storyViewerMedia').innerHTML = `<div style="color:rgba(255,255,255,.4);font-size:14px;">Медиа недоступно</div>`;
+            }
+
+            // Отмечаем просмотренной (отдельным сообщением, оптимистично)
+            if ((preview?.readCount || 0) <= _storyViewStoryIdx) {
+                send(214, { owner: preview?.owner || { ownerId, type: 0 }, storyId: story.id });
+                if (_storiesPreviews[ownerId]) {
+                    _storiesPreviews[ownerId].readCount = Math.max(
+                        _storiesPreviews[ownerId].readCount,
+                        _storyViewStoryIdx + 1
+                    );
+                    renderStoriesFeed();
+                }
+            }
+        }
+
+        function storyViewerNav(dir) {
+            clearStoryTimer();
+            const stories = _peerStories[_storyViewOwnerIds[_storyViewOwnerIdx]] || [];
+            _storyViewStoryIdx += dir;
+            if (_storyViewStoryIdx >= stories.length) {
+                // Следующий автор
+                _storyViewOwnerIdx++;
+                _storyViewStoryIdx = 0;
+                if (_storyViewOwnerIdx >= _storyViewOwnerIds.length) {
+                    closeStoryViewer(); return;
+                }
+            } else if (_storyViewStoryIdx < 0) {
+                // Предыдущий автор
+                _storyViewOwnerIdx--;
+                _storyViewStoryIdx = 0;
+                if (_storyViewOwnerIdx < 0) {
+                    _storyViewOwnerIdx = 0; _storyViewStoryIdx = 0;
+                }
+            }
+            showCurrentStory();
+        }
+
+        function clearStoryTimer() {
+            if (_storyViewTimer) { clearTimeout(_storyViewTimer); _storyViewTimer = null; }
+        }
+
+        // Закрытие просмотрщика по свайпу вниз
+        (function() {
+            let sy0 = 0;
+            document.getElementById('storyViewer').addEventListener('touchstart', e => {
+                sy0 = e.touches[0].clientY;
+            }, { passive: true });
+            document.getElementById('storyViewer').addEventListener('touchend', e => {
+                const dy = e.changedTouches[0].clientY - sy0;
+                if (dy > 80) closeStoryViewer();
+            }, { passive: true });
+        })();
 
         // Подгружаем данные профиля устройства сразу после того, как страница
         // "Устройство" будет вставлена в DOM (render() уже вызвал innerHTML для
@@ -8929,6 +9431,10 @@
             showBottomNav();
             bottomNavGoChats();
             settingsMenu.refreshPage('account');
+            // Загружаем ленту историй сразу после авторизации
+            setTimeout(() => {
+                try { loadStoriesFeed(); } catch(e) {}
+            }, 1500);
         }
 
         function showLoginUI() {
@@ -12340,6 +12846,12 @@
                         pendingJoinLink = null;
                         pendingJoinChatId = null;
 
+                        // Сервер не знает опкод (истории/другой новый функционал) —
+                        // тихо игнорируем, чтобы не пугать пользователя.
+                        if (err === 'Неизвестный opcode' || err === 'Unknown opcode' || err === 'unknown opcode') {
+                            return;
+                        }
+
                         if (err === "Ошибка валидации") {
                             log('Ошибка отправки сообщения', 'error')
                             setStatus('Ошибка валидации сообщения. Возможно вы привысили лимит символов в одном сообщении', 'error')
@@ -12616,6 +13128,21 @@
                         grid.innerHTML = items.length
                             ? items.map(u => `<img src="${u}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;" loading="lazy">`).join('')
                             : '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Медиафайлов нет</div>';
+                        return;
+                    }
+                    if (data.opcode === 208 && data.cmd === 256) {
+                        // storiesList — лента историй
+                        handleStoriesListResponse(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 210 && data.cmd === 256) {
+                        // storiesGetByOwner — полные истории автора
+                        handleStoriesGetByOwnerResponse(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 216) {
+                        // notifStoriesUpdate — сервер говорит «обнови ленту»
+                        loadStoriesFeed();
                         return;
                     }
                     if (data.opcode === 27 && data.cmd === 256) {
