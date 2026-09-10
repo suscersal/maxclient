@@ -2798,7 +2798,7 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
         # Если это операция аутентификации, пропускаем sync
         # (20 — это logout, не имеет отношения к паролю; проверка пароля при
         # входе — отдельный опкод 115, см. Komet: Opcode.authLoginCheckPassword)
-        if opcode in [17, 18, 115]:  # START_AUTH, CHECK_CODE, LOGIN_CHECK_PASSWORD
+        if opcode in [17, 18, 23, 115]:  # START_AUTH, CHECK_CODE, AUTH_CONFIRM (регистрация), LOGIN_CHECK_PASSWORD
             logger.info(f"[fetch_once] Auth operation {opcode}, skipping sync")
         else:
             # Отправляем sync только для не-аутентификационных операций
@@ -3207,6 +3207,24 @@ def verify_code():
                 f"[auth] Auth successful! Token saved: {new_token[:20]}...")
             return jsonify({"success": True, "message": "Авторизация успешна", "needPassword": False})
 
+    # Номер новый, аккаунта ещё нет — сервер вместо LOGIN присылает REGISTER
+    # (см. Komet: VerifyCodeResult.registerToken / isRegistration в
+    # account_models.dart). Этот токен точно так же сохраняем как обычный
+    # auth-токен — Komet делает ровно это в AccountModule.verifyCode ещё ДО
+    # завершения регистрации, потому что тот же токен используется и для
+    # запроса AUTH_CONFIRM (opcode 23), и как обычный session-токен после.
+    # Фронту говорим, что нужно показать форму "введите имя".
+    if "REGISTER" in token_attrs:
+        register_token = token_attrs["REGISTER"].get("token")
+        if register_token:
+            save_auth_token(register_token)
+            sess = load_session()
+            sess.pop("otpToken", None)
+            save_session(sess)
+            logger.info(
+                f"[auth] New phone number, registration required. Token saved: {register_token[:20]}...")
+            return jsonify({"needRegistration": True, "message": "Аккаунт не найден — нужна регистрация"})
+
     auth_token = payload.get("authToken") or payload.get("token")
     if auth_token:
         save_auth_token(auth_token)
@@ -3220,6 +3238,67 @@ def verify_code():
 
     logger.warning(f"[auth] Unexpected response: {payload}")
     return jsonify({"error": "Неожиданный ответ сервера"}), 502
+
+
+@app.route("/api/complete-registration", methods=["POST"])
+def complete_registration():
+    """Завершает регистрацию нового аккаунта — opcode 23 (AUTH_CONFIRM в
+    Komet, см. AccountModule.completeRegistration в account.dart). Дергается
+    фронтом после verify-code, если тот ответил needRegistration=true.
+
+    Токен на этом этапе уже сохранён как обычный auth-токен функцией
+    verify_code() выше (это тот самый REGISTER-токен из tokenAttrs) —
+    Komet делает то же самое: сохраняет sessionToken сразу после CHECK_CODE,
+    ещё до вызова completeRegistration."""
+    data = request.get_json(force=True)
+    first_name = (data.get("firstName") or "").strip()
+    last_name = (data.get("lastName") or "").strip()
+
+    if not first_name:
+        return jsonify({"error": "Введите имя"}), 400
+
+    token = get_saved_auth_token()
+    if not token:
+        return jsonify({"error": "Сначала подтвердите код из SMS"}), 400
+
+    reg_payload = {
+        "token": token,
+        "tokenType": "REGISTER",
+        "firstName": first_name,
+    }
+    if last_name:
+        reg_payload["lastName"] = last_name
+
+    logger.info(f"[auth] Completing registration, firstName={first_name!r}")
+
+    try:
+        packet = fetch_once(
+            23,
+            reg_payload,
+            wait_opcode=23,
+            timeout=15,
+            use_token=False
+        )
+    except Exception as e:
+        logger.warning(f"[auth] complete-registration failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet or packet["cmd"] != 256:
+        error_payload = packet.get("payload") if packet else None
+        error_msg = (error_payload or {}).get(
+            "localizedMessage", "Не удалось завершить регистрацию") if packet else "Нет ответа"
+        logger.warning(f"[auth] AUTH_CONFIRM rejected: {error_payload!r}")
+        return jsonify({"error": error_msg}), 502
+
+    resp_payload = packet.get("payload", {})
+    profile_map = resp_payload.get("profile")
+    if not isinstance(profile_map, dict):
+        logger.warning(f"[auth] Unexpected AUTH_CONFIRM response: {resp_payload!r}")
+        return jsonify({"error": "Неожиданный ответ сервера"}), 502
+
+    account_id = (profile_map.get("contact") or {}).get("id")
+    logger.info(f"[auth] Registration complete, accountId={account_id}")
+    return jsonify({"success": True, "message": "Регистрация завершена"})
 
 
 @app.route("/api/verify-password", methods=["POST"])

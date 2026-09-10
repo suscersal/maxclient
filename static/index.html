@@ -4491,6 +4491,19 @@
                 <button id="verifyPassword" class="warning">Войти</button>
             </div>
         </div>
+        <!-- ===== Форма регистрации нового аккаунта (нет LOGIN-токена после
+             CHECK_CODE, только REGISTER — см. /api/complete-registration и
+             Komet: RegistrationScreen / AccountModule.completeRegistration) ===== -->
+        <div id="registrationSection" class="hidden">
+            <div style="font-size:13px;color:#888;margin:4px 0 8px;">Этого номера ещё нет в MAX — введите имя, чтобы создать аккаунт.</div>
+            <div class="input-group">
+                <input type="text" id="regFirstName" placeholder="Имя" autocomplete="given-name">
+            </div>
+            <div class="input-group">
+                <input type="text" id="regLastName" placeholder="Фамилия (необязательно)" autocomplete="family-name">
+                <button id="completeRegistration" class="success">Зарегистрироваться</button>
+            </div>
+        </div>
         <div id="authStatus" style="font-size:13px;color:#888;margin-top:4px;"></div>
     </div>
     <symbol id="icon_verification_mini_themed" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 12 12">
@@ -13494,6 +13507,12 @@
                     log('🔒 Требуется ввод пароля', 'info');
                     return;
                 }
+                if (data.needRegistration) {
+                    document.getElementById('registrationSection').classList.remove('hidden');
+                    document.getElementById('authStatus').textContent = '🆕 Этого номера ещё нет в MAX — введите имя';
+                    log('🆕 Аккаунт не найден, нужна регистрация', 'info');
+                    return;
+                }
                 if (data.success) {
                     log('✅ Авторизация успешна!', 'success');
                     setStatus('Авторизован', 'success');
@@ -13564,6 +13583,40 @@
                 }
             } catch (e) {
                 log('❌ Ошибка соединения', 'error');
+            }
+        };
+
+        document.getElementById('completeRegistration').onclick = async () => {
+            const firstName = document.getElementById('regFirstName').value.trim();
+            const lastName = document.getElementById('regLastName').value.trim();
+            if (!firstName) {
+                log('❌ Введите имя', 'error');
+                return;
+            }
+            document.getElementById('authStatus').textContent = '⏳ Завершаю регистрацию...';
+            try {
+                const res = await fetch('/api/complete-registration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ firstName, lastName })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    log('✅ Регистрация завершена!', 'success');
+                    document.getElementById('registrationSection').classList.add('hidden');
+                    document.getElementById('authStatus').textContent = '✅ Аккаунт создан!';
+                    setStatus('Авторизован', 'success');
+                    showAuthenticatedUI();
+                    if (isConnected) {
+                        send(19, { chatsSync: 0, contactsSync: 0, interactive: true });
+                    }
+                } else {
+                    log('❌ Ошибка: ' + (data.error || 'Не удалось завершить регистрацию'), 'error');
+                    document.getElementById('authStatus').textContent = '❌ ' + (data.error || 'Не удалось завершить регистрацию');
+                }
+            } catch (e) {
+                log('❌ Ошибка соединения', 'error');
+                document.getElementById('authStatus').textContent = '❌ Ошибка соединения';
             }
         };
 
