@@ -154,15 +154,38 @@ def _build_otp_payload(phone: str, auth_type: str) -> dict:
         pass
     return p
 
-FALLBACK_APP_VERSION = "26.29.1"
+# ВАЖНО: это НЕ "последняя версия MAX", а версия/сборка, ЖЁСТКО ПРИВЯЗАННАЯ
+# к дайджестам SIG/DEX/SO ниже (_compute_auth_mode). Сервер сверяет
+# fingerprint ('mode'/'chatCacheFingerprint') с тем, что должна давать
+# РЕАЛЬНАЯ подпись/dex/so конкретной APK-сборки, заявленной в userAgent.appVersion
+# хендшейка. Раньше здесь бралась "последняя версия" (скрейпилась с
+# uptodown), которая со временем уходит вперёд и перестаёт соответствовать
+# зашитым дайджестам — сервер формально принимает START_AUTH (200/токен), но
+# СМС с кодом не присылает, т.к. клиент детектируется как поддельный/с
+# рассинхронизированным fingerprint. Komet сам это учитывает и держит
+# appVersion/buildNumber зашитыми (см. SpoofingService.hardcodedAppVersion =
+# '26.23.2', hardcodedBuildNumber = 6779 в lib/core/storage/spoofing_service.dart) —
+# именно этой паре и соответствуют дайджесты ниже, а не более новой 26.29.1,
+# как ошибочно было подписано в комментарии раньше.
+FALLBACK_APP_VERSION = "26.23.2"
 
 
-def _compute_auth_mode(calls_seed: int, device_id: str) -> list:
+def _compute_auth_mode(calls_seed: int, device_id: str) -> bytes:
     """ChatCacheFingerprint.compute из Komet (lib/core/protocol/chat_cache_fingerprint.dart).
-    Хэши взяты из Komet-main__2_.zip — актуальная версия для 26.29.1.
-    Поле 'mode' добавляется в OTP-запрос (opcode 17)."""
+    Хэши соответствуют пиновой сборке 26.23.2 (build 6779) - см.
+    SpoofingService.hardcodedAppVersion/hardcodedBuildNumber в Komet.
+    Поле 'mode' добавляется в OTP-запрос (opcode 17).
+
+    ВАЖНО: обязательно возвращать bytes, а не list! Пакет собирается через
+    msgpack.packb(payload, use_bin_type=True) (см. MaxClient.pack) — с этим
+    флагом python bytes сериализуется как msgpack bin (то, что сервер
+    ожидает под 'byte array'), а list сериализуется как msgpack array
+    (последовательность отдельных integer-элементов) — совсем другой
+    wire-формат. Раньше здесь стоял list(...), из-за чего сервер отвечал
+    на START_AUTH ошибкой валидации протокола ('Expected byte array at
+    54') и код вообще не уходил дальше этой проверки."""
     import hashlib, struct as _struct
-    # Актуальные дайджесты из chat_cache_fingerprint.dart (Komet 26.29.1)
+    # Дайджесты из chat_cache_fingerprint.dart (Komet, сборка 26.23.2/6779)
     SIG = bytes.fromhex('1684414033eb263e2c615f8b7df5ed8793850a07656304997fbf07e9e21e1e93')
     DEX = bytes.fromhex('38cff46f392dc1734c308be011c2f0d8da152a390b41063dbb2c913e3032f4b3')
     SO  = bytes.fromhex('634ecc42b246784d975f180b4fecf903df235cdf0476da47163a85630eb1a6a8')
@@ -170,8 +193,8 @@ def _compute_auth_mode(calls_seed: int, device_id: str) -> list:
     seed = _struct.pack('>q', calls_seed)
     dev  = device_id.encode('utf-8')
     sha  = lambda a, b, c: hashlib.sha256(a + b + c).digest()
-    # порядок: SIG, DEX, SO (как в compute())
-    return list(sha(SIG, seed, dev) + sha(DEX, seed, dev) + sha(SO, seed, dev))
+    # порядок: SIG, DEX, SO (как в compute()) — конкатенация bytes, НЕ list
+    return sha(SIG, seed, dev) + sha(DEX, seed, dev) + sha(SO, seed, dev)
 
 # --- Локальная проверка сообщений на скам (опционально, выключено по умолчанию) ---
 # Использует ЛЮБОЙ локальный сервер инференса с OpenAI-совместимым
@@ -2326,133 +2349,133 @@ DEVICE_PROFILES = {
         "label": "Samsung Galaxy S24 Ultra / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S24 Ultra", "screen": "xxxhdpi 480dpi 1440x3120",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "samsung_s24": {
         "label": "Samsung Galaxy S24 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S24", "screen": "xxhdpi 480dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "samsung_s23": {
         "label": "Samsung Galaxy S23 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy S23", "screen": "xxhdpi 480dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "samsung_a55": {
         "label": "Samsung Galaxy A55 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Samsung Galaxy A55", "screen": "xhdpi 420dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "pixel_9_pro": {
         "label": "Google Pixel 9 Pro / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 9 Pro", "screen": "xxxhdpi 495dpi 1280x2856",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "pixel_9": {
         "label": "Google Pixel 9 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 9", "screen": "xxhdpi 422dpi 1080x2424",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "pixel_8": {
         "label": "Google Pixel 8 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "Google Pixel 8", "screen": "xxhdpi 420dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "pixel_7": {
         "label": "Google Pixel 7 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Google Pixel 7", "screen": "xxhdpi 416dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "xiaomi_14": {
         "label": "Xiaomi 14 / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Xiaomi 14", "screen": "xxxhdpi 480dpi 1200x2670",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "redmi_note_14": {
         "label": "Xiaomi Redmi Note 14 / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Xiaomi Redmi Note 14", "screen": "xhdpi 395dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "poco_x6": {
         "label": "Poco X6 Pro / Android 14 (HyperOS)",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Poco X6 Pro", "screen": "xhdpi 440dpi 1220x2712",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "oneplus_13": {
         "label": "OnePlus 13 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "OnePlus 13", "screen": "xxxhdpi 510dpi 1440x3168",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "oneplus_nord_5": {
         "label": "OnePlus Nord 5 / Android 15",
         "deviceType": "ANDROID", "osVersion": "Android 15",
         "deviceName": "OnePlus Nord 5", "screen": "xhdpi 450dpi 1272x2800",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "honor_magic6": {
         "label": "Honor Magic6 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Honor Magic6", "screen": "xxhdpi 460dpi 1200x2670",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "huawei_p60": {
         "label": "Huawei P60 / Android 12",
         "deviceType": "ANDROID", "osVersion": "Android 12",
         "deviceName": "Huawei P60", "screen": "xxhdpi 460dpi 1220x2700",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "oppo_reno12": {
         "label": "Oppo Reno 12 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Oppo Reno 12", "screen": "xhdpi 403dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "vivo_x100": {
         "label": "Vivo X100 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Vivo X100", "screen": "xxhdpi 450dpi 1260x2800",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "realme_12_pro": {
         "label": "realme 12 Pro / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "realme 12 Pro", "screen": "xhdpi 401dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "motorola_edge50": {
         "label": "Motorola Edge 50 / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Motorola Edge 50", "screen": "xhdpi 402dpi 1220x2712",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "nothing_phone_2a": {
         "label": "Nothing Phone (2a) / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Nothing Phone (2a)", "screen": "xhdpi 394dpi 1080x2412",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "sony_xperia_1_vi": {
         "label": "Sony Xperia 1 VI / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Sony Xperia 1 VI", "screen": "xxhdpi 460dpi 1080x2340",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
     "asus_zenfone_11": {
         "label": "Asus Zenfone 11 Ultra / Android 14",
         "deviceType": "ANDROID", "osVersion": "Android 14",
         "deviceName": "Asus Zenfone 11 Ultra", "screen": "xhdpi 395dpi 1080x2400",
-        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+        "arch": "arm64-v8a", "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
     },
 }
 DEFAULT_DEVICE_PROFILE = "samsung_s23"
@@ -2508,7 +2531,7 @@ def get_active_profile() -> dict:
             "deviceName": name,
             "screen": screen,
             "arch": "arm64-v8a",
-            "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6808")),
+            "buildNumber": int(os.getenv("MAX_BUILD_NUMBER", "6779")),
         }
     if pid not in DEVICE_PROFILES:
         pid = DEFAULT_DEVICE_PROFILE
@@ -2540,38 +2563,19 @@ def clear_auth_token():
 
 
 # --- Версия приложения ---
-VERSION_CHECK_URL = "https://ru-oneme-app.en.uptodown.com/android"
-
-
+# ПРЕЖДЕ это динамически скрейпилось с uptodown, чтобы всегда слать "самую
+# свежую" версию MAX в хендшейке. Это и было причиной, по которой код из
+# SMS переставал приходить: appVersion в userAgent хендшейка обязан совпадать
+# с ровно той сборкой, для которой посчитаны зашитые SIG/DEX/SO-дайджесты
+# в _compute_auth_mode (см. комментарий у FALLBACK_APP_VERSION выше) — а
+# "последняя версия с uptodown" со временем убегает вперёд от этих
+# дайджестов. Сервер в ответ на START_AUTH формально отвечал успехом
+# (валидный токен), но само СМС с кодом не отправлял, детектируя
+# рассинхронизированный/поддельный fingerprint. Поэтому больше НЕ тянем
+# версию динамически — всегда отдаём запиненную FALLBACK_APP_VERSION, как
+# и делает сам Komet (SpoofingService.hardcodedAppVersion).
 def get_latest_app_version() -> str:
-    sess = load_session()
-    cached = sess.get("appVersionCache")
-    # Инвалидируем кэш если там старая версия (до 26.29.1)
-    if cached:
-        cached_ver = cached.get("version", "0")
-        try:
-            parts = [int(x) for x in cached_ver.split(".")]
-            fallback_parts = [int(x) for x in FALLBACK_APP_VERSION.split(".")]
-            if parts < fallback_parts:
-                cached = None  # сбрасываем устаревший кэш
-        except Exception:
-            pass
-    if cached and time.time() - cached.get("checkedAt", 0) < VERSION_CACHE_HOURS * 3600:
-        return cached.get("version", FALLBACK_APP_VERSION)
-    try:
-        req = urllib.request.Request(VERSION_CHECK_URL, headers={
-                                     "User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        match = re.search(
-            r"(\d{2}\.\d+\.\d+)\s*\W*Communication Platform LLC", html)
-        version = match.group(1) if match else FALLBACK_APP_VERSION
-        save_session(
-            {**load_session(), "appVersionCache": {"version": version, "checkedAt": time.time()}})
-        return version
-    except Exception as e:
-        logger.warning(f"[version] fetch failed, using fallback: {e}")
-        return cached.get("version", FALLBACK_APP_VERSION) if cached else FALLBACK_APP_VERSION
+    return FALLBACK_APP_VERSION
 
 
 # --- Декодирование ---
@@ -2759,6 +2763,29 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                         sess["callsSeed"] = int(calls_seed)
                         save_session(sess)
                         logger.info(f"[fetch_once] callsSeed saved: {calls_seed}")
+
+                        # ВАЖНО: для OTP-запроса (opcode 17, START_AUTH/повторная
+                        # отправка) поле 'mode' — это ChatCacheFingerprint,
+                        # привязанный сервером к КОНКРЕТНОМУ handshake/сессии, по
+                        # которой уходит сам запрос (см. Komet:
+                        # AccountModule._requestCodeInternal — там 'mode' считается
+                        # из _api.callsSeed уже установленной сессии). Здесь же
+                        # каждый fetch_once() открывает новое соединение с новым
+                        # callsSeed, а вызывающий код (start_auth/resend_code)
+                        # успел посчитать 'mode' ЗАРАНЕЕ, из callsSeed предыдущего
+                        # соединения — то есть по факту "не тот" fingerprint.
+                        # Сервер в этом случае формально отвечает успехом (токен
+                        # выдаётся), но реальная отправка SMS с кодом блокируется
+                        # как подозрительная — код не приходит. Пересчитываем
+                        # 'mode' здесь, сразу после хендшейка, чтобы он всегда
+                        # соответствовал текущей сессии.
+                        if opcode == 17 and isinstance(payload, dict) and "phone" in payload:
+                            try:
+                                fresh_device_id = get_or_create_device_id()
+                                payload["mode"] = _compute_auth_mode(int(calls_seed), fresh_device_id)
+                                logger.info("[fetch_once] mode recalculated with fresh callsSeed for this session")
+                            except Exception as _me:
+                                logger.warning(f"[fetch_once] mode recalculation failed: {_me}")
                 else:
                     logger.warning(
                         f"[fetch_once] handshake failed: cmd={packet['cmd']}, payload={packet.get('payload')!r}")
@@ -2812,6 +2839,8 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
             except socket.timeout:
                 continue
             logger.info(f"[fetch_once] recv opcode={packet['opcode']} cmd={packet['cmd']}")
+            if packet["cmd"] == 768:
+                logger.warning(f"[fetch_once] error payload: {packet.get('payload')!r}")
             if packet["opcode"] == wait_opcode:
                 return packet
             # Также обрабатываем другие ответы
@@ -3072,18 +3101,22 @@ def start_auth():
         logger.warning(f"[auth] Start auth failed: {e}")
         return jsonify({"error": str(e)}), 500
 
-    # fetch_once мог получить cmd=768 (ошибку) пока relay получил cmd=256 (успех)
-    # на тот же запрос — это нормально когда браузер дублирует opcode 17.
-    # Проверяем: если токен уже сохранён (relay успел обработать успешный ответ)
-    # — считаем авторизацию успешной.
+    # ВАЖНО: раньше здесь был фолбэк "если в сессии уже лежит otpToken —
+    # считаем успехом", в расчёте на то, что параллельный /relay мог успеть
+    # сохранить токен от дублирующего запроса. На деле recv_loop (relay)
+    # НИГДЕ не сохраняет otpToken — это делают только start_auth()/
+    # resend_code() сами. Поэтому тот otpToken в сессии — просто протухший
+    # токен от предыдущего (возможно, давнего) запуска, а cmd=768 здесь —
+    # настоящая ошибка сервера. Фолбэк маскировал её и врал про "успех",
+    # из-за чего код не приходил, а UI показывал, что всё ОК. Теперь любая
+    # ошибка (cmd != 256) логируется целиком и отдаётся пользователю как есть.
     if not packet or packet["cmd"] != 256:
-        sess_check = load_session()
-        if sess_check.get("otpToken"):
-            logger.info("[auth] fetch_once got error but relay already saved token — OK")
-            return jsonify({"success": True, "message": "Код отправлен"})
-        error_msg = packet.get("payload", {}).get(
+        error_payload = packet.get("payload") if packet else None
+        error_msg = (error_payload or {}).get(
             "localizedMessage", "Ошибка отправки кода") if packet else "Нет ответа"
-        logger.warning(f"[auth] error: {error_msg}")
+        logger.warning(
+            f"[auth] START_AUTH rejected: cmd={packet.get('cmd') if packet else None} "
+            f"payload={error_payload!r}")
         return jsonify({"error": error_msg}), 502
 
     # Сохраняем OTP токен
