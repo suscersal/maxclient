@@ -8183,6 +8183,13 @@
         }
 
         async function requestPushPermission() {
+            if (!('Notification' in window)) {
+                // Android WebView (APK): глобального Notification API нет.
+                // Пуши там доставляются через нативный push-канал приложения,
+                // а не через веб-Notification API — просто тихо выходим.
+                log('ℹ️ Notification API недоступен в этом окружении', 'info');
+                return;
+            }
             const perm = await Notification.requestPermission();
             if (perm === 'granted') {
                 await initWebPush();
@@ -8191,8 +8198,15 @@
             }
         }
 
-        // Тихо инициализируем, если разрешение уже выдано ранее
-        if (Notification.permission === 'granted') initWebPush();
+        // Тихо инициализируем, если разрешение уже выдано ранее.
+        // ВАЖНО: сначала проверяем 'Notification' in window — в Android
+        // WebView (APK-сборка) глобального объекта Notification вообще нет
+        // (это desktop/browser-only Web API), и обращение к
+        // Notification.permission без этой проверки роняло скрипт с
+        // "Uncaught ReferenceError: Notification is not defined" прямо на
+        // этой строке, что могло прерывать остальную инициализацию страницы
+        // в WebView.
+        if (('Notification' in window) && Notification.permission === 'granted') initWebPush();
         initVideoNoteBtn();
 
         // ── Истории (Stories) ──────────────────────────────────────────────
