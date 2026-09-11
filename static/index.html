@@ -899,6 +899,18 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             cursor: pointer;
             transition: opacity 0.2s;
+            /* Без этого долгий тап по миниатюре в чате (особенно на
+               MIUI/Xiaomi-прошивках) открывает НАТИВНОЕ системное меню
+               "Поделиться/Сохранить" с целями шаринга на ближайшие
+               устройства ("панель спикеров") — в обход приложения. Тап
+               должен всегда идти через наш openPhotoViewer(), а сохранение —
+               через нашу кнопку "⬇ Скачать фото" (как в Telegram: сначала
+               открыть просмотрщик, потом явно сохранить). */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-user-drag: none;
+            user-drag: none;
         }
 
         .msg-img:hover {
@@ -4329,7 +4341,7 @@
 
     <div class="media-viewer" id="photoViewer">
         <button class="close-btn" onclick="closePhotoViewer()">✕</button>
-        <img id="photoViewerImg" src="" alt="Фото">
+        <img id="photoViewerImg" src="" alt="Фото" draggable="false" oncontextmenu="return false;">
         <div class="media-bottom-bar">
             <button onclick="jumpToMessageFromViewer()">↗ Перейти к сообщению</button>
             <button onclick="downloadCurrentPhoto()">⬇ Скачать фото</button>
@@ -4555,7 +4567,14 @@
                 <!-- Зоны тапа: влево (пред. история), вправо (след.) -->
                 <div onclick="storyViewerNav(-1)" style="position:absolute;left:0;top:0;width:35%;height:100%;z-index:1;"></div>
                 <div onclick="storyViewerNav(1)"  style="position:absolute;right:0;top:0;width:35%;height:100%;z-index:1;"></div>
-                <img id="storyViewerImg" style="max-width:100%;max-height:100%;object-fit:contain;display:none;" alt="">
+                <img id="storyViewerImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="max-width:100%;max-height:100%;object-fit:contain;display:none;" alt="" draggable="false" oncontextmenu="return false;">
+                <!-- Плейсхолдер (1x1 прозрачный gif) вместо отсутствующего src:
+                     без src некоторые браузеры/WebView резолвят пустой
+                     источник в URL самой страницы и сразу же валят ошибку
+                     загрузки ("Не удалось загрузить ресурс: http://127.0.0.1:8080")
+                     ещё до открытия любой истории. data: URI грузится
+                     мгновенно и без сетевого запроса — реальный src
+                     подставляется позже в showCurrentStory(). -->
                 <video id="storyViewerVideo" style="max-width:100%;max-height:100%;display:none;" playsinline autoplay muted></video>
                 <div id="storyViewerText" style="position:absolute;bottom:20px;left:0;right:0;text-align:center;color:#fff;font-size:16px;padding:0 20px;text-shadow:0 1px 4px rgba(0,0,0,.8);"></div>
                 <!-- Плейсхолдер для загрузки/ошибки — отдельный элемент, НЕ
@@ -5309,6 +5328,8 @@
                 const img = document.createElement('img');
                 img.className = 'msg-img';
                 img.alt = 'Фото';
+                img.draggable = false;
+                img.oncontextmenu = () => false;
                 img.src = objUrl;
                 img.onclick = () => openPhotoViewer(src, msgId);
                 el.replaceWith(img);
@@ -5673,6 +5694,8 @@
                         const img = document.createElement('img');
                         img.src = objUrl;
                         img.alt = 'Превью видео';
+                        img.draggable = false;
+                        img.oncontextmenu = () => false;
                         posterBox.insertBefore(img, posterBox.firstChild);
                     }
                 }).catch(e => console.warn('[video-poster] не удалось загрузить:', e));
@@ -5762,7 +5785,7 @@
 
             if (looksLikeImage) {
                 const src = '/img?url=' + encodeURIComponent(rawUrl);
-                return `<img class="msg-img" src="${src}" alt="GIF" loading="lazy" style="max-width:100%;border-radius:8px;display:block;" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '')">`;
+                return `<img class="msg-img" src="${src}" alt="GIF" loading="lazy" draggable="false" oncontextmenu="return false;" style="max-width:100%;border-radius:8px;display:block;" onerror="this.style.display='none'" onclick="openPhotoViewer('${src}', '')">`;
             }
 
             // Иначе считаем, что это видео-GIF — тот же протокол, что и у
@@ -11471,9 +11494,14 @@
                 resetSwipeVisuals();
                 if (triggered) {
                     replyToMessage(m);
-                } else if (!longPressFired) {
-                    showMessageActionPanel(startX, startY, m, isOwn);
                 }
+                // Короткий тап больше ничего не открывает (как в Telegram) —
+                // панель действий/реакций доступна только по долгому
+                // нажатию (см. onStart/longPressTimer). Раньше короткий тап
+                // по любой части сообщения (кроме распознанных медиа-целей)
+                // всё равно открывал панель — теперь она открывается только
+                // через longPressFired, единообразно для всех сообщений,
+                // включая обычный текст.
                 swiping = false;
             }
 
@@ -11945,11 +11973,11 @@
                 avatarHtml = `<div class="msg-avatar" title="${escapeHtml(memberName)}"${bg} onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${inner}</div>`;
                 senderNameHtml = `<div class="msg-sender-name" style="color:${senderNameColor(m.sender)}" onclick="event.stopPropagation(); openMemberProfile(${JSON.stringify(m.sender)})">${escapeHtml(memberName)}</div>`;
             }
-            // Одиночный тап/клик по обычному сообщению открывает панель быстрых
-            // реакций + Ответить/Удалить. Для сообщений-стикеров тап вместо
-            // этого сразу переотправляет тот же стикер (см. attachMessageGestures) —
-            // а реакции/ответ/удаление там доступны по долгому нажатию.
-            // Свайв влево на любом сообщении — быстрый способ ответить на него.
+            // Долгое нажатие на сообщении (как в Telegram) открывает панель
+            // быстрых реакций + Ответить/Удалить/копировать и т.д. Короткий
+            // тап ничего не открывает — только свои действия у вложений
+            // (открыть фото, воспроизвести видео и т.п.). Свайп влево на
+            // любом сообщении — быстрый способ ответить на него.
             const stickerAttach = (m.attaches && m.attaches.length === 1 && m.attaches[0]._type === 'STICKER')
                 ? m.attaches[0] : null;
             attachMessageGestures(el, m, isOwn, stickerAttach);
@@ -12593,18 +12621,6 @@
         // display-имя даже при наличии сохранённого контактного.
         function contactNameFromPayload(contact) {
             const names = contact?.names;
-
-            // Вывод всех вариантов имен из массива names в одну строку с пометками
-            if (Array.isArray(names) && names.length) {
-                const descriptions = names.map((n, i) => {
-                    if (!n) return `[${i}]: null`;
-                    return `[${i}]: type="${n.type || ''}" name="${n.name || ''}" firstName="${n.firstName || ''}" lastName="${n.lastName || ''}"`;
-                }).join(' | ');
-                console.log(`[Contact ID: ${contact?.id}] Все имена: ${descriptions}`);
-            } else {
-                console.log(`[Contact ID: ${contact?.id}] Массив names пуст или отсутствует`);
-            }
-
             const best = bestNameFromNames(names);
             if (best) return best;
             return 'Контакт #' + contact?.id;
