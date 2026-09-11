@@ -143,19 +143,16 @@ DEVICE_CATALOG_FILE = os.getenv("DEVICE_CATALOG_FILE", os.path.join(
 DEVICE_CATALOG_REFRESH_HOURS = 24 * 7  # раз в неделю доскачиваем свежую версию
 VERSION_CACHE_HOURS = 24
 
-
 def _build_otp_payload(phone: str, auth_type: str) -> dict:
     p = {"phone": phone, "type": auth_type, "language": "ru"}
     try:
         sess = load_session()
-        cs = sess.get("callsSeed")
-        did = sess.get("deviceId") or ""
+        cs = sess.get("callsSeed"); did = sess.get("deviceId") or ""
         if cs is not None and did:
             p["mode"] = _compute_auth_mode(int(cs), did)
     except Exception as e:
         pass
     return p
-
 
 # ВАЖНО: это НЕ "последняя версия MAX", а версия/сборка, ЖЁСТКО ПРИВЯЗАННАЯ
 # к дайджестам SIG/DEX/SO ниже (_compute_auth_mode). Сервер сверяет
@@ -187,22 +184,17 @@ def _compute_auth_mode(calls_seed: int, device_id: str) -> bytes:
     wire-формат. Раньше здесь стоял list(...), из-за чего сервер отвечал
     на START_AUTH ошибкой валидации протокола ('Expected byte array at
     54') и код вообще не уходил дальше этой проверки."""
-    import hashlib
-    import struct as _struct
+    import hashlib, struct as _struct
     # Дайджесты из chat_cache_fingerprint.dart (Komet, сборка 26.23.2/6779)
-    SIG = bytes.fromhex(
-        '1684414033eb263e2c615f8b7df5ed8793850a07656304997fbf07e9e21e1e93')
-    DEX = bytes.fromhex(
-        '38cff46f392dc1734c308be011c2f0d8da152a390b41063dbb2c913e3032f4b3')
-    SO = bytes.fromhex(
-        '634ecc42b246784d975f180b4fecf903df235cdf0476da47163a85630eb1a6a8')
+    SIG = bytes.fromhex('1684414033eb263e2c615f8b7df5ed8793850a07656304997fbf07e9e21e1e93')
+    DEX = bytes.fromhex('38cff46f392dc1734c308be011c2f0d8da152a390b41063dbb2c913e3032f4b3')
+    SO  = bytes.fromhex('634ecc42b246784d975f180b4fecf903df235cdf0476da47163a85630eb1a6a8')
     # seed: int64 big-endian (как в _int64BigEndian в Dart)
     seed = _struct.pack('>q', calls_seed)
-    dev = device_id.encode('utf-8')
-    def sha(a, b, c): return hashlib.sha256(a + b + c).digest()
+    dev  = device_id.encode('utf-8')
+    sha  = lambda a, b, c: hashlib.sha256(a + b + c).digest()
     # порядок: SIG, DEX, SO (как в compute()) — конкатенация bytes, НЕ list
     return sha(SIG, seed, dev) + sha(DEX, seed, dev) + sha(SO, seed, dev)
-
 
 # --- Локальная проверка сообщений на скам (опционально, выключено по умолчанию) ---
 # Использует ЛЮБОЙ локальный сервер инференса с OpenAI-совместимым
@@ -2762,18 +2754,15 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                 handshake_ok = packet["cmd"] == 256
                 if handshake_ok:
                     logger.info("[fetch_once] Handshake successful")
-                    logger.info(
-                        f"[fetch_once] Handshake payload keys: {list(packet.get('payload', {}).keys())}")
+                    logger.info(f"[fetch_once] Handshake payload keys: {list(packet.get('payload', {}).keys())}")
                     # Сохраняем callsSeed — нужен для поля mode в OTP-запросе
                     calls_seed = packet.get("payload", {}).get("callsSeed")
-                    logger.info(
-                        f"[fetch_once] callsSeed from handshake: {calls_seed!r}")
+                    logger.info(f"[fetch_once] callsSeed from handshake: {calls_seed!r}")
                     if calls_seed is not None:
                         sess = load_session()
                         sess["callsSeed"] = int(calls_seed)
                         save_session(sess)
-                        logger.info(
-                            f"[fetch_once] callsSeed saved: {calls_seed}")
+                        logger.info(f"[fetch_once] callsSeed saved: {calls_seed}")
 
                         # ВАЖНО: для OTP-запроса (opcode 17, START_AUTH/повторная
                         # отправка) поле 'mode' — это ChatCacheFingerprint,
@@ -2793,13 +2782,10 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                         if opcode == 17 and isinstance(payload, dict) and "phone" in payload:
                             try:
                                 fresh_device_id = get_or_create_device_id()
-                                payload["mode"] = _compute_auth_mode(
-                                    int(calls_seed), fresh_device_id)
-                                logger.info(
-                                    "[fetch_once] mode recalculated with fresh callsSeed for this session")
+                                payload["mode"] = _compute_auth_mode(int(calls_seed), fresh_device_id)
+                                logger.info("[fetch_once] mode recalculated with fresh callsSeed for this session")
                             except Exception as _me:
-                                logger.warning(
-                                    f"[fetch_once] mode recalculation failed: {_me}")
+                                logger.warning(f"[fetch_once] mode recalculation failed: {_me}")
                 else:
                     logger.warning(
                         f"[fetch_once] handshake failed: cmd={packet['cmd']}, payload={packet.get('payload')!r}")
@@ -2812,8 +2798,7 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
         # Если это операция аутентификации, пропускаем sync
         # (20 — это logout, не имеет отношения к паролю; проверка пароля при
         # входе — отдельный опкод 115, см. Komet: Opcode.authLoginCheckPassword)
-        # START_AUTH, CHECK_CODE, AUTH_CONFIRM (регистрация), LOGIN_CHECK_PASSWORD
-        if opcode in [17, 18, 23, 115]:
+        if opcode in [17, 18, 23, 115]:  # START_AUTH, CHECK_CODE, AUTH_CONFIRM (регистрация), LOGIN_CHECK_PASSWORD
             logger.info(f"[fetch_once] Auth operation {opcode}, skipping sync")
         else:
             # Отправляем sync только для не-аутентификационных операций
@@ -2853,11 +2838,9 @@ def fetch_once(opcode: int, payload: dict, wait_opcode: int, timeout: float = 15
                 packet = client.recv_packet()
             except socket.timeout:
                 continue
-            logger.info(
-                f"[fetch_once] recv opcode={packet['opcode']} cmd={packet['cmd']}")
+            logger.info(f"[fetch_once] recv opcode={packet['opcode']} cmd={packet['cmd']}")
             if packet["cmd"] == 768:
-                logger.warning(
-                    f"[fetch_once] error payload: {packet.get('payload')!r}")
+                logger.warning(f"[fetch_once] error payload: {packet.get('payload')!r}")
             if packet["opcode"] == wait_opcode:
                 return packet
             # Также обрабатываем другие ответы
@@ -3102,11 +3085,10 @@ def start_auth():
 
     try:
         # Payload из Komet account.dart: phone + type + language + mode
-        _auth_payload = {"phone": phone,
-                         "type": "START_AUTH", "language": "ru"}
+        _auth_payload = {"phone": phone, "type": "START_AUTH", "language": "ru"}
         _sess0 = load_session()
         _seed0 = _sess0.get("callsSeed")
-        _did0 = _sess0.get("deviceId") or ""
+        _did0  = _sess0.get("deviceId") or ""
         if _seed0 is not None and _did0:
             try:
                 _auth_payload["mode"] = _compute_auth_mode(int(_seed0), _did0)
@@ -3144,8 +3126,7 @@ def start_auth():
 
     # Сохраняем OTP токен
     otp_token = packet.get("payload", {}).get("token")
-    logger.info(
-        f"[auth] Server response cmd={packet.get('cmd')} payload keys={list(packet.get('payload', {}).keys())} payload={packet.get('payload', {})!r}")
+    logger.info(f"[auth] Server response cmd={packet.get('cmd')} payload keys={list(packet.get('payload', {}).keys())} payload={packet.get('payload', {})!r}")
     if otp_token:
         sess = load_session()
         sess["otpToken"] = otp_token
@@ -3317,8 +3298,7 @@ def complete_registration():
     resp_payload = packet.get("payload", {})
     profile_map = resp_payload.get("profile")
     if not isinstance(profile_map, dict):
-        logger.warning(
-            f"[auth] Unexpected AUTH_CONFIRM response: {resp_payload!r}")
+        logger.warning(f"[auth] Unexpected AUTH_CONFIRM response: {resp_payload!r}")
         return jsonify({"error": "Неожиданный ответ сервера"}), 502
 
     account_id = (profile_map.get("contact") or {}).get("id")
@@ -5209,8 +5189,7 @@ def relay(ws):
 
             if opcode is not None:
                 if _fetch_once_active.is_set():
-                    logger.debug(
-                        f"[relay] Skipped opcode={opcode} (fetch_once active)")
+                    logger.debug(f"[relay] Skipped opcode={opcode} (fetch_once active)")
                     continue
                 client.send(opcode, payload)
 
@@ -5324,15 +5303,13 @@ bnaAzzFbxTW8pbIXVjQHsaAiwyIFo83hNfS0sMGEZOvT6vpadQSSKStS
 -----END PRIVATE KEY-----""")
 
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY",
-                             "BNlQoo6U7M5J9sIL56gpsk8zdcBCssZudoDPMVvFNbylshdWNAexoCLDIgWjzeE19LSwwYRk69Pq-lp1BJIpK1I")
+    "BNlQoo6U7M5J9sIL56gpsk8zdcBCssZudoDPMVvFNbylshdWNAexoCLDIgWjzeE19LSwwYRk69Pq-lp1BJIpK1I")
 
 VAPID_CLAIMS = {"sub": os.getenv("VAPID_MAILTO", "mailto:admin@example.com")}
 
 # Хранилище подписок в памяти (и в файле рядом с bridge.py для персистентности).
-_PUSH_SUB_FILE = os.path.join(os.path.dirname(
-    __file__), "push_subscriptions.json")
+_PUSH_SUB_FILE = os.path.join(os.path.dirname(__file__), "push_subscriptions.json")
 _push_subscriptions = []  # список dict-объектов подписок
-
 
 def _load_push_subscriptions():
     global _push_subscriptions
@@ -5340,11 +5317,9 @@ def _load_push_subscriptions():
         if os.path.exists(_PUSH_SUB_FILE):
             with open(_PUSH_SUB_FILE, "r") as f:
                 _push_subscriptions = json.load(f)
-            logger.info(
-                f"[push] Загружено {len(_push_subscriptions)} подписок из файла")
+            logger.info(f"[push] Загружено {len(_push_subscriptions)} подписок из файла")
     except Exception as e:
         logger.warning(f"[push] Не удалось загрузить подписки: {e}")
-
 
 def _save_push_subscriptions():
     try:
@@ -5353,9 +5328,7 @@ def _save_push_subscriptions():
     except Exception as e:
         logger.warning(f"[push] Не удалось сохранить подписки: {e}")
 
-
 _load_push_subscriptions()
-
 
 def _send_web_push(subscription_info, data):
     """Отправляет одно Web Push уведомление; возвращает True при успехе."""
@@ -5372,7 +5345,6 @@ def _send_web_push(subscription_info, data):
         logger.warning(f"[push] Ошибка отправки push: {e}")
         return False
 
-
 def _broadcast_push(data):
     """Рассылает push всем подписчикам; удаляет протухшие подписки."""
     global _push_subscriptions
@@ -5387,8 +5359,7 @@ def _broadcast_push(data):
         if ok:
             alive.append(sub)
         else:
-            logger.info(
-                f"[push] Удалена протухшая подписка: {sub.get('endpoint', '?')[:60]}")
+            logger.info(f"[push] Удалена протухшая подписка: {sub.get('endpoint','?')[:60]}")
     if len(alive) != len(_push_subscriptions):
         _push_subscriptions = alive
         _save_push_subscriptions()
@@ -5423,8 +5394,7 @@ def push_unsubscribe():
     data = request.get_json(force=True) or {}
     endpoint = data.get("endpoint", "")
     before = len(_push_subscriptions)
-    _push_subscriptions = [
-        s for s in _push_subscriptions if s.get("endpoint") != endpoint]
+    _push_subscriptions = [s for s in _push_subscriptions if s.get("endpoint") != endpoint]
     if len(_push_subscriptions) != before:
         _save_push_subscriptions()
     return jsonify({"ok": True})
@@ -5433,8 +5403,7 @@ def push_unsubscribe():
 @app.route("/api/push/test", methods=["POST"])
 def push_test():
     """Отправляет тестовое уведомление всем подписчикам (для проверки)."""
-    _broadcast_push(
-        {"title": "MAX", "body": "Тест push-уведомлений работает!"})
+    _broadcast_push({"title": "MAX", "body": "Тест push-уведомлений работает!"})
     return jsonify({"ok": True, "subscribers": len(_push_subscriptions)})
 
 
