@@ -4254,6 +4254,17 @@
                 var t = e.target;
                 if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
                     addLine('❌ Не удалось загрузить ресурс: ' + (t.src || t.href), '#f66');
+                } else if (t && t !== window && (t.tagName === 'VIDEO' || t.tagName === 'AUDIO' || t.tagName === 'SOURCE')) {
+                    // Ошибка загрузки <video>/<audio> (сорванный источник) — это
+                    // обычный Event, а не ErrorEvent: у него нет message/
+                    // filename/lineno, поэтому раньше она проваливалась в ветку
+                    // ниже и превращалась в бесполезное "JS error @ :". Берём
+                    // код ошибки из el.error (MediaError), чтобы было видно,
+                    // что реально не так с медиа.
+                    var mediaErr = t.error;
+                    var mediaErrNames = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' };
+                    var code = mediaErr ? (mediaErr.code + ' ' + (mediaErrNames[mediaErr.code] || '')) : '?';
+                    addLine('❌ Ошибка загрузки медиа (' + t.tagName.toLowerCase() + ', код ' + code + '): ' + (t.currentSrc || t.src || ''), '#f66');
                 } else {
                     addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#f66');
                 }
@@ -4547,6 +4558,10 @@
                 <img id="storyViewerImg" style="max-width:100%;max-height:100%;object-fit:contain;display:none;" alt="">
                 <video id="storyViewerVideo" style="max-width:100%;max-height:100%;display:none;" playsinline autoplay muted></video>
                 <div id="storyViewerText" style="position:absolute;bottom:20px;left:0;right:0;text-align:center;color:#fff;font-size:16px;padding:0 20px;text-shadow:0 1px 4px rgba(0,0,0,.8);"></div>
+                <!-- Плейсхолдер для загрузки/ошибки — отдельный элемент, НЕ
+                     часть innerHTML родителя, иначе перезапись выше стирает
+                     img/video/зоны тапа безвозвратно (см. showCurrentStory). -->
+                <div id="storyViewerPlaceholder" style="display:none;color:#fff;font-size:40px;"></div>
             </div>
         </div>
         <div id="localChatSearchWrap">
@@ -6811,34 +6826,78 @@
             // Touch: начать по touchstart, остановить по touchend
             btn.addEventListener('touchstart', (e) => {
                 e.preventDefault();
+                _vnSetBtnPressed(true);
                 startVideoNote();
             }, { passive: false });
             btn.addEventListener('touchend', (e) => {
                 e.preventDefault();
+                _vnSetBtnPressed(false);
                 stopVideoNote();
             }, { passive: false });
             btn.addEventListener('touchcancel', (e) => {
                 e.preventDefault();
+                _vnSetBtnPressed(false);
                 cancelVideoNote();
             }, { passive: false });
 
             // Мышь: click opens recorder (т.к. удержание мышью неудобно на мобиле
             // через браузер) — просто открывает экран, стоп по кнопке
             btn.addEventListener('click', () => {
-                if (_vnRecorder && _vnRecorder.state === 'recording') return;
+                if (_vnState !== 'idle') return;
                 startVideoNote();
             });
         }
 
+        // Мгновенная визуальная обратная связь на нажатие кнопки — ДО того,
+        // как браузер вообще ответит на запрос доступа к камере (это может
+        // занять от десятков мс до пары секунд). Без этого при обычном
+        // быстром тапе (без намеренного удержания — подсказка про "удержи"
+        // из title на тач-устройствах не показывается вовсе) казалось, что
+        // нажатие вообще ни на что не влияет.
+        function _vnSetBtnPressed(pressed) {
+            const btn = document.getElementById('videoNoteBtn');
+            if (!btn) return;
+            btn.style.transform = pressed ? 'scale(1.35)' : '';
+            btn.style.filter = pressed ? 'drop-shadow(0 0 6px #e53935)' : '';
+        }
+
+        // Состояние записи кружка: idle → starting (ждём getUserMedia) →
+        // recording → снова idle. 'starting' нужен отдельно от 'recording',
+        // чтобы touchend, случившийся ДО того как камера успела ответить
+        // (обычный быстрый тап), не терялся молча — раньше stopVideoNote()
+        // в этот момент видел _vnRecorder === null и просто ничего не делал,
+        // а запись всё равно потом стартовала без участия пользователя
+        // (или подвисал открытый экран записи).
+        let _vnState = 'idle';
+        let _vnStopRequested = false;
+
         async function startVideoNote() {
-            if (_vnRecorder && _vnRecorder.state === 'recording') return;
+            if (_vnState !== 'idle') return;
             if (currentChatId == null || activeBotChatId) return;
+            _vnState = 'starting';
+            _vnStopRequested = false;
             try {
                 _vnStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 }, audio: true });
             } catch (e) {
-                log('❌ Нет доступа к камере/микрофону: ' + e.message, 'error');
+                _vnState = 'idle';
+                _vnSetBtnPressed(false);
+                const msg = 'Нет доступа к камере/микрофону: ' + e.message;
+                log('❌ ' + msg, 'error');
+                // Не только в отладочную консоль — её может быть не видно.
+                alert('❌ ' + msg);
                 return;
             }
+
+            if (_vnStopRequested) {
+                // Отпустили кнопку ещё до того, как камера ответила —
+                // отменяем, ничего не записывая и не показывая.
+                _vnState = 'idle';
+                _vnStream.getTracks().forEach(t => t.stop());
+                _vnStream = null;
+                _vnSetBtnPressed(false);
+                return;
+            }
+
             _vnChunks = [];
             _vnSeconds = 0;
             const preview = document.getElementById('videoNotePreview');
@@ -6853,6 +6912,8 @@
             _vnRecorder.ondataavailable = e => { if (e.data.size > 0) _vnChunks.push(e.data); };
             _vnRecorder.onstop = () => _finishVideoNote(mime);
             _vnRecorder.start(200);
+            _vnState = 'recording';
+            _vnSetBtnPressed(false);
 
             _vnTimerInterval = setInterval(() => {
                 _vnSeconds++;
@@ -6863,17 +6924,27 @@
         }
 
         function stopVideoNote() {
-            if (!_vnRecorder || _vnRecorder.state !== 'recording') return;
+            if (_vnState === 'starting') {
+                // Камера ещё не ответила — попросим остановиться сразу же,
+                // как только (если) запись всё-таки успеет начаться.
+                _vnStopRequested = true;
+                return;
+            }
+            if (_vnState !== 'recording' || !_vnRecorder || _vnRecorder.state !== 'recording') return;
             clearInterval(_vnTimerInterval);
             _vnRecorder.stop();
+            _vnState = 'idle';
         }
 
         function cancelVideoNote() {
+            _vnStopRequested = true;
+            _vnSetBtnPressed(false);
             clearInterval(_vnTimerInterval);
             if (_vnRecorder && _vnRecorder.state === 'recording') _vnRecorder.stop();
             _vnStream?.getTracks().forEach(t => t.stop());
             _vnStream = null;
             _vnRecorder = null;
+            _vnState = 'idle';
             document.getElementById('videoNoteRecorder').style.display = 'none';
             document.body.style.overflow = '';
         }
@@ -6965,26 +7036,60 @@
             try {
                 const fd = new FormData();
                 fd.append('file', _storyFile);
+                fd.append('type', '1'); // type=1 — фото для истории (Komet: requestPhotoUploadUrl(type: 1))
                 const resp = await fetch('/api/upload-photo', { method: 'POST', body: fd });
                 const data = await resp.json();
                 if (!data.success || !data.photoToken) {
                     log('❌ ' + (data.error || 'Не удалось загрузить фото'), 'error');
                     return;
                 }
-                // storiesSend (opcode 215) — payload из Komet StickersModule.publishPhoto
+                // storiesSend (opcode 215) — payload из Komet StickersModule.publishPhoto.
+                // expiration — МИЛЛИСЕКУНДЫ (см. StoriesModule._publishMedia в
+                // stories.dart, дефолт 86400000 = 24ч). Раньше здесь стояло 86400
+                // (секунды), из-за чего история фактически публиковалась с TTL
+                // ~86 секунд вместо суток и почти сразу пропадала из ленты —
+                // выглядело так, будто истории "не работают".
                 send(215, {
                     stories: [{
                         cid: Date.now(),
                         settings: 1,       // 1 = видно всем, 2 = только контактам
                         media: { _type: 'PHOTO', photoToken: data.photoToken },
-                        expiration: 86400, // 24 часа
+                        expiration: 86400000, // 24 часа, в мс
                     }]
                 });
                 closeStoryCreator();
-                log('✅ История опубликована', 'success');
+                log('⏳ Публикую историю...', 'info');
             } catch (e) {
                 log('❌ Ошибка публикации истории: ' + e.message, 'error');
             }
+        }
+
+        // Ответ сервера на storiesSend: применяем обновлённое кольцо и саму
+        // историю в локальный кэш (как Komet StoriesModule._publishMedia),
+        // иначе только что опубликованная история не появлялась бы в ленте
+        // до следующей полной перезагрузки/пуша.
+        function handleStoriesSendResponse(payload) {
+            if (!payload) return;
+            const preview = payload.storiesPreview;
+            if (preview && preview.owner && preview.owner.ownerId) {
+                _storiesPreviews[preview.owner.ownerId] = {
+                    owner: preview.owner,
+                    totalCount: preview.totalCount || 0,
+                    readCount: preview.readCount || 0,
+                    updateTime: preview.updateTime || 0,
+                };
+            }
+            const rawStories = payload.stories;
+            if (Array.isArray(rawStories)) {
+                rawStories.forEach(story => {
+                    const ownerId = story?.owner?.ownerId;
+                    if (!ownerId) return;
+                    if (!_peerStories[ownerId]) _peerStories[ownerId] = [];
+                    _peerStories[ownerId].push(story);
+                });
+            }
+            renderStoriesFeed();
+            log('✅ История опубликована', 'success');
         }
 
         function exitBotChatInlineMode() {
@@ -8226,7 +8331,7 @@
         // storiesList (opcode 210) → лента превью.
         // storiesGetByOwner (opcode 211) → полные истории конкретного автора.
         // storiesMark (opcode 214) → отметить историю просмотренной.
-        // notifStoriesUpdate (push opcode 230) → сервер прислал обновление ленты.
+        // notifStoriesUpdate (push opcode 216) → сервер прислал обновление ленты.
 
         let _storiesPreviews = {};    // ownerId → {owner, totalCount, readCount, updateTime}
         let _peerStories     = {};    // ownerId → [Story, ...]
@@ -8235,6 +8340,10 @@
         let _storyViewStoryIdx = 0;   // текущая история в авторе
         let _storyViewTimer   = null;
         const STORY_DURATION_MS = 5000;
+        // Дедупликация запросов storiesGetByOwner в просмотрщике — см. фикс
+        // ниже в showCurrentStory()/handleStoriesGetByOwnerResponse.
+        const _storyFetchInFlight = new Set(); // ownerId, пока ждём ответ
+        const _storyFetchedOwners = new Set(); // ownerId, ответ уже получен (даже пустой)
 
         function loadStoriesFeed() {
             send(208, { cursor: '', count: 30 });
@@ -8244,6 +8353,7 @@
             const raw = payload?.storiesPreviews;
             if (!Array.isArray(raw)) return;
             _storiesPreviews = {};
+            _storyFetchedOwners.clear();
             raw.forEach(p => {
                 const owner = p?.owner;
                 if (!owner || !owner.ownerId) return;
@@ -8257,18 +8367,40 @@
             renderStoriesFeed();
         }
 
+        // ВАЖНО: сами истории (с медиа) в ответе storiesGetByOwner лежат в
+        // ОТДЕЛЬНОМ поле 'peerStories' (список {owner, stories}), а НЕ внутри
+        // объектов 'storiesPreviews' — там только метаданные кольца (owner,
+        // totalCount, readCount, updateTime), без поля stories вообще (см.
+        // Komet: StoriesModule._applyOwnerPayload + PeerStories.fromMap).
+        // Раньше здесь бралось несуществующее p.stories из storiesPreviews,
+        // из-за чего _peerStories[ownerId] всегда оставался пустым массивом.
+        // showCurrentStory() видел stories.length === 0, показывал ⏳ и
+        // заново слал opcode 210 — а новый ответ парсился так же неверно,
+        // и цикл повторялся бесконечно (это и была "зависшая" история с
+        // повторяющимся логом "Массив names пуст").
         function handleStoriesGetByOwnerResponse(payload) {
             const raw = payload?.storiesPreviews;
-            if (!Array.isArray(raw)) return;
-            raw.forEach(p => {
-                const owner = p?.owner;
-                if (!owner || !owner.ownerId) return;
-                _peerStories[owner.ownerId] = (p.stories || []);
-                // Обновляем превью
-                if (_storiesPreviews[owner.ownerId]) {
-                    _storiesPreviews[owner.ownerId].readCount = p.readCount || _storiesPreviews[owner.ownerId].readCount;
-                }
-            });
+            if (Array.isArray(raw)) {
+                raw.forEach(p => {
+                    const owner = p?.owner;
+                    if (!owner || !owner.ownerId) return;
+                    // Обновляем превью (счётчики/время) — сами истории здесь не приходят
+                    if (_storiesPreviews[owner.ownerId]) {
+                        _storiesPreviews[owner.ownerId].readCount = p.readCount || _storiesPreviews[owner.ownerId].readCount;
+                    }
+                });
+            }
+            // Настоящие истории с медиа — в отдельном поле peerStories
+            const rawPeers = payload?.peerStories;
+            if (Array.isArray(rawPeers)) {
+                rawPeers.forEach(peer => {
+                    const owner = peer?.owner;
+                    if (!owner || !owner.ownerId) return;
+                    _peerStories[owner.ownerId] = peer.stories || [];
+                    _storyFetchInFlight.delete(owner.ownerId);
+                    _storyFetchedOwners.add(owner.ownerId);
+                });
+            }
             // Если просмотрщик открыт — показываем загруженную историю
             const ownerId = _storyViewOwnerIds[_storyViewOwnerIdx];
             if (ownerId && document.getElementById('storyViewer').style.display !== 'none') {
@@ -8290,12 +8422,20 @@
                 });
             if (!owners.length) { feed.style.display = 'none'; return; }
             feed.style.display = 'flex';
+            // Подгружаем настоящие имена/аватары авторов, которых ещё нет в
+            // contactsById (иначе в кольцах/просмотрщике вместо имени будет
+            // "Контакт #<id>") — тем же способом, что и fetchMissingContactInfo.
+            ensureStoryOwnersContactsLoaded(owners.map(p => p.owner.ownerId));
             feed.innerHTML = owners.map(p => {
                 const ownerId = p.owner.ownerId;
                 const unread = p.totalCount - p.readCount;
                 const hasUnread = unread > 0;
-                const name = contactNameFromPayload(contactsById[ownerId] || {}) || ('#' + ownerId);
-                const avatarUrl = avatarUrlForContact(ownerId);
+                const name = contactNameFromPayload(contactsById[ownerId] || { id: ownerId });
+                // memberAvatarUrl (не отдельная avatarUrlForContact) — тот же
+                // кэш стабильных URL, что и для обычных чатов/групп, иначе
+                // подписанный токен baseUrl меняется при каждом обновлении
+                // контакта, и браузер качает аватар заново вместо кэша.
+                const avatarUrl = memberAvatarUrl(ownerId);
                 const ring = hasUnread
                     ? 'linear-gradient(135deg,#f9a825,#e53935)'
                     : 'linear-gradient(135deg,#888,#555)';
@@ -8311,14 +8451,6 @@
                     <span style="font-size:11px;color:var(--tg-text);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:64px;">${escapeHtml(name.split(' ')[0])}</span>
                 </div>`;
             }).join('');
-        }
-
-        function avatarUrlForContact(ownerId) {
-            const c = contactsById[ownerId];
-            if (!c) return null;
-            const base = c.baseUrl || c.avatarUrl || c.photo || null;
-            if (!base) return null;
-            return base.startsWith('http') ? '/img?url=' + encodeURIComponent(base) : base;
         }
 
         function openStoryViewer(ownerId) {
@@ -8345,6 +8477,52 @@
             clearStoryTimer();
             document.getElementById('storyViewer').style.display = 'none';
             document.body.style.overflow = '';
+            _setStoryPlaceholder(null);
+            const vid = document.getElementById('storyViewerVideo');
+            // ВАЖНО: не vid.src = '' — пустая строка резолвится браузером в
+            // URL текущей страницы, видео пытается её "загрузить" и валит
+            // MEDIA_ERR_SRC_NOT_SUPPORTED (это и была ложная "Ошибка
+            // загрузки медиа: http://127.0.0.1:8080/" в логе).
+            // removeAttribute + load() сбрасывает элемент без попытки
+            // что-либо грузить.
+            if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+        }
+
+        // Запускает анимацию заполнения сегмента прогресс-бара i от 0% до
+        // 100% за durationMs (см. Komet: AnimationController на
+        // _photoDuration/длительность видео, управляющий _SegmentBar).
+        // Форсируем reflow между сбросом width в 0% и включением
+        // transition — иначе браузер схлопывает оба изменения в одно, и
+        // анимации не будет видно вовсе.
+        function startSegmentFill(i, durationMs) {
+            const seg = document.getElementById('storySeg-' + i);
+            if (!seg) return;
+            seg.style.transition = 'none';
+            seg.style.width = '0%';
+            void seg.offsetWidth;
+            seg.style.transition = `width ${durationMs}ms linear`;
+            seg.style.width = '100%';
+        }
+
+        // Показывает/прячет текстовый плейсхолдер (загрузка/ошибка) поверх
+        // медиа, не трогая innerHTML родителя #storyViewerMedia — там же
+        // лежат живые img/video/зоны тапа, которые НЕЛЬЗЯ стирать (иначе
+        // следующий showCurrentStory() падает на getElementById(...) === null
+        // для img/video, т.к. они физически удалены из DOM).
+        function _setStoryPlaceholder(html) {
+            const ph = document.getElementById('storyViewerPlaceholder');
+            if (!ph) return;
+            if (html) {
+                ph.innerHTML = html;
+                ph.style.display = 'flex';
+                ph.style.alignItems = 'center';
+                ph.style.justifyContent = 'center';
+                ph.style.width = '100%';
+                ph.style.height = '100%';
+            } else {
+                ph.style.display = 'none';
+                ph.innerHTML = '';
+            }
         }
 
         function showCurrentStory() {
@@ -8355,27 +8533,53 @@
             const stories = _peerStories[ownerId];
 
             // Шапка: аватар + имя
-            const name = contactNameFromPayload(contactsById[ownerId] || {}) || ('#' + ownerId);
-            const avatarUrl = avatarUrlForContact(ownerId);
+            const name = contactNameFromPayload(contactsById[ownerId] || { id: ownerId });
+            const avatarUrl = memberAvatarUrl(ownerId);
             document.getElementById('storyViewerName').textContent = name;
             document.getElementById('storyViewerAvatar').innerHTML = avatarUrl
                 ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;">`
                 : `<div style="width:100%;height:100%;background:${avatarGradient(ownerId)};display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">${escapeHtml(getInitials(name))}</div>`;
 
             if (!stories || !stories.length) {
-                // Истории ещё не загружены — запрашиваем
-                document.getElementById('storyViewerMedia').innerHTML = `<div style="color:#fff;font-size:40px;">⏳</div>`;
-                send(210, { owners: [preview?.owner || { ownerId, type: 0 }] });
+                if (_storyFetchedOwners.has(ownerId)) {
+                    // Уже запрашивали и сервер вернул пусто (история истекла
+                    // между превью и открытием) — не долбим сервер повторно.
+                    _setStoryPlaceholder(`<div style="color:rgba(255,255,255,.4);font-size:14px;">История недоступна</div>`);
+                    return;
+                }
+                _setStoryPlaceholder(`<div style="color:#fff;font-size:40px;">⏳</div>`);
+                if (!_storyFetchInFlight.has(ownerId)) {
+                    // Раньше запрос слался безусловно при каждом вызове
+                    // showCurrentStory(), а ответ парсился неверно (см.
+                    // комментарий у handleStoriesGetByOwnerResponse) — из-за
+                    // этого _peerStories оставался пустым, и получался
+                    // бесконечный цикл: запрос → пустой ответ → повторный
+                    // рендер → новый запрос. Теперь шлём максимум один раз
+                    // на автора, пока не придёт ответ.
+                    _storyFetchInFlight.add(ownerId);
+                    send(210, { owners: [preview?.owner || { ownerId, type: 0 }] });
+                }
                 return;
             }
+
+            // Есть данные — прячем плейсхолдер загрузки/ошибки, если он
+            // остался от предыдущего рендера.
+            _setStoryPlaceholder(null);
 
             if (_storyViewStoryIdx >= stories.length) _storyViewStoryIdx = stories.length - 1;
             const story = stories[_storyViewStoryIdx];
 
-            // Прогресс-бар
+            // Прогресс-бар — каждый сегмент состоит из тусклой подложки и
+            // "заливки" сверху. Заливка текущего сегмента анимируется от 0%
+            // до 100% через CSS-transition, синхронно с длительностью показа
+            // (см. Komet: AnimationController на _photoDuration/видео,
+            // управляющий _SegmentBar). Раньше сегмент просто красился в
+            // сплошной белый мгновенно — прогресс визуально не "двигался".
             const prog = document.getElementById('storyViewerProgress');
             prog.innerHTML = stories.map((_, i) => `
-                <div style="flex:1;height:3px;border-radius:2px;background:${i < _storyViewStoryIdx ? '#fff' : i === _storyViewStoryIdx ? '#fff' : 'rgba(255,255,255,0.4)'};"></div>
+                <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,0.35);overflow:hidden;">
+                    <div id="storySeg-${i}" style="height:100%;width:${i < _storyViewStoryIdx ? '100' : '0'}%;background:#fff;"></div>
+                </div>
             `).join('');
 
             // Время
@@ -8387,16 +8591,26 @@
             const vid = document.getElementById('storyViewerVideo');
             const media = story.media;
             img.style.display = 'none'; vid.style.display = 'none';
+            vid.onloadedmetadata = null;
             if (media && media._type === 'PHOTO' && (media.photoUrl || media.baseUrl || media.url)) {
                 const src = '/img?url=' + encodeURIComponent(media.photoUrl || media.baseUrl || media.url);
                 img.src = src; img.style.display = 'block';
+                startSegmentFill(_storyViewStoryIdx, STORY_DURATION_MS);
                 _storyViewTimer = setTimeout(() => storyViewerNav(1), STORY_DURATION_MS);
             } else if (media && media._type === 'VIDEO' && (media.mp4Url || media.videoUrl || media.baseUrl)) {
                 const src = media.mp4Url || media.videoUrl || media.baseUrl;
-                vid.src = src; vid.style.display = 'block'; vid.play();
+                vid.src = src; vid.style.display = 'block';
+                // Длительность видео известна только после загрузки метаданных —
+                // синхронизируем заливку с реальной длиной ролика, а не с
+                // фиксированными 5с для фото.
+                vid.onloadedmetadata = () => {
+                    const ms = (vid.duration && isFinite(vid.duration)) ? vid.duration * 1000 : STORY_DURATION_MS;
+                    startSegmentFill(_storyViewStoryIdx, ms);
+                };
+                vid.play();
                 vid.onended = () => storyViewerNav(1);
             } else {
-                document.getElementById('storyViewerMedia').innerHTML = `<div style="color:rgba(255,255,255,.4);font-size:14px;">Медиа недоступно</div>`;
+                _setStoryPlaceholder(`<div style="color:rgba(255,255,255,.4);font-size:14px;">Медиа недоступно</div>`);
             }
 
             // Отмечаем просмотренной (отдельным сообщением, оптимистично)
@@ -9513,6 +9727,18 @@
             const ids = Array.from(missing);
             ids.forEach(id => requestedContactIds.add(id));
             send(32, { contactIds: ids });
+        }
+
+        // Аналог fetchMissingContactInfo для владельцев историй в ленте —
+        // без этого кольца и просмотрщик показывают "Контакт #<id>" вместо
+        // настоящего имени, пока пользователь не откроет с ним обычный чат.
+        function ensureStoryOwnersContactsLoaded(ownerIds) {
+            const missing = ownerIds.filter(id =>
+                id != null && id !== selfId &&
+                !contactsById[id] && !metadataOverride[id] && !requestedContactIds.has(id));
+            if (!missing.length) return;
+            missing.forEach(id => requestedContactIds.add(id));
+            send(32, { contactIds: missing });
         }
 
         function otherParticipantId(chat) {
@@ -11866,6 +12092,11 @@
                     } else {
                         attachesHtml += `<div class="msg-attach msg-file">😀 Стикер</div>`;
                     }
+                    // Раньше здесь не было return — выполнение проваливалось
+                    // дальше по остальным if (a._type === ...) и на каждый
+                    // стикер в лог падало ложное "неизвестный attach._type:
+                    // STICKER", хотя сам стикер уже был отрисован выше.
+                    return;
                 }
 
 
@@ -12961,6 +13192,11 @@
                             renderChats({ chats: Object.values(chatsById), contacts: Object.values(contactsById) });
                             refreshChatProfileMembersIfOpen();
                             refreshVisibleMessageSenders();
+                            renderStoriesFeed();
+                            const openOwnerId = _storyViewOwnerIds[_storyViewOwnerIdx];
+                            if (openOwnerId && document.getElementById('storyViewer').style.display !== 'none') {
+                                showCurrentStory();
+                            }
                         }
                         return;
                     }
@@ -13165,6 +13401,15 @@
                     if (data.opcode === 210 && data.cmd === 256) {
                         // storiesGetByOwner — полные истории автора
                         handleStoriesGetByOwnerResponse(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 215) {
+                        // storiesSend — ответ на публикацию истории
+                        if (data.cmd === 256) {
+                            handleStoriesSendResponse(data.payload);
+                        } else {
+                            log('❌ Ошибка публикации истории: ' + (data.payload?.localizedMessage || 'сервер отклонил запрос'), 'error');
+                        }
                         return;
                     }
                     if (data.opcode === 216) {

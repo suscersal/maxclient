@@ -2984,13 +2984,18 @@ def proxy_lottie():
 @app.route("/img")
 def proxy_image():
     url = request.args.get("url", "")
-    allowed_hosts = ("i.oneme.ru", "iv.okcdn.ru", "st.max.ru", "selcdn.net")
+    # Раньше здесь был список ТОЧНЫХ поддоменов ("i.oneme.ru", "iv.okcdn.ru",
+    # "st.max.ru", "selcdn.net") — а CDN картинок/историй MAX использует
+    # множество разных поддоменов (например "s.oneme.ru" для фото историй,
+    # который в этот список не попадал) и отдавал 400 на легитимные ссылки.
+    # Проверяем базовый домен целиком, а не конкретный поддомен.
+    allowed_base_domains = ("oneme.ru", "okcdn.ru", "max.ru", "selcdn.net")
 
     if not url.startswith("https://"):
         return "", 400
 
     host = urllib.parse.urlparse(url).hostname or ""
-    if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
+    if not any(host == h or host.endswith(f".{h}") for h in allowed_base_domains):
         return "", 400
 
     try:
@@ -4939,6 +4944,15 @@ def upload_photo():
     его нужно вставить в attaches сообщения как
     {"_type": "PHOTO", "photoToken": token} и отправить через /relay
     (opcode 64), как обычное текстовое сообщение.
+
+    Опциональное поле формы "type" — тип загрузки, как в Komet
+    MessagesModule.requestPhotoUploadUrl(type: ...). Для обычных фото в
+    чате не передаётся (сервер использует значение по умолчанию), но для
+    историй Komet явно шлёт type=1 (см. story_composer_screen.dart,
+    _publishPhoto). Токен, полученный БЕЗ этого поля, предназначен для
+    обычных сообщений и может не подойти для storiesSend — историю с фото,
+    загруженным через этот путь без type=1, сервер мог принимать
+    (200 OK), но сама история либо не публиковалась, либо была битой.
     """
     f = request.files.get("file")
     if f is None:
@@ -4949,8 +4963,16 @@ def upload_photo():
     if not data:
         return jsonify({"error": "Пустой файл"}), 400
 
+    upload_payload = {"count": 1}
+    upload_type = request.form.get("type")
+    if upload_type is not None and upload_type != "":
+        try:
+            upload_payload["type"] = int(upload_type)
+        except ValueError:
+            pass
+
     try:
-        packet = fetch_once(80, {"count": 1}, wait_opcode=80, timeout=20)
+        packet = fetch_once(80, upload_payload, wait_opcode=80, timeout=20)
     except Exception as e:
         logger.warning(f"[upload-photo] photoUpload request failed: {e}")
         return jsonify({"error": str(e)}), 500
