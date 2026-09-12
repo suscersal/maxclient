@@ -1090,6 +1090,130 @@
             opacity: 0.5;
         }
 
+        /* ===== Плеер инлайн-видео в чате в стиле Telegram: тап по всему
+           видео переключает паузу (никакой мелкой кнопки — её тяжело
+           попасть пальцем), крупный полупрозрачный круг play/pause виден
+           только на паузе, тонкая шкала перемотки у самого нижнего края и
+           плашка времени слева от неё — всё вместе плавно скрывается во
+           время воспроизведения и появляется по тапу. ===== */
+        .video-loading-spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 36px;
+            height: 36px;
+            margin: -18px 0 0 -18px;
+            border: 3px solid rgba(255, 255, 255, 0.25);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: video-spin 0.8s linear infinite;
+            z-index: 4;
+            pointer-events: none;
+        }
+
+        @keyframes video-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .video-center-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 56px;
+            height: 56px;
+            background: rgba(0, 0, 0, 0.45);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: #fff;
+            z-index: 3;
+            opacity: 1;
+            transition: opacity 0.15s, transform 0.15s;
+            pointer-events: none;
+        }
+
+        .video-center-btn.hidden {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.8);
+        }
+
+        .video-controls-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 3;
+            padding: 16px 8px 6px;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            opacity: 1;
+            transition: opacity 0.2s ease;
+        }
+
+        .video-controls-bar.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .video-time {
+            flex: 0 0 auto;
+            color: #fff;
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+        }
+
+        .video-seek {
+            flex: 1 1 auto;
+            position: relative;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            touch-action: none;
+        }
+
+        .video-seek-track {
+            position: relative;
+            width: 100%;
+            height: 3px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .video-seek-fill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 0%;
+            border-radius: 2px;
+            background: var(--tg-blue);
+        }
+
+        .video-seek-thumb {
+            position: absolute;
+            top: 50%;
+            left: 0%;
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: var(--tg-blue);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+            transform: translate(-50%, -50%) scale(0);
+            transition: transform 0.15s;
+        }
+
+        .video-seek:hover .video-seek-thumb,
+        .video-seek.dragging .video-seek-thumb {
+            transform: translate(-50%, -50%) scale(1);
+        }
+
         .video-modal {
             display: none;
             position: fixed;
@@ -5054,6 +5178,7 @@
             const existingVideo = container.querySelector('video');
             if (existingVideo) {
                 existingVideo.paused ? existingVideo.play() : existingVideo.pause();
+                _showVideoControls(uid);
                 return;
             }
             const messageId = container.dataset.msgId;
@@ -5088,20 +5213,132 @@
                 v.src = '/video?url=' + encodeURIComponent(best);
                 container.querySelector('.msg-video-poster').replaceWith(v);
                 container.classList.remove('loading');
+
+                // Спиннер буферизации поверх видео — виден, пока плеер
+                // реально ждёт данные (waiting/stalled), а не всё время.
+                const spinner = document.createElement('div');
+                spinner.className = 'video-loading-spinner';
+                spinner.style.display = 'none';
+                container.appendChild(spinner);
+                v.addEventListener('waiting', () => { spinner.style.display = 'block'; });
+                v.addEventListener('stalled', () => { spinner.style.display = 'block'; });
+                v.addEventListener('playing', () => { spinner.style.display = 'none'; });
+                v.addEventListener('canplay', () => { spinner.style.display = 'none'; });
+
+                // Крупная центральная кнопка play/pause — видна только на
+                // паузе (как в Telegram). pointer-events:none — это чисто
+                // decor, тап всё равно ловит контейнер целиком через
+                // onclick="inlineVideoTap(uid)", так надёжнее, чем попадать
+                // по маленькой кнопке.
+                const centerBtn = document.createElement('div');
+                centerBtn.className = 'video-center-btn hidden';
+                centerBtn.textContent = '▶';
+                container.appendChild(centerBtn);
+
+                // Панель управления: единая плашка времени "0:07 / 0:32" +
+                // тонкая шкала перемотки у нижнего края — как в Telegram.
+                // Сам тап по видео (весь контейнер) переключает паузу и
+                // ненадолго подсвечивает панель.
                 const bottom = document.createElement('div');
-                bottom.className = 'inline-bottom-actions';
+                bottom.className = 'video-controls-bar';
                 bottom.onclick = (e) => e.stopPropagation();
-                bottom.innerHTML = `<button class="inline-icon-btn play-pause-btn">⏸</button>`;
+                bottom.innerHTML = `
+                    <span class="video-time video-time-label">0:00 / 0:00</span>
+                    <div class="video-seek">
+                        <div class="video-seek-track">
+                            <div class="video-seek-fill"></div>
+                            <div class="video-seek-thumb"></div>
+                        </div>
+                    </div>
+                `;
                 container.appendChild(bottom);
-                const playPauseBtn = bottom.querySelector('.play-pause-btn');
-                playPauseBtn.onclick = () => { v.paused ? v.play() : v.pause(); };
-                v.addEventListener('play', () => { playPauseBtn.textContent = '⏸'; });
-                v.addEventListener('pause', () => { playPauseBtn.textContent = '▶'; });
+
+                const timeLabel = bottom.querySelector('.video-time-label');
+                const seek = bottom.querySelector('.video-seek');
+                const seekFill = bottom.querySelector('.video-seek-fill');
+                const seekThumb = bottom.querySelector('.video-seek-thumb');
+
+                v.addEventListener('play', () => {
+                    centerBtn.classList.add('hidden');
+                    _scheduleHideVideoControls(uid);
+                });
+                v.addEventListener('pause', () => {
+                    centerBtn.classList.remove('hidden');
+                    centerBtn.textContent = '▶';
+                    _showVideoControls(uid);
+                });
+
+                v.addEventListener('loadedmetadata', () => {
+                    timeLabel.textContent = formatTime(v.currentTime) + ' / ' + formatTime(v.duration);
+                });
+                v.addEventListener('timeupdate', () => {
+                    if (seek.classList.contains('dragging')) return;
+                    const pct = v.duration ? (v.currentTime / v.duration * 100) : 0;
+                    seekFill.style.width = pct + '%';
+                    seekThumb.style.left = pct + '%';
+                    timeLabel.textContent = formatTime(v.currentTime) + ' / ' + formatTime(v.duration);
+                });
+
+                // Перемотка — свой ползунок вместо <input type=range>, чтобы
+                // выглядел как остальной интерфейс. Работает и мышью, и
+                // тачем через Pointer Events.
+                function seekToClientX(clientX) {
+                    const rect = seek.getBoundingClientRect();
+                    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                    if (v.duration) v.currentTime = pct * v.duration;
+                    seekFill.style.width = (pct * 100) + '%';
+                    seekThumb.style.left = (pct * 100) + '%';
+                    timeLabel.textContent = formatTime(pct * (v.duration || 0)) + ' / ' + formatTime(v.duration);
+                }
+                seek.addEventListener('pointerdown', (e) => {
+                    e.stopPropagation();
+                    seek.classList.add('dragging');
+                    seek.setPointerCapture(e.pointerId);
+                    seekToClientX(e.clientX);
+                    _showVideoControls(uid, true);
+                });
+                seek.addEventListener('pointermove', (e) => {
+                    if (!seek.classList.contains('dragging')) return;
+                    seekToClientX(e.clientX);
+                });
+                seek.addEventListener('pointerup', (e) => {
+                    seek.classList.remove('dragging');
+                    _scheduleHideVideoControls(uid);
+                });
+                // Синтетический click после pointerup тоже всплывает до
+                // контейнера и переключил бы play/pause — гасим отдельно,
+                // stopPropagation в pointerdown этого не покрывает.
+                seek.addEventListener('click', (e) => e.stopPropagation());
+
                 v.play().catch(() => { });
             } catch (e) {
                 log('❌ Ошибка видео: ' + e.message, 'error');
                 container.classList.remove('loading');
             }
+        }
+
+        // Показать панель управления видео и (опционально) отменить
+        // автоскрытие, пока идёт перетаскивание ползунка.
+        function _showVideoControls(uid, keepVisible) {
+            const container = document.getElementById(uid);
+            const bar = container?.querySelector('.video-controls-bar');
+            if (!bar) return;
+            bar.classList.remove('hidden');
+            clearTimeout(bar._hideTimer);
+            if (!keepVisible) _scheduleHideVideoControls(uid);
+        }
+
+        // Прячет панель управления через 2.5с, но только пока видео реально
+        // играет — на паузе панель всегда остаётся видимой (как в Telegram).
+        function _scheduleHideVideoControls(uid) {
+            const container = document.getElementById(uid);
+            const bar = container?.querySelector('.video-controls-bar');
+            const v = container?.querySelector('video');
+            if (!bar || !v) return;
+            clearTimeout(bar._hideTimer);
+            bar._hideTimer = setTimeout(() => {
+                if (!v.paused) bar.classList.add('hidden');
+            }, 2500);
         }
 
         function toggleInlineMute(uid) {
