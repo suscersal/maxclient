@@ -8253,7 +8253,7 @@
             </div>
 
             ${authed ? `
-            <!-- Редактирование имени (opcode 16, profile) -->
+            <!-- Редактирование имени/описания (opcode 16, profile) -->
             <div style="margin-top:14px;">
                 <label style="font-size:12px;color:#888;">Имя</label>
                 <input type="text" id="accountFirstNameInput" value="${escapeHtml(displayFirstName)}" placeholder="Имя"
@@ -8261,7 +8261,10 @@
                 <label style="font-size:12px;color:#888;">Фамилия</label>
                 <input type="text" id="accountLastNameInput" value="${escapeHtml(displayLastName)}" placeholder="Фамилия (необязательно)"
                     style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;">
-                <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitProfileNameEdit()">💾 Сохранить имя</button>
+                <label style="font-size:12px;color:#888;">Описание профиля</label>
+                <textarea id="accountDescriptionInput" placeholder="О себе" rows="3"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;resize:vertical;font-family:inherit;">${escapeHtml(profile.description || '')}</textarea>
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitProfileNameEdit()">💾 Сохранить</button>
             </div>
             ` : ''}
 
@@ -8284,8 +8287,18 @@
         function submitProfileNameEdit() {
             const firstName = document.getElementById('accountFirstNameInput').value.trim();
             const lastName = document.getElementById('accountLastNameInput').value.trim();
+            const description = document.getElementById('accountDescriptionInput').value.trim();
             if (!firstName) { log('❌ Имя не может быть пустым', 'error'); return; }
-            send(16, lastName ? { firstName, lastName } : { firstName });
+            // ВАЖНО: поле 'description' здесь — по аналогии с firstName/lastName
+            // в тот же opcode 16. В Komet своей формы редактирования био нет
+            // (только чтение raw['description'] у контакта), так что само имя
+            // поля не подтверждено проверенным образцом запроса — если сервер
+            // отклонит именно из-за description, в отладочной консоли будет
+            // видно cmd=768 с текстом ошибки.
+            const payload = { firstName };
+            if (lastName) payload.lastName = lastName;
+            payload.description = description;
+            send(16, payload);
         }
 
         async function submitProfileAvatarEdit(file) {
