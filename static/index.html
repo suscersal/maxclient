@@ -569,6 +569,33 @@
             margin: 0 6px 14px;
         }
 
+        /* ===== Табы папок чатов (как в Telegram) над списком чатов ===== */
+        #folderTabsBar {
+            display: flex;
+            gap: 4px;
+            overflow-x: auto;
+            padding: 0 6px 10px;
+            scrollbar-width: none;
+        }
+        #folderTabsBar::-webkit-scrollbar { display: none; }
+
+        .folder-tab {
+            flex: 0 0 auto;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            white-space: nowrap;
+            cursor: pointer;
+            background: var(--tg-panel, #f0f2f5);
+            color: var(--tg-text-secondary, #8A9199);
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .folder-tab.active {
+            background: var(--tg-blue);
+            color: #fff;
+        }
+
         #localChatSearchInput {
             width: 100%;
             box-sizing: border-box;
@@ -4715,6 +4742,7 @@
                 📵 Отозвать доступ к контактам телефона</button>
         </div>
         <div id="contactsList" class="hidden"></div>
+        <div id="folderTabsBar" class="hidden"></div>
         <div id="chatsList"></div>
         <div id="globalSearchResultsList" class="hidden"></div>
     </div>
@@ -8028,6 +8056,7 @@
                     page.classList.add('active');
                 }
                 this.currentPage = id;
+                if (id === 'sessions') loadSessions();
                 this.menuContainer.querySelectorAll('.settings-menu-item').forEach((btn, index) => {
                     const items = this.items.filter(it => !it.divider);
                     const item = items[index];
@@ -8081,6 +8110,17 @@
         let isLoadingMore = false;
         let metadataOverride = {};
         let requestedContactIds = new Set();
+        // Состояние папок чатов и сессий вынесено сюда (а не рядом со своими
+        // функциями ниже по файлу), потому что SettingsMenu.render() вызывается
+        // рано и сразу синхронно рендерит ВСЕ зарегистрированные страницы
+        // настроек (включая renderSessionsPage/renderFoldersPage) — если бы
+        // `let _sessions`/`let _folders` были объявлены ниже того места, где
+        // вызывается .render(), это падало бы с "Cannot access before
+        // initialization" (temporal dead zone), что и происходило раньше.
+        let _folders = [];
+        let _foldersOrder = [];
+        let _activeFolderId = null;
+        let _sessions = [];
 
         // Кэш URL аватаров участников по userId, переживает перезагрузку
         // страницы (localStorage). Нужен из-за того, что contact.baseUrl —
@@ -8174,11 +8214,13 @@
             const profile = currentProfilePayload || {};
 
             // Имя ищем по приоритетам ONEME -> CUSTOM (как в основном приложении)
-            let displayName = '—';
+            let displayFirstName = '';
+            let displayLastName = '';
             if (profile.names && Array.isArray(profile.names)) {
                 const nameRecord = profile.names.find(n => n.type === 'ONEME' || n.type === 'CUSTOM');
                 if (nameRecord) {
-                    displayName = nameRecord.name;
+                    displayFirstName = nameRecord.firstName || nameRecord.name || '';
+                    displayLastName = nameRecord.lastName || '';
                 }
             }
 
@@ -8186,28 +8228,42 @@
         <div style="padding:4px 0;">
             <!-- Блок с аватаром и основной информацией -->
             <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eee;">
-                <!-- Фото профиля вместо иконки -->
-                ${profile.baseUrl
+                <!-- Фото профиля — кликабельно, если авторизован: меняет аватар
+                     через opcode 80 (photoUpload, profile:true) + opcode 16 (profile) -->
+                <div style="position:relative;${authed ? 'cursor:pointer;' : ''}" ${authed ? 'onclick="document.getElementById(\'accountAvatarInput\').click()"' : ''} title="${authed ? 'Изменить фото профиля' : ''}">
+                    ${profile.baseUrl
                     ? `<img src="${escapeHtml('/img?url=' + encodeURIComponent(profile.baseUrl))}" alt="" onerror="this.style.display='none'" style="width:64px;height:64px;border-radius:50%;object-fit:cover;">`
-                    : `<span style="font-size:32px;">👤</span>`
+                    : `<div style="width:64px;height:64px;border-radius:50%;background:var(--tg-panel,#f0f2f5);display:flex;align-items:center;justify-content:center;font-size:32px;">👤</div>`
                 }
-                
+                    ${authed ? `<div style="position:absolute;bottom:-2px;right:-2px;background:var(--tg-blue);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid var(--tg-bg,#fff);">✏️</div>` : ''}
+                </div>
+                <input type="file" id="accountAvatarInput" accept="image/*" style="display:none;" onchange="submitProfileAvatarEdit(this.files[0])">
+
                 <div>
                     <div style="font-weight:600;font-size:16px;">${authed ? '✅ Аккаунт активен' : '❌ Не авторизован'}</div>
-                    
-                    <!-- Вместо "Сессия действительна" теперь выводится Ник -->
-                    <div style="font-size:13px;color:#888;">${authed ? escapeHtml(displayName) : 'Войдите в аккаунт'}</div>
-                    
                     ${authed
                     ? `
                             <div style="font-size:12px;color:#666;margin-top:4px;">ID: ${escapeHtml(String(profile.id || '—'))}</div>
                             <div style="font-size:12px;color:#666;margin-top:2px;">Телефон: ${profile.phone ? '+' + String(profile.phone).replace(/[^\d]/g, '') : 'Не указан'}</div>
                             <div style="font-size:12px;color:#666;margin-top:2px;">Страна: ${escapeHtml(profile.country || 'RU')}</div>
                         `
-                    : ''
+                    : '<div style="font-size:13px;color:#888;">Войдите в аккаунт</div>'
                 }
                 </div>
             </div>
+
+            ${authed ? `
+            <!-- Редактирование имени (opcode 16, profile) -->
+            <div style="margin-top:14px;">
+                <label style="font-size:12px;color:#888;">Имя</label>
+                <input type="text" id="accountFirstNameInput" value="${escapeHtml(displayFirstName)}" placeholder="Имя"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;">
+                <label style="font-size:12px;color:#888;">Фамилия</label>
+                <input type="text" id="accountLastNameInput" value="${escapeHtml(displayLastName)}" placeholder="Фамилия (необязательно)"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;">
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitProfileNameEdit()">💾 Сохранить имя</button>
+            </div>
+            ` : ''}
 
             <!-- Кнопка выхода остается без изменений -->
             <div style="margin-top:16px;">
@@ -8222,6 +8278,50 @@
             </div>
         </div>
     `;
+        }
+
+        // ---- Редактирование профиля (opcode 16, PROFILE) ----
+        function submitProfileNameEdit() {
+            const firstName = document.getElementById('accountFirstNameInput').value.trim();
+            const lastName = document.getElementById('accountLastNameInput').value.trim();
+            if (!firstName) { log('❌ Имя не может быть пустым', 'error'); return; }
+            send(16, lastName ? { firstName, lastName } : { firstName });
+        }
+
+        async function submitProfileAvatarEdit(file) {
+            if (!file) return;
+            log('⏳ Загружаю фото профиля…', 'info');
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('profile', '1'); // Komet: ProfileModule.getAvatarUploadUrl → {count:1, profile:true}
+                const resp = await fetch('/api/upload-photo', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!data.success || !data.photoToken) {
+                    log('❌ ' + (data.error || 'Не удалось загрузить фото'), 'error');
+                    return;
+                }
+                send(16, { photoToken: data.photoToken, avatarType: 'USER_AVATAR' });
+            } catch (e) {
+                log('❌ Ошибка загрузки аватара: ' + e.message, 'error');
+            }
+        }
+
+        // Ответ на opcode 16 обновляет тот же currentProfilePayload, что и
+        // логин (opcode 19) — та же структура {profile:{contact:{...}}}
+        // (см. Komet ProfileModule._applyProfileResponse).
+        function handleProfileUpdateResponse(payload) {
+            const contact = payload?.profile?.contact;
+            if (!contact) {
+                log('❌ Сервер не вернул обновлённый профиль', 'error');
+                return;
+            }
+            currentProfilePayload = contact;
+            selfId = contact.id;
+            contactsById[selfId] = contact;
+            log('✅ Профиль обновлён', 'success');
+            settingsMenu.refreshPage('account');
+            renderChatsList();
         }
 
 
@@ -8336,32 +8436,12 @@
         }
 
         function renderDevicePage() {
-            const pushPerm = ('Notification' in window) ? Notification.permission : 'unsupported';
-            const pushLabel = pushPerm === 'granted' ? '🔔 Уведомления включены'
-                : pushPerm === 'denied' ? '🔕 Уведомления заблокированы (разрешить в настройках браузера)'
-                : '🔔 Включить push-уведомления';
             return `
         <div style="padding:4px 0;">
             <div style="font-size:13px;color:#888;margin-bottom:12px;">
                 Эти данные передаются серверу MAX при подключении (какое устройство и версия
                 системы "видит" сервер). Смена профиля или Device ID не требует новой
                 авторизации.
-            </div>
-
-            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-                <label style="font-size:13px;font-weight:600;">Push-уведомления о новых сообщениях</label>
-                <div style="font-size:12px;color:#888;margin-bottom:4px;">
-                    Работает без Firebase — стандартный Web Push через bridge.py.<br>
-                    Требует HTTPS и установки <code>pip install pywebpush</code> на сервере.
-                </div>
-                <button class="settings-menu-item" style="width:auto;padding:8px 14px;"
-                    onclick="requestPushPermission()" ${pushPerm === 'denied' ? 'disabled' : ''}>
-                    ${pushLabel}
-                </button>
-                ${pushPerm === 'granted' ? `
-                <button class="settings-menu-item" style="width:auto;padding:6px 12px;font-size:12px;margin-top:4px;" onclick="fetch('/api/push/test',{method:'POST'}).then(()=>log('🔔 Тестовое уведомление отправлено','success'))">
-                    Отправить тестовое уведомление
-                </button>` : ''}
             </div>
 
             <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
@@ -8511,12 +8591,19 @@
 
         const settingsMenu = new SettingsMenu();
         settingsMenu
-            .addItem({ id: 'theme', icon: '🎨', label: 'Тема', page: renderThemePage })
+            .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
+            .addItem({ id: 'inviteFriends', icon: '🔗', label: 'Пригласить друзей', page: renderInviteFriendsPage })
+            .addDivider()
+            .addItem({ id: 'folders', icon: '🗂️', label: 'Папки', page: renderFoldersPage })
+            .addItem({ id: 'security', icon: '🔒', label: 'Безопасность', page: renderSecurityPage })
+            .addItem({ id: 'sessions', icon: '💻', label: 'Устройства', page: renderSessionsPage })
+            .addItem({ id: 'notifications', icon: '🔔', label: 'Уведомления', page: renderNotificationsPage })
+            .addItem({ id: 'theme', icon: '🎨', label: 'Оформление', page: renderThemePage })
+            .addItem({ id: 'language', icon: '🌐', label: 'Язык приложения', page: renderLanguagePage })
+            .addDivider()
             .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
             .addItem({ id: 'debugDump', icon: '🐞', label: 'Дебаг-дамп', page: renderDebugDumpPage })
-            .addDivider()
-            .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
-            .addItem({ id: 'device', icon: '📱', label: 'Устройство', page: renderDevicePage })
+            .addItem({ id: 'device', icon: '🛠️', label: 'Устройство (протокол)', page: renderDevicePage })
             .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
             .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
             .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
@@ -9932,9 +10019,10 @@
             showBottomNav();
             bottomNavGoChats();
             settingsMenu.refreshPage('account');
-            // Загружаем ленту историй сразу после авторизации
+            // Загружаем ленту историй и папки чатов сразу после авторизации
             setTimeout(() => {
                 try { loadStoriesFeed(); } catch(e) {}
+                try { loadFolders(); } catch(e) {}
             }, 1500);
         }
 
@@ -10671,6 +10759,405 @@
             }
         }
 
+        // ============ ПАПКИ ЧАТОВ (opcode 272/274/275/276, push 277) ============
+        // Логика фильтрации портирована из Komet: FoldersModule.chatMatchesFolder
+        // + FolderFilter enum (lib/backend/models/chat_folder.dart).
+        // (состояние _folders/_foldersOrder/_activeFolderId объявлено выше, см. комментарий там)
+
+        const FolderFilter = {
+            UNREAD: 0, READ: 1, CHANNEL: 2, CHAT: 3, DIALOG: 4, OWNER: 5, ADMIN: 6,
+            MUTED: 7, CONTACT: 8, NOT_CONTACT: 9, BOT: 10, NOT_MUTED: 11, MARKED_UNREAD: 12, ORG: 13,
+        };
+        const FOLDER_CHAT_TYPE_FILTERS = new Set([FolderFilter.CONTACT, FolderFilter.NOT_CONTACT, FolderFilter.CHAT, FolderFilter.CHANNEL, FolderFilter.BOT, FolderFilter.DIALOG, FolderFilter.ORG]);
+        const FOLDER_ROLE_FILTERS = new Set([FolderFilter.OWNER, FolderFilter.ADMIN]);
+        const FOLDER_SHOW_ONLY_FILTERS = new Set([FolderFilter.UNREAD, FolderFilter.READ, FolderFilter.MUTED, FolderFilter.NOT_MUTED]);
+
+        function loadFolders() {
+            send(272, { folderSync: 0 });
+        }
+
+        function _sortFolders() {
+            if (!_foldersOrder.length) return;
+            const idx = {};
+            _foldersOrder.forEach((id, i) => { idx[id] = i; });
+            _folders.sort((a, b) => (idx[a.id] ?? 999) - (idx[b.id] ?? 999));
+        }
+
+        function handleFoldersListResponse(payload, opts) {
+            if (!payload) return;
+            const replace = !!(opts && opts.replace);
+            // Как в Komet FoldersModule.applyPayload: 'folders' — полный список
+            // (только при первом foldersGet), 'folder' — одна созданная/обновлённая
+            // папка (ответ на foldersUpdate и push notifFolders), их нужно
+            // сливать по id, а не считать заменой всего списка.
+            if (Array.isArray(payload.folders)) {
+                if (replace) _folders = payload.folders.slice();
+                else payload.folders.forEach(_mergeFolder);
+            }
+            if (payload.folder && typeof payload.folder === 'object') {
+                _mergeFolder(payload.folder);
+            }
+            if (Array.isArray(payload.foldersOrder)) {
+                _foldersOrder = payload.foldersOrder;
+            }
+            _sortFolders();
+            // Если активная папка вдруг пропала (удалена с другого устройства) —
+            // откатываемся на "Все чаты", чтобы список не остался пустым молча.
+            if (_activeFolderId && !_folders.some(f => f.id === _activeFolderId)) {
+                _activeFolderId = null;
+            }
+            renderFolderTabs();
+            renderChatsList();
+            if (settingsMenu.pages.folders) settingsMenu.refreshPage('folders');
+        }
+
+        function _mergeFolder(folder) {
+            if (!folder || !folder.id) return;
+            const idx = _folders.findIndex(f => f.id === folder.id);
+            if (idx >= 0) _folders[idx] = folder; else _folders.push(folder);
+        }
+
+        function renderFolderTabs() {
+            const bar = document.getElementById('folderTabsBar');
+            if (!bar) return;
+            if (!_folders.length) { bar.classList.add('hidden'); return; }
+            bar.classList.remove('hidden');
+            const tabs = [{ id: null, title: 'Все чаты' }].concat(
+                _folders.filter(f => !isAllChatsFolder(f)).map(f => ({ id: f.id, title: (f.emoji ? f.emoji + ' ' : '') + f.title }))
+            );
+            bar.innerHTML = tabs.map(t => `
+                <div class="folder-tab${_activeFolderId === t.id ? ' active' : ''}" onclick="setActiveFolder(${t.id === null ? 'null' : `'${t.id}'`})">${escapeHtml(t.title)}</div>
+            `).join('');
+        }
+
+        function setActiveFolder(id) {
+            _activeFolderId = id;
+            renderFolderTabs();
+            renderChatsList();
+        }
+
+        function isAllChatsFolder(f) {
+            const t = (f.title || '').trim().toLowerCase();
+            return f.id === 'all.chat.folder' || t === 'все' || t === 'все чаты' || t === 'all' || t === 'all chats';
+        }
+
+        // Портировано из Komet FoldersModule.chatMatchesFolder — сначала явный
+        // include (список chatId), иначе набор фильтров: тип чата (хотя бы один
+        // должен совпасть), роль (владелец/админ — хотя бы одна), и "показывать
+        // только" (все перечисленные обязаны выполняться).
+        function chatMatchesFolder(chat, folder) {
+            const include = folder.include || [];
+            const filters = folder.filters || [];
+            if (!include.includes(chat.id)) {
+                const typeFilters = filters.filter(f => FOLDER_CHAT_TYPE_FILTERS.has(f));
+                if (!typeFilters.length) return false;
+                const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
+                const isBot = chat.type === 'DIALOG' && (chat.options || []).includes('BOT');
+                const isSelf = otherId != null && otherId === selfId;
+                const isContact = chat.type === 'DIALOG' && !isSelf && otherId != null && !!contactsById[otherId];
+                const matchesType = typeFilters.some(f => {
+                    switch (f) {
+                        case FolderFilter.CHANNEL: return chat.type === 'CHANNEL';
+                        case FolderFilter.CHAT: return chat.type === 'CHAT' || chat.type === 'GROUP';
+                        case FolderFilter.DIALOG: return chat.type === 'DIALOG';
+                        case FolderFilter.CONTACT: return chat.type === 'DIALOG' && !isBot && isContact;
+                        case FolderFilter.NOT_CONTACT: return chat.type === 'DIALOG' && !isBot && !isSelf && !isContact;
+                        case FolderFilter.BOT: return isBot;
+                        default: return false;
+                    }
+                });
+                if (!matchesType) return false;
+            }
+            const roleFilters = filters.filter(f => FOLDER_ROLE_FILTERS.has(f));
+            if (roleFilters.length) {
+                const isOwner = chat.owner === selfId;
+                const isAdmin = isOwner || (chat.admins || []).includes(selfId);
+                const matchesRole = roleFilters.some(f => f === FolderFilter.OWNER ? isOwner : isAdmin);
+                if (!matchesRole) return false;
+            }
+            for (const f of filters.filter(f => FOLDER_SHOW_ONLY_FILTERS.has(f))) {
+                const muted = (chat.dontDisturbUntil || 0) !== 0;
+                const unread = (chat.newMessages || 0) > 0;
+                let ok = true;
+                if (f === FolderFilter.UNREAD) ok = unread;
+                else if (f === FolderFilter.READ) ok = !unread;
+                else if (f === FolderFilter.MUTED) ok = muted;
+                else if (f === FolderFilter.NOT_MUTED) ok = !muted;
+                if (!ok) return false;
+            }
+            return true;
+        }
+
+        function getActiveFolderChats(chats) {
+            if (!_activeFolderId) return chats;
+            const folder = _folders.find(f => f.id === _activeFolderId);
+            if (!folder) return chats;
+            return chats.filter(c => chatMatchesFolder(c, folder));
+        }
+
+        // ---- Управление папками (страница в Настройках) ----
+        function saveFolder(id, title, includeIds, filters) {
+            send(274, {
+                id: id || _newFolderId(),
+                title: (title || '').trim().slice(0, 20),
+                include: includeIds || [],
+                filters: filters || [],
+                options: [],
+                favorites: [],
+            });
+        }
+
+        function deleteFolder(id) {
+            if (!confirm('Удалить папку? Чаты внутри неё не удаляются.')) return;
+            // Оптимистично убираем сразу — ответ на foldersDelete не обязан
+            // содержать полный список папок обратно (см. Komet:
+            // FoldersModule.deleteFolders удаляет из локального снапшота по ID
+            // запроса, а не по содержимому ответа).
+            _folders = _folders.filter(f => f.id !== id);
+            if (_activeFolderId === id) _activeFolderId = null;
+            renderFolderTabs();
+            renderChatsList();
+            if (settingsMenu.pages.folders) settingsMenu.refreshPage('folders');
+            send(276, { folderIds: [id] });
+        }
+
+        function _newFolderId() {
+            // UUID v4 — как newFolderId() в Komet FoldersModule.
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        let _folderEditorIncludeIds = new Set();
+        function openFolderEditor(folderId) {
+            const folder = folderId ? _folders.find(f => f.id === folderId) : null;
+            _folderEditorIncludeIds = new Set(folder ? (folder.include || []) : []);
+            const chatsHtml = chatsSortedCache.map(c => `
+                <label style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+                    <input type="checkbox" data-chat-id="${c.id}" ${_folderEditorIncludeIds.has(c.id) ? 'checked' : ''}>
+                    <span>${escapeHtml(chatDisplayName(c))}</span>
+                </label>
+            `).join('');
+            const html = `
+                <div style="padding:4px 0;">
+                    <input type="text" id="folderEditorTitle" placeholder="Название папки" maxlength="20"
+                        value="${escapeHtml(folder ? folder.title : '')}"
+                        style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;border:1px solid var(--tg-border,#ddd);margin-bottom:10px;">
+                    <div style="font-size:12px;color:#888;margin-bottom:6px;">Чаты в папке:</div>
+                    <div id="folderEditorChats" style="max-height:260px;overflow-y:auto;">${chatsHtml}</div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitFolderEditor('${folder ? folder.id : ''}')">💾 Сохранить</button>
+                        ${folder ? `<button class="settings-menu-item danger" style="width:auto;padding:8px 14px;" onclick="deleteFolder('${folder.id}');closeFolderEditor();">🗑 Удалить</button>` : ''}
+                        <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="closeFolderEditor()">Отмена</button>
+                    </div>
+                </div>
+            `;
+            let modal = document.getElementById('folderEditorModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'folderEditorModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+                document.body.appendChild(modal);
+            }
+            modal.innerHTML = `<div style="background:var(--tg-bg,#fff);border-radius:14px;padding:16px;max-width:360px;width:90%;max-height:80vh;overflow-y:auto;">${html}</div>`;
+            modal.style.display = 'flex';
+        }
+
+        function closeFolderEditor() {
+            const modal = document.getElementById('folderEditorModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function submitFolderEditor(folderId) {
+            const title = document.getElementById('folderEditorTitle').value.trim();
+            if (!title) { log('❌ Введите название папки', 'error'); return; }
+            const ids = Array.from(document.querySelectorAll('#folderEditorChats input[type=checkbox]:checked'))
+                .map(el => Number(el.dataset.chatId));
+            saveFolder(folderId || null, title, ids, []);
+            closeFolderEditor();
+        }
+
+        function renderFoldersPage() {
+            if (!_folders.length) {
+                return `
+                    <div style="padding:12px 0;color:#888;font-size:13px;">Папок пока нет.</div>
+                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="openFolderEditor(null)">➕ Создать папку</button>
+                `;
+            }
+            const rows = _folders.filter(f => !isAllChatsFolder(f)).map(f => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--tg-border,#eee);">
+                    <span>${f.emoji ? f.emoji + ' ' : ''}${escapeHtml(f.title)}</span>
+                    <button class="settings-menu-item" style="width:auto;padding:4px 10px;" onclick="openFolderEditor('${f.id}')">✏️</button>
+                </div>
+            `).join('');
+            return `
+                <div style="padding:4px 0;">${rows}</div>
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:8px;" onclick="openFolderEditor(null)">➕ Создать папку</button>
+            `;
+        }
+
+        // ============ АКТИВНЫЕ СЕССИИ (opcode 96/97) ============
+        // (состояние _sessions объявлено выше, у остальных ранних глобальных переменных)
+
+        function loadSessions() {
+            send(96, {});
+        }
+
+        function handleSessionsListResponse(payload) {
+            _sessions = (payload && Array.isArray(payload.sessions)) ? payload.sessions : [];
+            if (settingsMenu.pages.sessions) settingsMenu.refreshPage('sessions');
+        }
+
+        function terminateOtherSessions() {
+            if (!confirm('Завершить все остальные сессии? На других устройствах потребуется вход заново.')) return;
+            send(97, {});
+        }
+
+        function renderSessionsPage() {
+            if (!_sessions.length) {
+                return `<div style="padding:12px 0;color:#888;font-size:13px;">Загрузка сессий…</div>`;
+            }
+            const rows = _sessions.map(s => `
+                <div style="padding:10px 0;border-bottom:1px solid var(--tg-border,#eee);">
+                    <div style="font-weight:600;font-size:14px;">${escapeHtml(s.client || 'Неизвестное устройство')} ${s.current ? '<span style="color:var(--tg-blue);font-size:11px;">(это устройство)</span>' : ''}</div>
+                    <div style="font-size:12px;color:#888;margin-top:2px;">${escapeHtml(s.location || '')}</div>
+                    <div style="font-size:11px;color:#aaa;margin-top:2px;">${s.time ? new Date(s.time).toLocaleString('ru-RU') : ''}</div>
+                    ${s.info ? `<div style="font-size:11px;color:#aaa;">${escapeHtml(s.info)}</div>` : ''}
+                </div>
+            `).join('');
+            return `
+                <div style="padding:4px 0;">${rows}</div>
+                <button class="settings-menu-item danger" style="width:auto;padding:8px 14px;margin-top:12px;" onclick="terminateOtherSessions()">🚪 Завершить все остальные сессии</button>
+            `;
+        }
+
+        // ============ ПРИГЛАСИТЬ ДРУЗЕЙ ============
+        // Официальный MAX генерирует персональную реферальную ссылку через
+        // сервер — у нас нет доступа к этому опкоду/эндпоинту (не встречался
+        // в трафике), поэтому просто делимся общей ссылкой на MAX через
+        // системный шаринг/буфер обмена — честно, без придуманного бэкенда.
+        async function shareInviteLink() {
+            const text = 'Неофициальный клиент MAX — maxclient: https://github.com/suscersal/maxclient';
+            if (navigator.share) {
+                try { await navigator.share({ text, url: 'https://github.com/suscersal/maxclient' }); return; } catch (e) { /* отменено пользователем — молчим */ }
+            }
+            try {
+                await navigator.clipboard.writeText(text);
+                log('📋 Ссылка скопирована в буфер обмена', 'success');
+            } catch (e) {
+                log('❌ Не удалось скопировать ссылку', 'error');
+            }
+        }
+
+        function renderInviteFriendsPage() {
+            return `
+                <div style="padding:12px 0;">
+                    <div style="font-size:13px;color:#888;margin-bottom:12px;">
+                        Поделиться ссылкой на репозиторий maxclient на GitHub.
+                    </div>
+                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="shareInviteLink()">📤 Поделиться ссылкой</button>
+                </div>
+            `;
+        }
+
+        // ============ УВЕДОМЛЕНИЯ ============
+        // Push-переключатель (Web Push) был раньше в "Устройство" — здесь ему
+        // самое место, как в официальном MAX. Плюс локальная (клиентская)
+        // настройка "показывать текст сообщения" — влияет на уведомления,
+        // которые показываются самой открытой вкладкой (см. код создания
+        // `new Notification(...)` в обработчике входящих сообщений);
+        // НЕ влияет на push, пришедший через Service Worker при закрытой
+        // вкладке — тот текст формирует sw.js/сервер, отдельная история.
+        function getNotifPreviewEnabled() {
+            try { return localStorage.getItem('maxclient_notif_preview') !== '0'; } catch (e) { return true; }
+        }
+        function setNotifPreviewEnabled(v) {
+            try { localStorage.setItem('maxclient_notif_preview', v ? '1' : '0'); } catch (e) { }
+            settingsMenu.refreshPage('notifications');
+        }
+
+        function renderNotificationsPage() {
+            const pushPerm = ('Notification' in window) ? Notification.permission : 'unsupported';
+            const pushLabel = pushPerm === 'granted' ? '🔔 Уведомления включены'
+                : pushPerm === 'denied' ? '🔕 Уведомления заблокированы (разрешить в настройках браузера)'
+                : '🔔 Включить push-уведомления';
+            const previewOn = getNotifPreviewEnabled();
+            return `
+                <div style="padding:4px 0;">
+                    <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                        <label style="font-size:13px;font-weight:600;">Push-уведомления о новых сообщениях</label>
+                        <div style="font-size:12px;color:#888;margin-bottom:4px;">
+                            Работает без Firebase — стандартный Web Push через bridge.py.<br>
+                            Требует HTTPS и установки <code>pip install pywebpush</code> на сервере.
+                        </div>
+                        <button class="settings-menu-item" style="width:auto;padding:8px 14px;"
+                            onclick="requestPushPermission()" ${pushPerm === 'denied' ? 'disabled' : ''}>
+                            ${pushLabel}
+                        </button>
+                        ${pushPerm === 'granted' ? `
+                        <button class="settings-menu-item" style="width:auto;padding:6px 12px;font-size:12px;margin-top:4px;" onclick="fetch('/api/push/test',{method:'POST'}).then(()=>log('🔔 Тестовое уведомление отправлено','success'))">
+                            Отправить тестовое уведомление
+                        </button>` : ''}
+                    </div>
+
+                    <div class="settings-row" style="justify-content:space-between;margin-top:10px;">
+                        <div>
+                            <div style="font-size:13px;font-weight:600;">Показывать текст сообщения</div>
+                            <div style="font-size:11px;color:#888;">Иначе в уведомлении будет просто "Новое сообщение". Действует только пока вкладка открыта в фоне.</div>
+                        </div>
+                        <div class="toggle-switch ${previewOn ? 'active' : ''}" onclick="setNotifPreviewEnabled(${previewOn ? 'false' : 'true'})">
+                            <div class="toggle-knob"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ============ БЕЗОПАСНОСТЬ ============
+        // Честная страница-заглушка: полноценной настройки 2FA (включение/
+        // выключение/смена) в протоколе нет ни у нас, ни в Komet — есть
+        // только проверка пароля В МОМЕНТ входа, если 2FA уже включена
+        // с другого клиента. Показывать здесь фейковые переключатели не стал —
+        // вместо этого честно объясняю, что доступно, и веду к "Устройства"
+        // как к реальному способу проконтролировать чужие сессии.
+        function renderSecurityPage() {
+            return `
+                <div style="padding:12px 0;">
+                    <div style="font-size:13px;color:#888;line-height:1.5;">
+                        Полная настройка двухфакторной аутентификации (включение, смена пароля,
+                        email для восстановления) в этом клиенте не реализована — в протоколе MAX
+                        это отдельный набор запросов, которые пока не подключены.
+                        <br><br>
+                        Если 2FA уже включена на аккаунте (через другой клиент), при входе
+                        по-прежнему потребуется её пароль — это работает.
+                        <br><br>
+                        Посмотреть и завершить чужие активные входы можно в разделе «Устройства».
+                    </div>
+                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:12px;" onclick="settingsMenu.showPage('sessions')">💻 Перейти в «Устройства»</button>
+                </div>
+            `;
+        }
+
+        // ============ ЯЗЫК ПРИЛОЖЕНИЯ ============
+        // Честная заглушка: интерфейс целиком захардкожен на русском прямо в
+        // HTML/JS, без единой вынесенной строки перевода. Смена языка — это
+        // отдельная инфраструктурная задача (словарь переводов + прогон по
+        // всем текстам), а не настройка на один вечер, поэтому переключателя
+        // здесь нет — вместо фейковой кнопки честно объясняю ситуацию.
+        function renderLanguagePage() {
+            return `
+                <div style="padding:12px 0;">
+                    <div style="font-size:13px;color:#888;line-height:1.5;">
+                        Сейчас интерфейс доступен только на русском — весь текст жёстко
+                        зашит в код страницы, без системы переводов. Добавить другие языки
+                        можно, но это отдельная работа (нужно вынести все тексты в словарь),
+                        а не простой переключатель.
+                    </div>
+                </div>
+            `;
+        }
+
         function renderChats(payload) {
             if (payload.profile?.contact?.id != null) {
                 selfId = payload.profile.contact.id;
@@ -11017,8 +11504,8 @@
             }
 
             const chats = qRaw
-                ? chatsSortedCache.filter(chat => textMatchesQuery(chatSearchStrings(chat), qRaw, qDigits))
-                : chatsSortedCache;
+                ? getActiveFolderChats(chatsSortedCache).filter(chat => textMatchesQuery(chatSearchStrings(chat), qRaw, qDigits))
+                : getActiveFolderChats(chatsSortedCache);
 
             let restCount = chats.length;
 
@@ -13670,6 +14157,42 @@
                         loadStoriesFeed();
                         return;
                     }
+                    if (data.opcode === 16) {
+                        // profile — ответ на изменение имени/аватара своего профиля
+                        if (data.cmd === 256) {
+                            handleProfileUpdateResponse(data.payload);
+                        } else {
+                            log('❌ Не удалось обновить профиль: ' + (data.payload?.localizedMessage || 'сервер отклонил запрос'), 'error');
+                        }
+                        return;
+                    }
+                    if (data.opcode === 96 && data.cmd === 256) {
+                        // sessionsInfo — список активных сессий
+                        handleSessionsListResponse(data.payload);
+                        return;
+                    }
+                    if (data.opcode === 97) {
+                        // sessionsClose — завершение остальных сессий
+                        if (data.cmd === 256) {
+                            log('✅ Остальные сессии завершены', 'success');
+                            loadSessions();
+                        } else {
+                            log('❌ Не удалось завершить сессии: ' + (data.payload?.localizedMessage || ''), 'error');
+                        }
+                        return;
+                    }
+                    if (data.opcode === 272 || data.opcode === 274 || data.opcode === 275 || data.opcode === 276 || data.opcode === 277) {
+                        // foldersGet / foldersUpdate / foldersReorder / foldersDelete / notifFolders(push).
+                        // Только foldersGet (272) присылает ПОЛНЫЙ список и должен
+                        // заменить локальный кэш целиком — остальные лишь
+                        // добавляют/обновляют одну папку (см. handleFoldersListResponse).
+                        if (data.cmd === 256 || data.opcode === 277) {
+                            handleFoldersListResponse(data.payload, { replace: data.opcode === 272 });
+                        } else {
+                            log('❌ Ошибка папок: ' + (data.payload?.localizedMessage || 'сервер отклонил запрос'), 'error');
+                        }
+                        return;
+                    }
                     if (data.opcode === 27 && data.cmd === 256) {
                         // assetsUpdate — секции стикеров (новые паки + недавние + избранное)
                         handleAssetsUpdateResponse(data.payload);
@@ -13811,7 +14334,9 @@
 
                                 // Очищаем имя и текст сообщения от тегов перед отправкой в Notification
                                 const cleanSenderName = stripHtml(senderName);
-                                const cleanBodyText = msg.text ? stripHtml(msg.text) : '📎 Вложение';
+                                const cleanBodyText = getNotifPreviewEnabled()
+                                    ? (msg.text ? stripHtml(msg.text) : '📎 Вложение')
+                                    : 'Новое сообщение';
 
                                 const n = new Notification(cleanSenderName, {
                                     body: cleanBodyText,

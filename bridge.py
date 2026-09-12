@@ -4953,6 +4953,10 @@ def upload_photo():
     обычных сообщений и может не подойти для storiesSend — историю с фото,
     загруженным через этот путь без type=1, сервер мог принимать
     (200 OK), но сама история либо не публиковалась, либо была битой.
+
+    Опциональное поле формы "profile" ("1"/"true") — для аватара СВОЕГО
+    профиля Komet шлёт отдельный флаг {count:1, profile:true} вместо
+    "type" (см. ProfileModule.getAvatarUploadUrl).
     """
     f = request.files.get("file")
     if f is None:
@@ -4970,6 +4974,8 @@ def upload_photo():
             upload_payload["type"] = int(upload_type)
         except ValueError:
             pass
+    if request.form.get("profile") in ("1", "true", "True"):
+        upload_payload["profile"] = True
 
     try:
         packet = fetch_once(80, upload_payload, wait_opcode=80, timeout=20)
