@@ -173,6 +173,69 @@
             outline: none;
         }
 
+        /* ===== Панель ввода сообщения — Telegram-style: pill-поле, круглые
+           иконки без фона, круглая синяя кнопка отправки вместо текстовой
+           "Отправить". Скопировано только на #composerRow, чтобы не менять
+           вид .input-group в остальных формах (авторизация, настройки и т.п.). ===== */
+        #composerRow {
+            align-items: center;
+            gap: 2px;
+            padding: 6px 8px;
+            margin-bottom: 0;
+            background: var(--tg-panel, #fff);
+            border-top: 1px solid var(--tg-border, #eee);
+            flex-wrap: nowrap;
+        }
+
+        #composerRow input#messageText {
+            flex: 1 1 auto;
+            min-width: 0;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 20px;
+            background: var(--tg-bg, #f0f2f5);
+            color: var(--tg-text, #17212B);
+            font-size: 15px;
+        }
+
+        #composerRow input#messageText:focus {
+            outline: none;
+        }
+
+        .composer-icon-btn {
+            flex: 0 0 auto;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: none;
+            background: none;
+            color: var(--tg-text-secondary, #8A9199);
+            cursor: pointer;
+        }
+
+        .composer-send-btn {
+            flex: 0 0 auto;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            border: none;
+            background: var(--tg-blue);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .composer-send-btn svg {
+            margin-left: -1px;
+            /* оптическая центровка "бумажного самолётика" */
+        }
+
         /* ===== НОВЫЕ СТИЛИ ДЛЯ НАСТРОЕК (МОБИЛЬНАЯ ВЕРСИЯ) ===== */
 
         /* Меню настроек — ограничиваем высоту и делаем скролл */
@@ -2212,17 +2275,19 @@
             gap: 6px;
             margin-bottom: 4px;
             padding: 2px 0 2px 8px;
-            border-left: 3px solid var(--tg-blue, #2E86F5);
+            border-left: 3px solid var(--tg-blue, #2AABEE);
             cursor: pointer;
+            min-width: 0;
         }
 
         .msg-reply-quote-title {
             font-size: 12px;
             font-weight: 600;
-            color: var(--tg-blue, #2E86F5);
+            color: var(--tg-blue, #2AABEE);
         }
 
         .msg-reply-quote-text {
+            display: block;
             font-size: 12px;
             color: var(--tg-text-secondary, #707579);
             white-space: nowrap;
@@ -4221,6 +4286,9 @@
             <path fill="currentColor"
                 d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 0 0-7 0v5A3.5 3.5 0 0 0 12 15m5.5-3.5a5.5 5.5 0 0 1-11 0a1 1 0 0 0-2 0 7.5 7.5 0 0 0 6.5 7.44V21a1 1 0 0 0 2 0v-2.06a7.5 7.5 0 0 0 6.5-7.44a1 1 0 0 0-2 0" />
         </symbol>
+        <symbol id="icon_send" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M3.4 20.4l17.45-8.4a1 1 0 0 0 0-1.8L3.4 1.8a1 1 0 0 0-1.4 1.1L4.5 11H12a1 1 0 0 1 0 2H4.5L2 20.9a1 1 0 0 0 .95 1.15c.16 0 .32-.03.45-.1z" />
+        </symbol>
     </svg>
     <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
     <script>
@@ -4813,22 +4881,37 @@
         </div>
         <div class="input-group" id="composerRow">
             <input type="file" id="attachFileInput" accept="*/*" style="display:none;" multiple>
-            <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото"
-                style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:10px 14px; cursor:pointer;">
-                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
+            <label id="attachBtn" for="attachFileInput" title="Прикрепить файл или фото" class="composer-icon-btn">
+                <svg width="22" height="22" viewBox="0 0 24 24" style="display:block; pointer-events:none;">
                     <use href="#icon_attachment"></use>
                 </svg>
             </label>
             <button type="button" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
-                style="display:none;flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">☰</button>
+                class="composer-icon-btn" style="display:none;font-size:18px;">☰</button>
             <button type="button" id="stickerBtn" onclick="toggleStickerPanel()" title="Стикеры"
-                style="flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;">😀</button>
-            <!-- Кружок: удерживай для записи, отпусти для отправки -->
+                class="composer-icon-btn" style="font-size:19px;">😀</button>
+            <input type="text" id="messageText" placeholder="Сообщение" oninput="updateComposerSendState()">
+            <!-- Кружок и "Отправить" — Telegram-style: пока поле пустое, справа
+                 виден только кружок (запись); как только появился текст,
+                 кружок прячется и вместо него — круглая синяя кнопка отправки
+                 (paper-plane), как в настоящем Telegram. -->
             <button type="button" id="videoNoteBtn" title="Видео-кружок (удержи для записи)"
-                style="flex:0 0 auto;padding:10px 12px;background:none;border:none;cursor:pointer;font-size:18px;user-select:none;-webkit-user-select:none;">🔴</button>
-            <input type="text" id="messageText" placeholder="Сообщение">
-            <button id="sendMessageBtn" class="success">Отправить</button>
+                class="composer-icon-btn" style="font-size:19px;user-select:none;-webkit-user-select:none;">🔴</button>
+            <button id="sendMessageBtn" class="composer-send-btn" title="Отправить" style="display:none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" style="display:block;pointer-events:none;">
+                    <use href="#icon_send"></use>
+                </svg>
+            </button>
         </div>
+        <script>
+            // Telegram-подобный переключатель: кнопка отправки видна только
+            // когда в поле есть текст, иначе — кнопка видео-кружка (запись).
+            function updateComposerSendState() {
+                const hasText = document.getElementById('messageText').value.trim().length > 0;
+                document.getElementById('sendMessageBtn').style.display = hasText ? 'flex' : 'none';
+                document.getElementById('videoNoteBtn').style.display = hasText ? 'none' : 'flex';
+            }
+        </script>
 
         <!-- Полноэкранный экран записи кружка -->
         <div id="videoNoteRecorder" style="display:none;position:fixed;inset:0;z-index:3000;background:#000;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
@@ -7097,7 +7180,7 @@
                 document.getElementById('videoNoteBtn').style.display = 'none';
                 document.getElementById('stickerPanel').style.display = 'none';
                 document.getElementById('messageText').placeholder = 'Сообщение боту...';
-                document.getElementById('messageText').value = '';
+                document.getElementById('messageText').value = ''; updateComposerSendState();
 
                 touchCustomBot(botId);
                 document.getElementById('botMenuPanel').style.display = 'none';
@@ -7471,9 +7554,82 @@
         // ===================================================================
         let stickerSetsById = {};       // setId -> {id, name, iconUrl, stickerIds}
         let stickerItemsById = {};      // stickerId -> {id, url, lottieUrl, width, height, tags}
-        let stickerSetOrder = [];       // порядок вкладок (избранные + новые)
+        let stickerSetOrder = [];       // порядок вкладок (избранные + новые), как прислал сервер
         let favoriteStickerSetIds = [];
         let recentStickerIds = [];
+        let stickerReorderMode = false;
+
+        // ---- Локальный порядок паков ----
+        // ВАЖНО: сервер (и Komet тоже) не хранит явный "порядок паков" —
+        // только принадлежность к избранному (FAVORITE_STICKER_SET), при этом
+        // недавно добавленный в избранное просто встаёт первым. Настоящей
+        // произвольной пользовательской сортировки в протоколе нет (opcode
+        // assetsListModify=261 существует в карте опкодов, но не используется
+        // даже в самом Komet — проверенного формата запроса нет). Поэтому
+        // порядок здесь — ЛОКАЛЬНЫЙ, хранится в localStorage этого браузера
+        // и не синхронизируется между устройствами.
+        function getStickerOrderOverride() {
+            try { return JSON.parse(localStorage.getItem('maxclient_sticker_order') || '[]'); } catch (e) { return []; }
+        }
+        function saveStickerOrderOverride(order) {
+            try { localStorage.setItem('maxclient_sticker_order', JSON.stringify(order)); } catch (e) { }
+        }
+        function applyStickerOrderOverride(ids) {
+            const override = getStickerOrderOverride();
+            if (!override.length) return ids;
+            const idSet = new Set(ids);
+            const ordered = override.filter(id => idSet.has(id));
+            ids.forEach(id => { if (!ordered.includes(id)) ordered.push(id); });
+            return ordered;
+        }
+        function moveStickerSet(setId, dir) {
+            const current = applyStickerOrderOverride(stickerSetOrder.slice());
+            const idx = current.indexOf(setId);
+            const newIdx = idx + dir;
+            if (idx === -1 || newIdx < 0 || newIdx >= current.length) return;
+            [current[idx], current[newIdx]] = [current[newIdx], current[idx]];
+            saveStickerOrderOverride(current);
+            renderStickerPanel();
+        }
+        function toggleStickerReorderMode() {
+            stickerReorderMode = !stickerReorderMode;
+            renderStickerPanel();
+        }
+
+        // ---- Добавление стикерпака по ссылке ----
+        // Точно как ChatsModule.resolveSetByLink + favoriteSet в Komet:
+        // opcode 89 (linkInfo) резолвит ссылку в stickerSet, opcode 29
+        // (assetsAdd, type: FAVORITE_STICKER_SET) добавляет пак в свой список.
+        function submitAddStickerPackByLink() {
+            const input = document.getElementById('stickerAddLinkInput');
+            const link = (input?.value || '').trim();
+            if (!link) return;
+            send(89, { link });
+            input.value = '';
+            log('⏳ Ищу стикерпак по ссылке…', 'info');
+        }
+        // Ответ на opcode 89 (linkInfo) для стикерпака — отдельная ветка от
+        // handleLinkResolved (та для чат-ссылок), проверяем по наличию
+        // payload.stickerSet.
+        function handleStickerSetLinkResolved(payload) {
+            const raw = payload?.stickerSet;
+            if (!raw || typeof raw.id !== 'number') {
+                log('❌ Ссылка не похожа на стикерпак MAX', 'error');
+                return;
+            }
+            stickerSetsById[raw.id] = {
+                id: raw.id,
+                name: raw.name || raw.title || '',
+                iconUrl: raw.iconUrl || raw.icon || '',
+                stickerIds: Array.isArray(raw.stickerIds) ? raw.stickerIds : (raw.stickers || []).map(s => s.id).filter(id => typeof id === 'number'),
+            };
+            send(29, { type: 'FAVORITE_STICKER_SET', id: raw.id });
+            if (!favoriteStickerSetIds.includes(raw.id)) favoriteStickerSetIds = [raw.id, ...favoriteStickerSetIds];
+            if (!stickerSetOrder.includes(raw.id)) stickerSetOrder = [raw.id, ...stickerSetOrder];
+            activeStickerSetId = raw.id;
+            log(`✅ Стикерпак «${stickerSetsById[raw.id].name || raw.id}» добавлен`, 'success');
+            renderStickerPanel();
+        }
         let stickersLoaded = false;
         let stickersLoading = false;
         let activeStickerSetId = null;
@@ -7663,11 +7819,12 @@
             }
 
             const q = (stickerSearchQuery || '').trim().toLowerCase();
+            const orderedIds = applyStickerOrderOverride(stickerSetOrder.slice());
             const visiblePackIds = q
-                ? stickerSetOrder.filter(id => (stickerSetsById[id]?.name || '').toLowerCase().includes(q))
-                : stickerSetOrder;
+                ? orderedIds.filter(id => (stickerSetsById[id]?.name || '').toLowerCase().includes(q))
+                : orderedIds;
 
-            const specialTabsHtml = q ? '' : [
+            const specialTabsHtml = (q || stickerReorderMode) ? '' : [
                 recentStickerIds.length ? { id: 'recent', icon: '🕐', title: 'Недавние' } : null,
             ].filter(Boolean).map(t => `
                 <button type="button" onclick="selectStickerSet('${t.id}')" title="${t.title}"
@@ -7676,13 +7833,24 @@
                 </button>
             `).join('');
 
-            const packTabsHtml = visiblePackIds.map(id => {
+            const packTabsHtml = visiblePackIds.map((id, i) => {
                 const set = stickerSetsById[id];
                 if (!set) return '';
                 const active = id === activeStickerSetId;
                 const iconHtml = set.iconUrl
                     ? `<img src="${set.iconUrl}" alt="${escapeHtml(set.name)}" style="width:28px;height:28px;object-fit:contain;display:block;" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🙂',style:'font-size:20px;'}))">`
                     : `<span style="font-size:20px;display:block;width:28px;height:28px;text-align:center;line-height:28px;">🙂</span>`;
+                if (stickerReorderMode) {
+                    // Режим локальной сортировки — вместо клика по паку показываем
+                    // стрелки для перестановки. Никакого запроса на сервер — это
+                    // чисто клиентский порядок (см. комментарий у getStickerOrderOverride).
+                    return `
+                    <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;width:36px;">
+                        <button type="button" onclick="moveStickerSet(${id},-1)" ${i === 0 ? 'disabled' : ''} style="border:none;background:none;cursor:pointer;font-size:10px;padding:0;color:var(--tg-text-secondary);">◀</button>
+                        <div style="width:28px;height:28px;" title="${escapeHtml(set.name)}">${iconHtml}</div>
+                        <button type="button" onclick="moveStickerSet(${id},1)" ${i === visiblePackIds.length - 1 ? 'disabled' : ''} style="border:none;background:none;cursor:pointer;font-size:10px;padding:0;color:var(--tg-text-secondary);">▶</button>
+                    </div>`;
+                }
                 return `
                 <button type="button" onclick="selectStickerSet(${id})" title="${escapeHtml(set.name)}"
                     style="flex:0 0 auto;width:36px;height:36px;padding:4px;border:none;background:${active ? 'var(--tg-blue)' : 'transparent'};border-radius:8px;cursor:pointer;opacity:${active ? '1' : '0.6'};">
@@ -7756,9 +7924,21 @@
                 <div style="flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;height:44px;align-items:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--tg-border);">${specialTabsHtml}${packTabsHtml}</div>
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px 4px;">
                     <span style="font-size:13px;font-weight:600;color:var(--tg-text-secondary);">${escapeHtml(sectionLabel)}</span>
-                    ${favBtnHtml}
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        ${favBtnHtml}
+                        <button type="button" onclick="toggleStickerReorderMode()" title="${stickerReorderMode ? 'Готово' : 'Изменить порядок паков (только на этом устройстве)'}"
+                            style="border:none;background:none;cursor:pointer;font-size:14px;color:${stickerReorderMode ? 'var(--tg-blue)' : 'var(--tg-text-secondary)'};">
+                            ${stickerReorderMode ? '✅' : '↕️'}
+                        </button>
+                    </div>
                 </div>
                 ${gridHtml}
+                <div style="flex:0 0 auto;display:flex;gap:6px;padding:6px 2px 2px;border-top:1px solid var(--tg-border);">
+                    <input type="text" id="stickerAddLinkInput" placeholder="Ссылка на стикерпак"
+                        style="flex:1;min-width:0;padding:6px 10px;border-radius:8px;border:1px solid var(--tg-border);font-size:12px;background:var(--tg-panel);color:var(--tg-text);"
+                        onkeydown="if(event.key==='Enter')submitAddStickerPackByLink()">
+                    <button type="button" onclick="submitAddStickerPackByLink()" style="border:none;background:var(--tg-blue);color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;">Добавить</button>
+                </div>
             `;
         }
 
@@ -11202,6 +11382,15 @@
                 selfId = payload.profile.contact.id;
             }
             contactsById = {};
+            // Стоп-лист "уже запрашивали" (см. fetchMissingContactInfo /
+            // ensureStoryOwnersContactsLoaded) должен сбрасываться ВМЕСТЕ с
+            // contactsById — иначе если ресинк после реконнекта (обрыв
+            // WS/бэкграунд вкладки на телефоне) вернул неполный список
+            // контактов, пропавшие имена так и остаются "Контакт #id"
+            // навсегда: contactsById[id] снова пуст, но requestedContactIds
+            // всё ещё считает, что запрос по этому id уже был, и повторный
+            // фетч ниже (fetchMissingContactInfo) их тихо пропускает.
+            requestedContactIds.clear();
             (payload.contacts || []).forEach(c => { contactsById[c.id] = c; });
             if (payload.presence) {
                 Object.entries(payload.presence).forEach(([uid, p]) => {
@@ -13437,6 +13626,10 @@
 
         function handleLinkResolved(payload) {
             if (!payload) return;
+            if (payload.stickerSet && typeof payload.stickerSet.id === 'number') {
+                handleStickerSetLinkResolved(payload);
+                return;
+            }
             if (payload.chat && typeof payload.chat.id === 'number') {
                 const chat = payload.chat;
                 chatsById[chat.id] = chatsById[chat.id] || chat;
@@ -13510,6 +13703,7 @@
 
             // Восстанавливаем черновик
             document.getElementById('messageText').value = getDrafts()[chatId] || '';
+            updateComposerSendState();
 
             // --- НОВЫЙ КОД УПРАВЛЕНИЯ ПАНЕЛЬЮ ---
             updateComposerVisibility(chat);
@@ -14044,7 +14238,7 @@
                             }
                             return;
                         }
-                        document.getElementById('messageText').value = '';
+                        document.getElementById('messageText').value = ''; updateComposerSendState();
                         send(49, {
                             chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
                             getMessages: true
@@ -14825,7 +15019,7 @@
                 message: messagePayload,
                 notify: true
             });
-            document.getElementById('messageText').value = '';
+            document.getElementById('messageText').value = ''; updateComposerSendState();
             saveDraft(currentChatId, '');
             cancelReply();
         };
