@@ -3201,7 +3201,12 @@
             --tg-text: #17212B;
             --tg-text-secondary: #8A9199;
             --tg-border: #EBEEF0;
-            --tg-own-bubble: linear-gradient(135deg, #3E96FF, #2E86F5);
+            /* Классический светлый Telegram: у своих сообщений светло-голубой
+               плоский фон и ТЁМНЫЙ текст — не белый на насыщенном градиенте
+               (это стиль WhatsApp/iMessage, не Telegram). */
+            --tg-own-bubble: #E1F4FF;
+            --tg-own-text: var(--tg-text);
+            --tg-own-time: rgba(23, 33, 43, 0.55);
             --tg-incoming-bubble: #ffffff;
         }
 
@@ -3585,6 +3590,8 @@
             --tg-text-secondary: #7a7a7a;
             --tg-border: #e2e5e9;
             --tg-own-bubble: linear-gradient(135deg, #007aff, #0066d6);
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.8);
             --tg-incoming-bubble: #ffffff;
         }
 
@@ -3599,6 +3606,8 @@
             --tg-text-secondary: #7a90a0;
             --tg-border: #232538;
             --tg-own-bubble: linear-gradient(135deg, #ff007f, #cc0066);
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.8);
             --tg-incoming-bubble: #15161f;
         }
 
@@ -3613,6 +3622,8 @@
             --tg-text-secondary: #6b8065;
             --tg-border: #d7e3d4;
             --tg-own-bubble: linear-gradient(135deg, #4caf50, #3d8b40);
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.8);
             --tg-incoming-bubble: #ffffff;
         }
 
@@ -3636,14 +3647,14 @@
 
         .msg-bubble.own {
             background: var(--tg-own-bubble);
-            color: #fff;
+            color: var(--tg-own-text, #fff);
             border-radius: 16px 16px 4px 16px;
-            box-shadow: 0 1px 3px rgba(46, 134, 245, 0.35);
+            box-shadow: 0 1px 2px rgba(23, 33, 43, 0.08);
         }
 
         .msg-bubble.own .msg-text,
         .msg-bubble.own .msg-file a {
-            color: #fff;
+            color: var(--tg-own-text, #fff);
         }
 
         /* ===== ЗАГРУЗОЧНЫЙ ЭКРАН — ПОДДЕРЖКА ТЕМ ===== */
@@ -3659,7 +3670,7 @@
 
         /* Тёмная тема */
         html[data-theme="dark"] #loadingOverlay {
-            background: #000 !important;
+            background: #0E1621 !important;
         }
 
         html[data-theme="dark"] #loadingOverlay .loading-label {
@@ -3685,19 +3696,19 @@
         }
 
         .msg-bubble.own .msg-time {
-            color: rgba(255, 255, 255, 0.8);
+            color: var(--tg-own-time, rgba(255, 255, 255, 0.8));
         }
 
         .msg-bubble.own .msg-status.sent {
-            color: rgba(255, 255, 255, 0.75);
+            color: var(--tg-own-time, rgba(255, 255, 255, 0.75));
         }
 
         .msg-bubble.own .msg-status.read {
-            color: #fff;
+            color: var(--tg-own-text, #fff);
         }
 
         .msg-bubble.own .msg-enc-badge {
-            color: #d8ffd8;
+            color: var(--tg-own-text, #d8ffd8);
         }
 
         .msg-bubble.deleted {
@@ -3743,22 +3754,26 @@
             --tg-blue: #4DA3FF;
             --tg-blue-dark: #2E86F5;
             --tg-blue-deep: #1F6FD6;
-            --tg-bg: #000000;
-            --tg-panel: #1C1C1E;
+            /* Настоящая тёмная палитра Telegram — тёмно-синий, а не чистый
+               AMOLED-чёрный (#000000), как было раньше. */
+            --tg-bg: #0E1621;
+            --tg-panel: #17212B;
             --tg-text: #FFFFFF;
             --tg-text-secondary: #8E8E93;
-            --tg-border: #2C2C2E;
-            --tg-own-bubble: linear-gradient(135deg, #4DA3FF, #2E86F5);
-            --tg-incoming-bubble: #1C1C1E;
+            --tg-border: #101921;
+            --tg-own-bubble: #2B5278;
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.7);
+            --tg-incoming-bubble: #182533;
         }
 
         html[data-theme="dark"] html,
         html[data-theme="dark"] body {
-            background: #000 !important;
+            background: #0E1621 !important;
         }
 
         html[data-theme="dark"] #loadingOverlay {
-            background: #000 !important;
+            background: #0E1621 !important;
         }
 
         html[data-theme="dark"] #loadingOverlay .loading-label {
@@ -3823,6 +3838,8 @@
             --tg-border: #2a3060;
             --tg-blue: #6c8cff;
             --tg-own-bubble: linear-gradient(135deg, #6c8cff, #4a6cf7);
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.8);
             --tg-incoming-bubble: #1a2040;
         }
 
@@ -3835,6 +3852,8 @@
             --tg-border: #e0d5c8;
             --tg-blue: #b8860b;
             --tg-own-bubble: linear-gradient(135deg, #d4a055, #b8860b);
+            --tg-own-text: #fff;
+            --tg-own-time: rgba(255, 255, 255, 0.85);
             --tg-incoming-bubble: #faf6ef;
         }
 
@@ -3885,7 +3904,7 @@
         }
 
         html[data-theme="dark"] #messagesList {
-            background: #000 !important;
+            background: #0E1621 !important;
         }
 
         html[data-theme="dark"] .date-separator {
@@ -8121,6 +8140,13 @@
         let _foldersOrder = [];
         let _activeFolderId = null;
         let _sessions = [];
+        // seq'и запросов chatHistory (opcode 49), ответ на которые сейчас
+        // действительно ожидается — см. relay в bridge.py (_seqAck) и
+        // обработчик opcode 49 ниже. Без этого при быстром переключении
+        // между чатами опоздавший ответ на УЖЕ ЗАКРЫТЫЙ чат рендерился в
+        // текущий открытый (или наоборот, терялся) — у ответа сервера нет
+        // chatId, сопоставить можно только по seq.
+        const _validHistorySeqs = new Set();
 
         // Кэш URL аватаров участников по userId, переживает перезагрузку
         // страницы (localStorage). Нужен из-за того, что contact.baseUrl —
@@ -13477,6 +13503,10 @@
             list.innerHTML = '';
             earliestMessageTime = null;
             isLoadingMore = false;
+            // Инвалидируем ожидание ответов chatHistory от ПРЕДЫДУЩЕГО чата —
+            // если его опоздавший ответ всё же придёт, обработчик opcode 49
+            // теперь его отбросит вместо того, чтобы отрендерить не туда.
+            _validHistorySeqs.clear();
 
             // Восстанавливаем черновик
             document.getElementById('messageText').value = getDrafts()[chatId] || '';
@@ -13793,6 +13823,15 @@
                         return;
                     }
                     if (data.opcode === 0 && data.payload?.pong) return;
+                    if (data._seqAck) {
+                        // Подтверждение seq от bridge.py сразу после отправки запроса
+                        // (см. relay() в bridge.py) — используем только для
+                        // chatHistory (opcode 49), чтобы отличать ответы на
+                        // актуальный открытый чат от опоздавших ответов на
+                        // уже закрытый (см. openChat: _validHistorySeqs.clear()).
+                        if (data.opcode === 49) _validHistorySeqs.add(data.seq);
+                        return;
+                    }
                     if (data.type === 'connected') { log(`✅ ${data.message}`, 'success'); return; }
                     if (data.type === 'session_restored') {
                         log(`✅ ${data.message}`, 'success');
@@ -13928,6 +13967,15 @@
                         return;
                     }
                     if (data.opcode === 49 && data.cmd === 256) {
+                        // Отбрасываем опоздавший ответ от чата, который уже закрыт
+                        // (см. _validHistorySeqs и комментарий в openChat) — иначе
+                        // сообщения старого чата рендерились бы в новый открытый,
+                        // либо ответ нового чата терялся бы в этой путанице.
+                        if (!_validHistorySeqs.has(data.seq)) {
+                            log(`⏭️ Пропущен опоздавший ответ chatHistory (seq=${data.seq})`, 'info');
+                            return;
+                        }
+                        _validHistorySeqs.delete(data.seq);
 
                         if (getDebugDumpEnabled()) {
                             console.log(JSON.stringify(data.payload, null, 2))

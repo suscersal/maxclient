@@ -5198,6 +5198,14 @@ def relay(ws):
                     logger.debug(f"[relay] Skipped opcode={opcode} (fetch_once active)")
                     continue
                 client.send(opcode, payload)
+                # Подтверждаем фронту, каким seq ушёл именно ЭТОТ запрос —
+                # у ответа сервера (chatHistory/opcode 49 и т.п.) в payload
+                # НЕТ chatId, сопоставить с запросом можно только по seq
+                # (см. Komet: Api.sendRequest коррелирует так же). Без этого
+                # при быстром переключении между чатами опоздавший ответ на
+                # ПРЕДЫДУЩИЙ чат рендерился в уже открытый следующий — или
+                # наоборот, ответ для нового чата терялся в этой путанице.
+                ws.send(json.dumps({"_seqAck": True, "opcode": opcode, "seq": client.seq}))
 
     except Exception as e:
         logger.info(f"Connection closed: {e}")
