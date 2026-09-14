@@ -2618,9 +2618,15 @@
         }
 
         .settings-menu-item .icon {
-            font-size: 20px;
-            width: 32px;
-            text-align: center;
+            font-size: 17px;
+            width: 30px;
+            height: 30px;
+            min-width: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            color: #fff;
             flex-shrink: 0;
         }
 
@@ -2783,6 +2789,138 @@
         }
 
         /* ===== CHAT PROFILE MODAL (центр экрана) ===== */
+        /* ===== Профиль контакта/чата — Telegram-style: полноэкранная страница
+           (не маленькая карточка по центру, как остальные модалки, которые
+           тоже используют .chat-profile-overlay/.chat-profile-modal —
+           поэтому здесь отдельный, не пересекающийся набор классов,
+           навешиваемый ТОЛЬКО на #chatProfileModal). ===== */
+        #chatProfileModal.chat-profile-overlay {
+            align-items: stretch;
+            justify-content: stretch;
+            background: var(--tg-bg, #fff);
+        }
+
+        #chatProfileModal .chat-profile-modal {
+            max-width: none;
+            max-height: none;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+            padding: 0;
+            box-shadow: none;
+            animation: none;
+        }
+
+        #chatProfileModal .chat-profile-header {
+            border-bottom: none;
+            padding: 10px 8px;
+            position: sticky;
+            top: 0;
+            background: var(--tg-panel, #fff);
+            z-index: 2;
+            box-shadow: 0 1px 0 var(--tg-border, #eee);
+        }
+
+        #chatProfileModal .chat-profile-header h3 {
+            font-size: 17px;
+        }
+
+        #chatProfileModal .chat-profile-close {
+            background: none;
+            font-size: 20px;
+            color: var(--tg-blue);
+        }
+
+        #chatProfileModal .chat-profile-avatar {
+            padding: 24px 0 16px;
+            background: var(--tg-panel, #fff);
+        }
+
+        #chatProfileModal .chat-profile-avatar .avatar {
+            width: 112px;
+            height: 112px;
+            font-size: 44px;
+        }
+
+        #chatProfileModal .chat-profile-avatar .name {
+            font-size: 21px;
+        }
+
+        #chatProfileModal .chat-profile-avatar .sub {
+            font-size: 14px;
+        }
+
+        #chatProfileModal .chat-profile-options {
+            background: var(--tg-panel, #fff);
+            padding: 4px 0;
+        }
+
+        /* Ряд быстрых действий под аватаром — только реально работающие
+           функции (написать / уведомления / медиа). Кнопок "позвонить" и
+           "видеозвонок" здесь нет: в клиенте нет функции звонков вообще,
+           а рисовать нерабочую кнопку "как у Telegram" — обман интерфейса. */
+        .profile-quick-actions {
+            display: flex;
+            justify-content: center;
+            gap: 28px;
+            padding: 4px 0 20px;
+            background: var(--tg-panel, #fff);
+            border-bottom: 8px solid var(--tg-bg, #f0f2f5);
+        }
+
+        .profile-quick-action {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--tg-blue);
+            font-size: 12px;
+        }
+
+        .profile-quick-action .pqa-icon {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: var(--tg-bg, #eef6ff);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        /* Инфо-строки (телефон, username) — как список-карточка в Telegram,
+           отдельная секция над остальными опциями. */
+        .profile-info-section {
+            background: var(--tg-panel, #fff);
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+
+        .profile-info-row {
+            display: flex;
+            flex-direction: column;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--tg-border, #eee);
+        }
+
+        .profile-info-row:last-child {
+            border-bottom: none;
+        }
+
+        .profile-info-row .pir-value {
+            font-size: 16px;
+            color: var(--tg-text, #222);
+        }
+
+        .profile-info-row .pir-label {
+            font-size: 13px;
+            color: var(--tg-blue);
+            margin-top: 2px;
+        }
+
         .chat-profile-overlay {
             display: none;
             position: fixed;
@@ -3522,10 +3660,60 @@
             padding: 10px 6px;
             border-bottom: none;
             border-radius: 12px;
+            background: var(--tg-panel, #fff);
+            transition: transform 0.2s ease;
+            touch-action: pan-y;
         }
 
         .chat-item:hover {
             background: #F0F4F8;
+        }
+
+        /* ===== Свайп чата в списке (закрепить/заглушить/удалить) — Telegram-style ===== */
+        .chat-item-wrap {
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            /* ВАЖНО: .chat-item внутри скруглён (border-radius:12px), а этот
+               контейнер обрезает (overflow:hidden) панель действий позади
+               него. Без такого же радиуса здесь обрезка идёт по ПРЯМОУГОЛЬНОЙ
+               рамке, а видимый передний план — по СКРУГЛЁННОЙ, из-за чего
+               квадратный красный фон кнопки "Удалить" торчал наружу в
+               скруглённых углах справа — то самое "красное" на скриншотах. */
+        }
+
+        .chat-item-actions {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+        }
+
+        .chat-swipe-btn {
+            width: 78px;
+            border: none;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            text-align: center;
+        }
+
+        .chat-swipe-btn.pin {
+            background: var(--tg-blue, #2AABEE);
+        }
+
+        .chat-swipe-btn.mute {
+            background: #808990;
+        }
+
+        .chat-swipe-btn.delete {
+            background: #E53935;
         }
 
         .chat-avatar {
@@ -3551,6 +3739,11 @@
             flex-direction: column;
             align-items: flex-end;
             gap: 5px;
+        }
+
+        .chat-pin-icon {
+            font-size: 12px;
+            opacity: 0.85;
         }
 
         .unread {
@@ -4289,6 +4482,54 @@
         <symbol id="icon_send" viewBox="0 0 24 24">
             <path fill="currentColor" d="M3.4 20.4l17.45-8.4a1 1 0 0 0 0-1.8L3.4 1.8a1 1 0 0 0-1.4 1.1L4.5 11H12a1 1 0 0 1 0 2H4.5L2 20.9a1 1 0 0 0 .95 1.15c.16 0 .32-.03.45-.1z" />
         </symbol>
+        <!-- Простые линейные иконки для плиток в Настройках — нарисованы
+             сами (базовые обобщённые формы вроде "человечек"/"замок"/
+             "колокольчик" не привязаны к чьему-либо конкретному дизайну,
+             это стандартная UI-иконография), под стиль Telegram (тонкий
+             обвод, скруглённые углы) вместо эмодзи. -->
+        <symbol id="icon_person" viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" />
+        </symbol>
+        <symbol id="icon_link" viewBox="0 0 24 24">
+            <path
+                d="M8 12L5.5 14.5a3.5 3.5 0 0 0 5 5L13 17M11 7l2.5-2.5a3.5 3.5 0 0 1 5 5L16 12M9 15l6-6"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="icon_folder" viewBox="0 0 24 24">
+            <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="icon_lock" viewBox="0 0 24 24">
+            <rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" />
+        </symbol>
+        <symbol id="icon_devices" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M2 20h20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </symbol>
+        <symbol id="icon_bell" viewBox="0 0 24 24">
+            <path d="M18 16v-5a6 6 0 1 0-12 0v5l-2 2h16z" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linejoin="round" />
+            <path d="M9.5 20a2.5 2.5 0 0 0 5 0" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" />
+        </symbol>
+        <symbol id="icon_palette" viewBox="0 0 24 24">
+            <path
+                d="M12 3a9 9 0 1 0 0 18c1 0 2-.5 2-2 0-.6-.3-1-.6-1.4-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-7.5-9-7.5z"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+            <circle cx="7.5" cy="10.5" r="1.1" fill="currentColor" />
+            <circle cx="12" cy="7.5" r="1.1" fill="currentColor" />
+            <circle cx="16" cy="10" r="1.1" fill="currentColor" />
+        </symbol>
+        <symbol id="icon_globe" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M3 12h18M12 3c2.5 2.5 3.5 6 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-6-3.5-9s1-6.5 3.5-9z" fill="none"
+                stroke="currentColor" stroke-width="2" />
+        </symbol>
     </svg>
     <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
     <script>
@@ -4588,12 +4829,12 @@
 
     <!-- ===== SETTINGS MODAL ===== -->
     <nav class="bottom-nav hidden" id="bottomNav">
+        <button class="bottom-nav-item active" id="navChatsBtn" onclick="bottomNavGoChats()"><span
+                class="bn-icon">💬</span><span>Чаты</span></button>
         <button class="bottom-nav-item" id="navContactsBtn" onclick="bottomNavContacts()"><span
                 class="bn-icon">👥</span><span>Контакты</span></button>
         <button class="bottom-nav-item" id="navCallsBtn" onclick="bottomNavCalls()"><span
                 class="bn-icon">📞</span><span>Звонки</span></button>
-        <button class="bottom-nav-item active" id="navChatsBtn" onclick="bottomNavGoChats()"><span
-                class="bn-icon">💬</span><span>Чаты</span></button>
         <button class="bottom-nav-item" id="navSettingsBtn" onclick="openSettingsModal()"><span
                 class="bn-icon">⚙️</span><span>Настройки</span></button>
     </nav>
@@ -8225,7 +8466,7 @@
                     btn.className = 'settings-menu-item';
                     if (item.danger) btn.classList.add('danger');
                     btn.innerHTML = `
-                    <span class="icon">${item.icon || '•'}</span>
+                    <span class="icon" style="background:${item.color || '#8E8E93'};">${item.icon || '•'}</span>
                     <span class="label">${item.label}</span>
                     ${item.badge ? `<span class="settings-menu-badge">${item.badge}</span>` : ''}
                     <span class="arrow">›</span>
@@ -8810,24 +9051,24 @@
 
         const settingsMenu = new SettingsMenu();
         settingsMenu
-            .addItem({ id: 'account', icon: '👤', label: 'Аккаунт', page: renderAccountPage })
-            .addItem({ id: 'inviteFriends', icon: '🔗', label: 'Пригласить друзей', page: renderInviteFriendsPage })
+            .addItem({ id: 'account', icon: '👤', color: '#4E9DE0', label: 'Аккаунт', page: renderAccountPage })
+            .addItem({ id: 'inviteFriends', icon: '🔗', color: '#8B7FE8', label: 'Пригласить друзей', page: renderInviteFriendsPage })
             .addDivider()
-            .addItem({ id: 'folders', icon: '🗂️', label: 'Папки', page: renderFoldersPage })
-            .addItem({ id: 'security', icon: '🔒', label: 'Безопасность', page: renderSecurityPage })
-            .addItem({ id: 'sessions', icon: '💻', label: 'Устройства', page: renderSessionsPage })
-            .addItem({ id: 'notifications', icon: '🔔', label: 'Уведомления', page: renderNotificationsPage })
-            .addItem({ id: 'theme', icon: '🎨', label: 'Оформление', page: renderThemePage })
-            .addItem({ id: 'language', icon: '🌐', label: 'Язык приложения', page: renderLanguagePage })
+            .addItem({ id: 'folders', icon: '🗂️', color: '#4E9DE0', label: 'Папки', page: renderFoldersPage })
+            .addItem({ id: 'security', icon: '🔒', color: '#4FCF6E', label: 'Безопасность', page: renderSecurityPage })
+            .addItem({ id: 'sessions', icon: '💻', color: '#43BFC7', label: 'Устройства', page: renderSessionsPage })
+            .addItem({ id: 'notifications', icon: '🔔', color: '#F05656', label: 'Уведомления', page: renderNotificationsPage })
+            .addItem({ id: 'theme', icon: '🎨', color: '#D6549E', label: 'Оформление', page: renderThemePage })
+            .addItem({ id: 'language', icon: '🌐', color: '#9B59D0', label: 'Язык приложения', page: renderLanguagePage })
             .addDivider()
-            .addItem({ id: 'vars', icon: '⚙️', label: 'Переменные', page: renderVarsPage })
-            .addItem({ id: 'debugDump', icon: '🐞', label: 'Дебаг-дамп', page: renderDebugDumpPage })
-            .addItem({ id: 'device', icon: '🛠️', label: 'Устройство (протокол)', page: renderDevicePage })
-            .addItem({ id: 'gifPreview', icon: '🖼️', label: 'Просмотреть Gif', page: renderGifPreviewPage })
-            .addItem({ id: 'bots', icon: '🤖', label: 'Кастомные боты', page: renderBotsPage })
-            .addItem({ id: 'scamCheck', icon: '🛡️', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
+            .addItem({ id: 'vars', icon: '⚙️', color: '#8E8E93', label: 'Переменные', page: renderVarsPage })
+            .addItem({ id: 'debugDump', icon: '🐞', color: '#8E8E93', label: 'Дебаг-дамп', page: renderDebugDumpPage })
+            .addItem({ id: 'device', icon: '🛠️', color: '#8E8E93', label: 'Устройство (протокол)', page: renderDevicePage })
+            .addItem({ id: 'gifPreview', icon: '🖼️', color: '#8E8E93', label: 'Просмотреть Gif', page: renderGifPreviewPage })
+            .addItem({ id: 'bots', icon: '🤖', color: '#8E8E93', label: 'Кастомные боты', page: renderBotsPage })
+            .addItem({ id: 'scamCheck', icon: '🛡️', color: '#8E8E93', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
 
-            .addItem({ id: 'about', icon: 'ℹ️', label: 'О приложении', page: renderAboutPage })
+            .addItem({ id: 'about', icon: 'ℹ️', color: '#8E8E93', label: 'О приложении', page: renderAboutPage })
             .render();
 
         applyLogPanelVisibility();
@@ -9491,6 +9732,42 @@
             const optionsContainer = document.getElementById('chatProfileOptions');
             optionsContainer.innerHTML = '';
 
+            // Ряд быстрых действий (как в Telegram) — только реально
+            // работающие: написать (просто закрыть профиль и вернуться к
+            // полю ввода), уведомления (тот же toggleChatMuteAction, что и
+            // строка ниже), медиафайлы. Кнопок звонка/видео нет — в клиенте
+            // нет функции звонков, фейковую кнопку показывать не стал.
+            const mutedForQuickRow = (chat.dontDisturbUntil || 0) !== 0;
+            optionsContainer.innerHTML += `
+            <div class="profile-quick-actions">
+                <button class="profile-quick-action" onclick="closeChatProfile()">
+                    <span class="pqa-icon">✉️</span><span>Написать</span>
+                </button>
+                <button class="profile-quick-action" id="profileQuickMuteBtn" onclick="toggleChatMuteAction(${chat.id})">
+                    <span class="pqa-icon">${mutedForQuickRow ? '🔕' : '🔔'}</span><span>${mutedForQuickRow ? 'Включить' : 'Уведомления'}</span>
+                </button>
+                <button class="profile-quick-action" onclick="openChatMediaModal(${chat.id})">
+                    <span class="pqa-icon">🗂️</span><span>Медиа</span>
+                </button>
+            </div>
+        `;
+
+            // Инфо-строки (телефон) — только для личного диалога с человеком,
+            // не ботом и не собой; номер берём из уже загруженного контакта.
+            if (chat.type === 'DIALOG' && otherId != null && otherId !== selfId && !isBotChat(chat)) {
+                const otherContact = contactsById[otherId];
+                if (otherContact?.phone) {
+                    optionsContainer.innerHTML += `
+                <div class="profile-info-section">
+                    <div class="profile-info-row">
+                        <span class="pir-value">+${escapeHtml(String(otherContact.phone).replace(/[^\d]/g, ''))}</span>
+                        <span class="pir-label">телефон</span>
+                    </div>
+                </div>
+            `;
+                }
+            }
+
             // Участники группы (как список участников в Телеграме).
             // Только для обычных групповых чатов (chat.type === 'CHAT') —
             // у каналов сервер не присылает полный список подписчиков
@@ -9593,14 +9870,6 @@
             </button>
         `;
             }
-
-            // Медиафайлы чата (chatMedia — opcode 51)
-            optionsContainer.innerHTML += `
-            <button class="chat-profile-option" onclick="openChatMediaModal(${chat.id})">
-                <span class="opt-icon">🗂️</span>
-                <span class="opt-label">Медиафайлы</span>
-            </button>
-        `;
 
             // Уведомления / mute (settings.chats[id].dontDisturbUntil — opcode 22)
             const muted = (chat.dontDisturbUntil || 0) !== 0;
@@ -9991,6 +10260,15 @@
             chat.dontDisturbUntil = dontDisturbUntil;
             const toggle = document.getElementById('toggleMute');
             if (toggle) toggle.classList.toggle('active', dontDisturbUntil === 0);
+            // Обновляем иконку/подпись в ряду быстрых действий тоже — иначе
+            // она осталась бы показывать старое состояние до полной
+            // перерисовки профиля.
+            const quickBtn = document.getElementById('profileQuickMuteBtn');
+            if (quickBtn) {
+                const nowMuted = dontDisturbUntil !== 0;
+                quickBtn.querySelector('.pqa-icon').textContent = nowMuted ? '🔕' : '🔔';
+                quickBtn.querySelector('span:last-child').textContent = nowMuted ? 'Включить' : 'Уведомления';
+            }
         }
 
         async function clearChatHistoryAction(chatId) {
@@ -10187,12 +10465,23 @@
             document.getElementById(id)?.classList.add('active');
         }
 
+        // Как в Komet (ContactInfo.isSavedContact): контакт считается
+        // РЕАЛЬНО сохранённым, только если у него есть имя типа CUSTOM (вы
+        // явно сохранили его под этим именем) — а не просто ONEME
+        // (отображаемое имя, которое подтягивается для ЛЮБОГО собеседника,
+        // даже если вы никогда не добавляли его в контакты). Раньше здесь
+        // показывались вообще все, с кем есть диалог — то есть фактически
+        // список чатов, а не настоящих контактов.
+        function isSavedContact(contact) {
+            return Array.isArray(contact?.names) && contact.names.some(n => n?.type === 'CUSTOM');
+        }
+
         function renderContactsPanel() {
             const list = document.getElementById('contactsList');
             if (!list) return;
             list.innerHTML = '';
             const contacts = Object.values(contactsById)
-                .filter(c => c && c.id != null && c.id !== selfId)
+                .filter(c => c && c.id != null && c.id !== selfId && isSavedContact(c))
                 .sort((a, b) => contactNameFromPayload(a).localeCompare(contactNameFromPayload(b), 'ru'));
             if (contacts.length === 0) {
                 const empty = document.createElement('div');
@@ -11026,6 +11315,10 @@
                 _activeFolderId = null;
             }
             renderFolderTabs();
+            // Пересортировываем весь кэш чатов — данные о закреплении (пины)
+            // приходят именно отсюда (favorites спец-папки "Все чаты"), а
+            // грузятся отдельным запросом ПОСЛЕ первичного renderChats.
+            chatsSortedCache = sortChatsForDisplay(chatsSortedCache);
             renderChatsList();
             if (settingsMenu.pages.folders) settingsMenu.refreshPage('folders');
         }
@@ -11115,15 +11408,76 @@
         }
 
         // ---- Управление папками (страница в Настройках) ----
+        // Сортировка списка чатов: закреплённые — сверху, в порядке из
+        // favorites спец-папки "Все чаты" (как в Telegram/Komet), остальные —
+        // по времени последнего события. Вынесено в отдельную функцию, а не
+        // зашито в renderChats(), потому что папки грузятся ОТДЕЛЬНЫМ,
+        // более поздним запросом (loadFolders) — когда он приходит, список
+        // нужно пересортировать заново, не дожидаясь следующего renderChats.
+        function sortChatsForDisplay(chats) {
+            const allFolder = _folders.find(isAllChatsFolder);
+            const pinOrder = allFolder?.favorites || [];
+            const pinIndex = {};
+            pinOrder.forEach((id, i) => { pinIndex[id] = i; });
+            return chats.slice().sort((a, b) => {
+                const aPinned = pinIndex[a.id] !== undefined;
+                const bPinned = pinIndex[b.id] !== undefined;
+                if (aPinned && bPinned) return pinIndex[a.id] - pinIndex[b.id];
+                if (aPinned) return -1;
+                if (bPinned) return 1;
+                const byTime = (b.lastEventTime || 0) - (a.lastEventTime || 0);
+                if (byTime !== 0) return byTime;
+                return String(b.id).localeCompare(String(a.id));
+            });
+        }
+
         function saveFolder(id, title, includeIds, filters) {
+            // ВАЖНО: favorites — это список закреплённых чатов этой папки
+            // (для спец-папки "Все чаты" — общий список пинов, см.
+            // togglePinChat/isAllChatsFolder). Раньше здесь всегда слался
+            // favorites:[] — любое редактирование папки через этот путь
+            // стирало бы её закрепления. Сохраняем то, что уже было.
+            const existing = id ? _folders.find(f => f.id === id) : null;
             send(274, {
                 id: id || _newFolderId(),
                 title: (title || '').trim().slice(0, 20),
                 include: includeIds || [],
                 filters: filters || [],
-                options: [],
-                favorites: [],
+                options: existing?.options || [],
+                favorites: existing?.favorites || [],
             });
+        }
+
+        // ---- Закрепление чатов (как в Komet: ChatsModule.togglePin) ----
+        // Реализовано через ту же спец-папку "Все чаты" — chatId просто
+        // добавляется/убирается из её favorites, тем же foldersUpdate
+        // (opcode 274), что и обычное редактирование папок.
+        function togglePinChat(chatId) {
+            const allFolder = _folders.find(isAllChatsFolder);
+            if (!allFolder) {
+                log('❌ Не удалось найти папку "Все чаты" для закрепления', 'error');
+                return;
+            }
+            const favorites = (allFolder.favorites || []).slice();
+            const idx = favorites.indexOf(chatId);
+            if (idx >= 0) {
+                favorites.splice(idx, 1);
+            } else {
+                favorites.push(chatId);
+            }
+            send(274, {
+                id: allFolder.id,
+                title: allFolder.title,
+                include: allFolder.include || [],
+                filters: allFolder.filters || [],
+                options: allFolder.options || [],
+                favorites,
+            });
+        }
+
+        function isChatPinned(chatId) {
+            const allFolder = _folders.find(isAllChatsFolder);
+            return !!(allFolder && (allFolder.favorites || []).includes(chatId));
         }
 
         function deleteFolder(id) {
@@ -11405,11 +11759,7 @@
             // Без явного тайбрейка это приводило к тому, что такие чаты
             // "перескакивали" местами между перерисовками (initial sync vs.
             // повторный renderChats после подгрузки avatars.json и т.п.).
-            const chats = (payload.chats || []).slice().sort((a, b) => {
-                const byTime = (b.lastEventTime || 0) - (a.lastEventTime || 0);
-                if (byTime !== 0) return byTime;
-                return String(b.id).localeCompare(String(a.id));
-            });
+            const chats = sortChatsForDisplay((payload.chats || []).slice());
             chatsById = {};
             chats.forEach(chat => { chatsById[chat.id] = chat; });
             chatsSortedCache = chats;
@@ -11445,20 +11795,131 @@
             const otherId = chat.type === 'DIALOG' ? otherParticipantId(chat) : null;
             const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
             const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
+            const pinned = isChatPinned(chat.id);
+            const pinIcon = pinned ? '<span class="chat-pin-icon" title="Закреплён">📌</span>' : '';
+            const muted = (chat.dontDisturbUntil || 0) !== 0;
+
             const el = document.createElement('div');
-            el.className = 'chat-item';
+            el.className = 'chat-item-wrap';
             el.dataset.chatId = chat.id;
+            // Свайп влево открывает панель действий (закрепить/заглушить/
+            // удалить) — как в Telegram. Только реальные, уже подключённые
+            // действия (togglePinChat/toggleChatMuteAction/deleteChatAction) —
+            // архивирования нет ни у нас, ни подтверждённого способа его
+            // сделать, кнопку под него рисовать не стал.
             el.innerHTML = `
-                <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
-                <div class="chat-info">
-                    <div class="chat-name">${name}</div>
-                    <div class="chat-preview">${escapeHtml(preview)}</div>
+                <div class="chat-item-actions">
+                    <button class="chat-swipe-btn pin" onclick="event.stopPropagation();togglePinChat(${chat.id});closeSwipedChatItem(this);">${pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
+                    <button class="chat-swipe-btn mute" onclick="event.stopPropagation();toggleChatMuteAction(${chat.id});closeSwipedChatItem(this);">${muted ? '🔔 Вкл.' : '🔇 Выкл.'}</button>
+                    <button class="chat-swipe-btn delete" onclick="event.stopPropagation();deleteChatAction(${chat.id});">🗑 Удалить</button>
                 </div>
-                <div class="chat-meta">${time}${unread}</div>
+                <div class="chat-item" style="position:relative;">
+                    <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
+                    <div class="chat-info">
+                        <div class="chat-name">${name}</div>
+                        <div class="chat-preview">${escapeHtml(preview)}</div>
+                    </div>
+                    <div class="chat-meta">
+                        <span style="display:flex;align-items:center;gap:3px;">${pinIcon}${time}</span>
+                        ${unread}
+                    </div>
+                </div>
             `;
-            el.onclick = () => openChat(chat.id);
+            const row = el.querySelector('.chat-item');
+            row.dataset.chatId = chat.id;
+
+            let startX = 0, startY = 0, dx = 0, swiping = false, isOpen = false;
+            const OPEN_WIDTH = 78 * 3; // 3 кнопки по ~78px
+
+            function setOpen(open) {
+                isOpen = open;
+                row.style.transform = open ? `translateX(-${OPEN_WIDTH}px)` : '';
+            }
+
+            row.addEventListener('touchstart', (e) => {
+                const t = e.touches[0];
+                startX = t.clientX; startY = t.clientY; dx = 0; swiping = false;
+            }, { passive: true });
+
+            row.addEventListener('touchmove', (e) => {
+                const t = e.touches[0];
+                const moveX = t.clientX - startX;
+                const moveY = t.clientY - startY;
+                if (!swiping) {
+                    if (Math.abs(moveX) < 10 && Math.abs(moveY) < 10) return;
+                    // Различаем свайп от вертикальной прокрутки списка
+                    if (Math.abs(moveY) > Math.abs(moveX)) return;
+                    swiping = true;
+                }
+                dx = Math.min(0, Math.max(-OPEN_WIDTH - 20, (isOpen ? -OPEN_WIDTH : 0) + moveX));
+                row.style.transition = 'none';
+                row.style.transform = `translateX(${dx}px)`;
+            }, { passive: true });
+
+            row.addEventListener('touchend', () => {
+                row.style.transition = '';
+                if (!swiping) return;
+                setOpen(dx <= -OPEN_WIDTH / 2);
+            });
+
+            row.onclick = () => {
+                if (isOpen) { setOpen(false); return; }
+                openChat(chat.id);
+            };
+
+            // Долгое нажатие (или ПКМ на десктопе) — то же меню закрепления,
+            // как альтернатива свайпу (для мыши на десктопе свайпа нет).
+            let chatLongPressTimer = null;
+            row.addEventListener('touchstart', (e) => {
+                const t = e.touches[0];
+                chatLongPressTimer = setTimeout(() => showChatPinMenu(chat.id, t.clientX, t.clientY), 450);
+            }, { passive: true });
+            row.addEventListener('touchend', () => clearTimeout(chatLongPressTimer));
+            row.addEventListener('touchmove', () => clearTimeout(chatLongPressTimer));
+            row.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showChatPinMenu(chat.id, e.clientX, e.clientY);
+            });
             return el;
         }
+
+        // Закрывает свайпнутую строку чата после нажатия на одну из кнопок
+        // панели действий (кроме "Удалить" — тот чат и так исчезнет из списка).
+        function closeSwipedChatItem(btn) {
+            const row = btn.closest('.chat-item-wrap')?.querySelector('.chat-item');
+            if (row) row.style.transform = '';
+        }
+
+
+        // Маленькое контекстное меню чата в списке — пока только закрепление
+        // (самая частая функция, которой не хватало); остальные действия
+        // (заглушить/удалить) уже доступны через полноэкранный профиль чата.
+        function showChatPinMenu(chatId, x, y) {
+            closeChatPinMenu();
+            const pinned = isChatPinned(chatId);
+            const menu = document.createElement('div');
+            menu.id = 'chatPinMenu';
+            menu.style.cssText = `position:fixed;left:${Math.min(x, window.innerWidth - 180)}px;top:${Math.min(y, window.innerHeight - 60)}px;
+                background:var(--tg-panel,#fff);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);
+                z-index:9999;overflow:hidden;min-width:170px;`;
+            menu.innerHTML = `
+                <button onclick="togglePinChat(${chatId});closeChatPinMenu();"
+                    style="display:flex;align-items:center;gap:8px;width:100%;padding:11px 16px;border:none;background:none;
+                    text-align:left;font-size:14px;color:var(--tg-text,#222);cursor:pointer;">
+                    ${pinned ? '📌 Открепить' : '📌 Закрепить'}
+                </button>
+            `;
+            document.body.appendChild(menu);
+            setTimeout(() => {
+                document.addEventListener('click', closeChatPinMenu, { once: true });
+            }, 0);
+        }
+
+        function closeChatPinMenu() {
+            const menu = document.getElementById('chatPinMenu');
+            if (menu) menu.remove();
+        }
+
 
         // ========================================
         // ЛОКАЛЬНЫЙ ПОИСК ПО ЧАТАМ И КОНТАКТАМ
