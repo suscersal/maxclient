@@ -4037,6 +4037,7 @@
 
         .reaction-badge.mine {
             background: var(--tg-blue);
+            color: #fff;
         }
 
         /* ================================================================
@@ -8535,6 +8536,7 @@
                 }
                 this.currentPage = id;
                 if (id === 'sessions') loadSessions();
+                if (id === 'storage') settingsMenu.refreshPage('storage');
                 this.menuContainer.querySelectorAll('.settings-menu-item').forEach((btn, index) => {
                     const items = this.items.filter(it => !it.divider);
                     const item = items[index];
@@ -9096,6 +9098,7 @@
             .addItem({ id: 'security', icon: '🔒', color: '#4FCF6E', label: 'Безопасность', page: renderSecurityPage })
             .addItem({ id: 'sessions', icon: '💻', color: '#43BFC7', label: 'Устройства', page: renderSessionsPage })
             .addItem({ id: 'notifications', icon: '🔔', color: '#F05656', label: 'Уведомления', page: renderNotificationsPage })
+            .addItem({ id: 'storage', icon: '💾', color: '#5A9CE8', label: 'Использование памяти', page: renderStoragePage })
             .addItem({ id: 'theme', icon: '🎨', color: '#D6549E', label: 'Оформление', page: renderThemePage })
             .addItem({ id: 'language', icon: '🌐', color: '#9B59D0', label: 'Язык приложения', page: renderLanguagePage })
             .addDivider()
@@ -11753,6 +11756,78 @@
         function setNotifPreviewEnabled(v) {
             try { localStorage.setItem('maxclient_notif_preview', v ? '1' : '0'); } catch (e) { }
             settingsMenu.refreshPage('notifications');
+        }
+
+        // ============ ИСПОЛЬЗОВАНИЕ ПАМЯТИ (кэш медиа) ============
+        // Фото/превью видео/стикеры кэшируются через Cache Storage API
+        // (см. cachedObjectUrl/getMediaCache) — переживает перезагрузку
+        // страницы, повторное открытие того же фото не качает его заново.
+        // ЧЕСТНО про видео: сам видеопоток НЕ кладётся в этот кэш (только
+        // постер-превью) — <video src="/video?url=..."> идёт напрямую через
+        // нативный HTTP-запрос браузера, а не через fetch()+Cache Storage,
+        // класть его в Cache Storage вручную (с учётом Range-запросов на
+        // перемотку) — отдельная, куда более хрупкая задача. Повторные
+        // проигрывания в течение часа частично покрывает обычный HTTP-кэш
+        // браузера (Cache-Control на /video проксе), но это не то же самое,
+        // что персистентный кэш фото.
+        async function getMediaCacheSizeBytes() {
+            const cache = await getMediaCache();
+            if (!cache) return 0;
+            const keys = await cache.keys();
+            let total = 0;
+            for (const req of keys) {
+                try {
+                    const resp = await cache.match(req);
+                    const blob = await resp.blob();
+                    total += blob.size;
+                } catch (e) { /* пропускаем повреждённую запись */ }
+            }
+            return total;
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes) return '0 МБ';
+            if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' ГБ';
+            if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+            return (bytes / 1024).toFixed(0) + ' КБ';
+        }
+
+        async function clearMediaCache() {
+            if (!confirm('Очистить кэш фото и превью видео? Сами сообщения не удаляются — при следующем открытии медиа скачается заново.')) return;
+            try {
+                await caches.delete(MEDIA_CACHE_NAME);
+                log('🧹 Кэш медиа очищен', 'success');
+            } catch (e) {
+                log('❌ Не удалось очистить кэш: ' + e.message, 'error');
+            }
+            settingsMenu.refreshPage('storage');
+        }
+
+        function renderStoragePage() {
+            // Размер считается асинхронно — сначала показываем плейсхолдер,
+            // потом подставляем в DOM напрямую (страница уже отрисована).
+            getMediaCacheSizeBytes().then(bytes => {
+                const el = document.getElementById('mediaCacheSizeLabel');
+                if (el) el.textContent = formatBytes(bytes);
+            });
+            return `
+                <div style="padding:4px 0;">
+                    <div class="settings-row" style="justify-content:space-between;">
+                        <span style="font-size:14px;">Кэш фото и превью видео</span>
+                        <span id="mediaCacheSizeLabel" style="color:#888;font-size:13px;">Подсчёт…</span>
+                    </div>
+                    <button class="settings-menu-item" style="width:auto;padding:10px 16px;margin-top:10px;background:var(--tg-blue);color:#fff;border-radius:10px;" onclick="clearMediaCache()">
+                        🧹 Очистить кэш
+                    </button>
+                    <div style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;">
+                        Все фото и превью останутся на сервере MAX — при необходимости их можно будет загрузить снова.
+                        <br><br>
+                        Сам видеопоток (не превью) в этот кэш не попадает — воспроизведение видео идёт отдельным
+                        запросом мимо этого кэша, его повторная загрузка частично сокращается обычным
+                        HTTP-кэшем браузера в течение часа.
+                    </div>
+                </div>
+            `;
         }
 
         function renderNotificationsPage() {
@@ -15182,6 +15257,16 @@
                         if (chatsById[chatId]) {
                             chatsById[chatId].lastMessage = msg;
                             chatsById[chatId].lastEventTime = msg.time || Date.now();
+                            // Поднимаем чат наверх списка сразу — раньше это
+                            // тоже (как и для своих отправленных) происходило
+                            // только после полной пересинхронизации/
+                            // перезагрузки страницы, а не сразу по приходу
+                            // сообщения.
+                            if (msg.sender !== selfId && chatId !== currentChatId) {
+                                chatsById[chatId].newMessages = (chatsById[chatId].newMessages || 0) + 1;
+                            }
+                            chatsSortedCache = sortChatsForDisplay(chatsSortedCache);
+                            renderChatsList();
                         }
 
                         // Функция для очистки текста от HTML-тегов

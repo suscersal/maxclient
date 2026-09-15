@@ -2999,14 +2999,36 @@ def proxy_image():
         return "", 400
 
     try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = resp.read()
-            content_type = resp.headers.get("Content-Type", "image/jpeg")
+        data = None
+        content_type = "image/jpeg"
+        last_err = None
+        # Один повтор при транзиентной ошибке (обрыв/таймаут) — CDN картинок
+        # MAX иногда отвечает не с первого раза, особенно для каналов с
+        # большими фото; раньше единственная попытка с таймаутом 8с считалась
+        # окончательным провалом.
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = resp.read()
+                    content_type = resp.headers.get("Content-Type", "image/jpeg")
+                break
+            except urllib.error.HTTPError as e:
+                # 4xx (например, истёкшая подписанная ссылка) повторять
+                # бессмысленно — сразу отдаём наружу.
+                last_err = e
+                logger.warning(f"[img proxy] HTTP {e.code} for {url}: {e.reason}")
+                if 400 <= e.code < 500:
+                    break
+            except Exception as e:
+                last_err = e
+                logger.warning(f"[img proxy] attempt {attempt + 1} failed for {url}: {e}")
+        if data is None:
+            raise last_err or Exception("unknown error")
         return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=3600"})
     except Exception as e:
         logger.warning(f"[img proxy] failed for {url}: {e}")
