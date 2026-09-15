@@ -3716,6 +3716,23 @@
             background: #E53935;
         }
 
+        .chat-media-tab {
+            flex: 1;
+            padding: 8px 4px;
+            border: none;
+            background: none;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tg-text-secondary, #8A9199);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+
+        .chat-media-tab.active {
+            color: var(--tg-blue);
+            border-bottom-color: var(--tg-blue);
+        }
+
         .chat-avatar {
             width: 54px;
             height: 54px;
@@ -3827,14 +3844,32 @@
 
         .date-separator {
             align-self: center;
-            margin: 6px 0;
-            padding: 4px 12px;
-            border-radius: 12px;
-            background: rgba(23, 33, 43, 0.06);
-            color: var(--tg-text-secondary);
-            font-size: 12px;
+            margin: 8px 0;
+            padding: 5px 14px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.35);
+            color: #fff;
+            font-size: 12.5px;
             font-weight: 500;
             text-align: center;
+            /* ВАЖНО: без position:sticky. У нас список сообщений плоский —
+               нет отдельного обёрточного контейнера на каждый день (как
+               требуется для корректного sticky-заголовка), поэтому ВСЕ
+               плашки дат одновременно пытались "прилипнуть" к одной и той
+               же позиции и накладывались друг на друга при прокрутке. */
+        }
+
+        .system-message {
+            align-self: center;
+            margin: 4px 0;
+            padding: 5px 14px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.28);
+            color: #fff;
+            font-size: 12.5px;
+            font-weight: 500;
+            text-align: center;
+            max-width: 80%;
         }
 
         /* Простая (Минимализм) */
@@ -4163,11 +4198,6 @@
 
         html[data-theme="dark"] #messagesList {
             background: #0E1621 !important;
-        }
-
-        html[data-theme="dark"] .date-separator {
-            background: rgba(255, 255, 255, 0.08) !important;
-            color: #8E8E93 !important;
         }
 
         html[data-theme="dark"] .msg-bubble {
@@ -4947,12 +4977,20 @@
         </div>
     </div>
 
-    <!-- ===== Медиафайлы чата (chatMedia — opcode 51) ===== -->
+    <!-- ===== Медиафайлы чата (chatMedia — opcode 51) — вкладки как в Komet
+         (SharedContentKind: media/files/voice), только реально проверенные
+         attachTypes. "Ссылки" (SHARE) не делал — у нас в чате вообще нет
+         обработки этого типа вложений, не на что опереться, гадать не стал. ===== -->
     <div class="chat-profile-overlay" id="chatMediaModal">
         <div class="chat-profile-modal" style="max-width:460px;width:92vw;">
             <div class="chat-profile-header">
                 <h3>Медиафайлы</h3>
                 <button class="chat-profile-close" onclick="closeChatMediaModal()">✕</button>
+            </div>
+            <div style="display:flex;gap:4px;padding:0 8px 6px;border-bottom:1px solid var(--tg-border,#eee);">
+                <button class="chat-media-tab active" data-kind="media" onclick="switchChatMediaKind('media')">Медиа</button>
+                <button class="chat-media-tab" data-kind="files" onclick="switchChatMediaKind('files')">Файлы</button>
+                <button class="chat-media-tab" data-kind="voice" onclick="switchChatMediaKind('voice')">Голосовые</button>
             </div>
             <div id="chatMediaGrid"
                 style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px;max-height:60vh;overflow-y:auto;">
@@ -9737,8 +9775,23 @@
             // полю ввода), уведомления (тот же toggleChatMuteAction, что и
             // строка ниже), медиафайлы. Кнопок звонка/видео нет — в клиенте
             // нет функции звонков, фейковую кнопку показывать не стал.
+            // Для групп/каналов набор другой — как на референсе: Чат/Звук/
+            // Покинуть, без "Медиа" (медиа группы доступно ниже, в списке).
             const mutedForQuickRow = (chat.dontDisturbUntil || 0) !== 0;
-            optionsContainer.innerHTML += `
+            const isGroupLike = chat.type === 'CHAT' || chat.type === 'CHANNEL';
+            optionsContainer.innerHTML += isGroupLike ? `
+            <div class="profile-quick-actions">
+                <button class="profile-quick-action" onclick="closeChatProfile()">
+                    <span class="pqa-icon">💬</span><span>Чат</span>
+                </button>
+                <button class="profile-quick-action" id="profileQuickMuteBtn" onclick="toggleChatMuteAction(${chat.id})">
+                    <span class="pqa-icon">${mutedForQuickRow ? '🔕' : '🔔'}</span><span>Звук</span>
+                </button>
+                <button class="profile-quick-action" style="color:#E53935;" onclick="leaveChatAction(${chat.id})">
+                    <span class="pqa-icon">🚪</span><span>Покинуть</span>
+                </button>
+            </div>
+        ` : `
             <div class="profile-quick-actions">
                 <button class="profile-quick-action" onclick="closeChatProfile()">
                     <span class="pqa-icon">✉️</span><span>Написать</span>
@@ -9751,6 +9804,19 @@
                 </button>
             </div>
         `;
+
+            // Описание группы/канала (chat.description) — как на референсе,
+            // отдельным блоком под быстрыми действиями.
+            if (isGroupLike && chat.description) {
+                optionsContainer.innerHTML += `
+                <div class="profile-info-section">
+                    <div class="profile-info-row">
+                        <span class="pir-value">${escapeHtml(chat.description)}</span>
+                        <span class="pir-label">Описание</span>
+                    </div>
+                </div>
+            `;
+            }
 
             // Инфо-строки (телефон) — только для личного диалога с человеком,
             // не ботом и не собой; номер берём из уже загруженного контакта.
@@ -10353,18 +10419,38 @@
         // Медиафайлы чата (chatMedia — opcode 51)
         // ===================================================================
         let chatMediaTargetId = null;
-        function openChatMediaModal(chatId) {
+        let chatMediaKind = 'media';
+
+        const CHAT_MEDIA_ATTACH_TYPES = {
+            media: ['PHOTO', 'VIDEO'],
+            files: ['FILE'],
+            voice: ['AUDIO'],
+        };
+
+        function openChatMediaModal(chatId, kind) {
             chatMediaTargetId = chatId;
+            chatMediaKind = kind || 'media';
+            document.querySelectorAll('.chat-media-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.kind === chatMediaKind);
+            });
+            document.getElementById('chatMediaGrid').style.gridTemplateColumns =
+                chatMediaKind === 'media' ? 'repeat(3,1fr)' : '1fr';
             document.getElementById('chatMediaGrid').innerHTML =
                 '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Загрузка...</div>';
             document.getElementById('chatMediaModal').classList.add('active');
             document.body.style.overflow = 'hidden';
             send(51, {
                 chatId, messageId: 0,
-                attachTypes: ['PHOTO', 'VIDEO'],
+                attachTypes: CHAT_MEDIA_ATTACH_TYPES[chatMediaKind],
                 forward: 0, backward: 60
             });
         }
+
+        function switchChatMediaKind(kind) {
+            if (chatMediaTargetId == null) return;
+            openChatMediaModal(chatMediaTargetId, kind);
+        }
+
         function closeChatMediaModal() {
             document.getElementById('chatMediaModal').classList.remove('active');
             document.body.style.overflow = '';
@@ -10957,6 +11043,11 @@
             }).join('');
 
             return `
+            <div style="display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--tg-border,#eee);">
+                <button class="chat-media-tab active" style="cursor:default;">Участники</button>
+                <button class="chat-media-tab" onclick="openChatMediaModal(${chat.id},'media')">Медиа</button>
+                <button class="chat-media-tab" onclick="openChatMediaModal(${chat.id},'files')">Файлы</button>
+            </div>
             <div class="chat-profile-members-header">Участники (${ids.length})</div>
             <div id="chatProfileMembersList">${rows}</div>
             <hr class="chat-profile-divider">
@@ -11294,6 +11385,7 @@
         function handleFoldersListResponse(payload, opts) {
             if (!payload) return;
             const replace = !!(opts && opts.replace);
+            log(`ℹ️ [folders] ответ: ${JSON.stringify(payload).slice(0, 300)}`, 'info');
             // Как в Komet FoldersModule.applyPayload: 'folders' — полный список
             // (только при первом foldersGet), 'folder' — одна созданная/обновлённая
             // папка (ответ на foldersUpdate и push notifFolders), их нужно
@@ -11455,7 +11547,20 @@
         function togglePinChat(chatId) {
             const allFolder = _folders.find(isAllChatsFolder);
             if (!allFolder) {
-                log('❌ Не удалось найти папку "Все чаты" для закрепления', 'error');
+                // Ни одной папки нет вообще (свежий аккаунт, foldersGet ещё не
+                // отработал/сервер не прислал спец-папку сам) — создаём её на
+                // лету с тем же ID, что использует Komet (allChatsFolderId =
+                // 'all.chat.folder'), чтобы закрепление в принципе было куда
+                // сохранить, а не просто падать с ошибкой.
+                log('ℹ️ Папки "Все чаты" ещё нет — создаю', 'info');
+                send(274, {
+                    id: 'all.chat.folder',
+                    title: 'Все чаты',
+                    include: [],
+                    filters: [],
+                    options: [],
+                    favorites: [chatId],
+                });
                 return;
             }
             const favorites = (allFolder.favorites || []).slice();
@@ -13363,6 +13468,19 @@
         }
 
         function createMessageElement(m, allMessages) {
+            // Системные события (добавили/удалили участника, чат создан и
+            // т.п., attach _type: 'CONTROL') — в Telegram это не обычный
+            // пузырь с аватаркой и выравниванием own/incoming, а отдельная
+            // плавающая центрированная плашка (как разделитель дат).
+            const controlAttach = (m.attaches || []).find(a => a._type === 'CONTROL');
+            if (controlAttach && (m.attaches || []).length === 1 && !m.text) {
+                const sysEl = document.createElement('div');
+                sysEl.className = 'system-message';
+                sysEl.dataset.msgId = m.id;
+                sysEl.dataset.msgTime = m.time || Date.now();
+                sysEl.textContent = controlAttach.message || controlAttach.shortMessage || 'Системное событие';
+                return sysEl;
+            }
             const el = document.createElement('div');
             const isOwn = m.sender === selfId;
             el.className = 'msg-bubble' + (isOwn ? ' own' : '') + (m.deleted ? ' deleted' : '');
@@ -14700,6 +14818,17 @@
                             return;
                         }
                         document.getElementById('messageText').value = ''; updateComposerSendState();
+                        // Поднимаем чат наверх списка сразу, не дожидаясь
+                        // полной пересинхронизации (раньше это происходило
+                        // только после перезагрузки страницы) — сервер не
+                        // возвращает здесь сам объект чата с новым
+                        // lastEventTime, поэтому проставляем его локально по
+                        // времени отправки, этого достаточно для сортировки.
+                        if (currentChatId != null && chatsById[currentChatId]) {
+                            chatsById[currentChatId].lastEventTime = Date.now();
+                            chatsSortedCache = sortChatsForDisplay(chatsSortedCache);
+                            renderChatsList();
+                        }
                         send(49, {
                             chatId: currentChatId, from: Date.now() + 86400000, forward: 0, backward: 50,
                             getMessages: true
@@ -14832,21 +14961,54 @@
                         return;
                     }
                     if (data.opcode === 51 && data.cmd === 256) {
-                        // chatMedia
+                        // chatMedia — рендер зависит от активной вкладки
+                        // (Медиа/Файлы/Голосовые), как SharedContentKind в Komet.
                         const messages = data.payload?.messages;
                         const grid = document.getElementById('chatMediaGrid');
+                        const wantedTypes = CHAT_MEDIA_ATTACH_TYPES[chatMediaKind] || ['PHOTO', 'VIDEO'];
                         const items = [];
                         if (Array.isArray(messages)) {
                             messages.forEach(m => {
                                 (m.attaches || []).forEach(a => {
-                                    const url = a.baseUrl || a.url;
-                                    if (url && (a._type === 'PHOTO' || a._type === 'VIDEO')) items.push(url);
+                                    if (wantedTypes.includes(a._type)) items.push({ m, a });
                                 });
                             });
                         }
-                        grid.innerHTML = items.length
-                            ? items.map(u => `<img src="${u}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;" loading="lazy">`).join('')
-                            : '<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">Медиафайлов нет</div>';
+                        if (!items.length) {
+                            const emptyLabel = chatMediaKind === 'files' ? 'Файлов нет' : chatMediaKind === 'voice' ? 'Голосовых нет' : 'Медиафайлов нет';
+                            grid.innerHTML = `<div style="grid-column:1/-1;padding:12px;color:#888;font-size:13px;">${emptyLabel}</div>`;
+                            return;
+                        }
+                        if (chatMediaKind === 'media') {
+                            grid.innerHTML = items.map(({ a }) => {
+                                const url = a.baseUrl || a.url;
+                                return url ? `<img src="${url}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;" loading="lazy">` : '';
+                            }).join('');
+                        } else if (chatMediaKind === 'voice') {
+                            grid.innerHTML = items.map(({ m, a }) => `
+                                <div style="padding:6px 0;border-bottom:1px solid var(--tg-border,#eee);">${createAudioPlayer(m.id, chatMediaTargetId, a)}</div>
+                            `).join('');
+                        } else {
+                            // files
+                            grid.innerHTML = items.map(({ a }) => {
+                                const fileName = a.name || 'файл';
+                                let sizeText = '';
+                                if (a.size) {
+                                    sizeText = a.size >= 1024 * 1024
+                                        ? `${(a.size / (1024 * 1024)).toFixed(2)} МБ`
+                                        : `${(a.size / 1024).toFixed(1)} КБ`;
+                                }
+                                return `
+                                    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--tg-border,#eee);">
+                                        <span style="font-size:22px;">📎</span>
+                                        <div style="min-width:0;">
+                                            <div style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(fileName)}</div>
+                                            <div style="font-size:12px;color:#888;">${sizeText}</div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('');
+                        }
                         return;
                     }
                     if (data.opcode === 208 && data.cmd === 256) {
