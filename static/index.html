@@ -2325,6 +2325,22 @@
         }
 
         /* ---- Цитата ответа внутри пузыря сообщения ---- */
+        .msg-forward-header {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--tg-blue, #2AABEE);
+            margin-bottom: 3px;
+        }
+
+        .msg-forward-header span {
+            font-weight: 700;
+        }
+
+        .msg-bubble.own .msg-forward-header {
+            color: var(--tg-own-text, #fff);
+            opacity: 0.85;
+        }
+
         .msg-reply-quote {
             display: flex;
             gap: 6px;
@@ -6018,6 +6034,21 @@
         // Загрузка фото по клику на плейсхолдер (вместо автозагрузки через
         // loading="lazy"). После загрузки заменяет плейсхолдер на
         // настоящий <img> и вешает открытие полноэкранного просмотрщика.
+        // Проверяет плейсхолдеры фото в переданном контейнере и сразу
+        // "догружает" те, что уже есть в персистентном кеше — cache.match()
+        // ничего не качает по сети, только читает локально сохранённое.
+        async function autoLoadCachedPhotos(container) {
+            const cache = await getMediaCache();
+            if (!cache) return;
+            const placeholders = container.querySelectorAll('.lazy-media-placeholder[data-src]');
+            for (const el of placeholders) {
+                try {
+                    const hit = await cache.match(el.dataset.src);
+                    if (hit && el.isConnected) loadLazyPhoto(el);
+                } catch (e) { /* не критично — просто останется плейсхолдером */ }
+            }
+        }
+
         async function loadLazyPhoto(el) {
             if (el.classList.contains('loading')) return;
             const src = el.dataset.src;
@@ -13894,6 +13925,30 @@
                 // и добавить обработчик выше.
                 console.log('[maxclient] неизвестный attach._type:', a._type, a);
             });
+            // Заголовок "Переслано от" (payload.link, type: FORWARD) — та же
+            // механика поля link, что и у ответа (REPLY) выше, см. Komet:
+            // ForwardedMessageAttachment.fromMap. Для форварда из канала имя/
+            // аватар берутся из link.chatName/chatIconUrl (у поста нет
+            // "личного" отправителя), для остального — из link.message.sender.
+            let forwardHeaderHtml = '';
+            if (m.link && String(m.link.type || '').toUpperCase() === 'FORWARD') {
+                const fwdMsg = m.link.message;
+                const isChannelForward = String(fwdMsg?.type || '').toUpperCase() === 'CHANNEL';
+                let fwdName;
+                if (isChannelForward && m.link.chatName) {
+                    fwdName = m.link.chatName;
+                } else {
+                    const fwdSenderId = fwdMsg?.sender;
+                    if (fwdSenderId === selfId) {
+                        fwdName = 'Вы';
+                    } else if (fwdSenderId != null) {
+                        fwdName = contactNameFromPayload(contactsById[fwdSenderId] || { id: fwdSenderId });
+                    } else {
+                        fwdName = 'Неизвестно';
+                    }
+                }
+                forwardHeaderHtml = `<div class="msg-forward-header">↪ Переслано от <span>${escapeHtml(fwdName)}</span></div>`;
+            }
             const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
             const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
             let textHtml = '';
@@ -13944,7 +13999,7 @@
                 : '';
             const timeHtml = `<div class="msg-time">${deletedBadgeHtml}${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = avatarHtml + senderNameHtml + replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            el.innerHTML = avatarHtml + senderNameHtml + forwardHeaderHtml + replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
             return el;
         }
 
@@ -14708,6 +14763,14 @@
                     loadLottieSticker(holderId, url);
                 }
             });
+
+            // Фото, которые уже лежат в персистентном кеше (см.
+            // cachedObjectUrl) с прошлого раза, показываем сразу — без
+            // плейсхолдера "Нажмите, чтобы загрузить" и без лишнего клика.
+            // Сетевой запрос при этом НЕ уходит (только чтение из кеша),
+            // так что принцип "не тянуть трафик без явного действия"
+            // соблюдается — просто не переспрашиваем то, что уже скачано.
+            autoLoadCachedPhotos(list);
 
             // --------------------------------------------
             // Догружаем видео-источник для GIF-вложений, у которых нет
