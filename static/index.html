@@ -1787,6 +1787,61 @@
             text-decoration: underline;
         }
 
+        /* ===== Карточка файла — Telegram-style: круглая иконка с
+           расширением вместо эмодзи, имя+размер справа. ===== */
+        .file-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none !important;
+            padding: 2px 0;
+            min-width: 180px;
+        }
+
+        .file-card-icon {
+            flex: 0 0 auto;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--tg-blue);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: -0.3px;
+        }
+
+        .file-card-info {
+            min-width: 0;
+        }
+
+        .file-card-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--tg-text, #17212B);
+            text-decoration: none !important;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 200px;
+        }
+
+        .msg-bubble.own .file-card-name {
+            color: var(--tg-own-text, #fff);
+        }
+
+        .file-card-meta {
+            font-size: 12px;
+            color: var(--tg-text-secondary, #8A9199);
+        }
+
+        .msg-bubble.own .file-card-meta {
+            color: var(--tg-own-time, rgba(255, 255, 255, 0.75));
+        }
+
         .settings-row {
             display: flex;
             gap: 8px;
@@ -6104,6 +6159,37 @@
             if (btn) { btn.disabled = false; btn.textContent = '📝'; }
         }
 
+        // Волна амплитуды голосового — поле 'wave' у вложения (Komet:
+        // AudioAttachment.fromMap читает map['wave'], в Dart-модели
+        // переименовывает в waveform; на проводе это либо строка, где код
+        // символа = амплитуда 0-255, либо массив чисел 0-255 после
+        // распаковки msgpack bin). Даунсэмплим до фиксированного числа
+        // столбиков — сырых точек обычно намного больше, чем нужно для
+        // компактного отображения.
+        const VOICE_WAVE_BARS = 32;
+        function parseVoiceWave(raw) {
+            if (!raw) return null;
+            let samples;
+            if (typeof raw === 'string') {
+                samples = Array.from(raw, c => c.charCodeAt(0));
+            } else if (Array.isArray(raw)) {
+                samples = raw;
+            } else {
+                return null;
+            }
+            if (!samples.length) return null;
+            const max = Math.max(1, ...samples);
+            const bars = [];
+            for (let i = 0; i < VOICE_WAVE_BARS; i++) {
+                const start = Math.floor(i * samples.length / VOICE_WAVE_BARS);
+                const end = Math.max(start + 1, Math.floor((i + 1) * samples.length / VOICE_WAVE_BARS));
+                let sum = 0, count = 0;
+                for (let j = start; j < end && j < samples.length; j++) { sum += samples[j]; count++; }
+                bars.push(count ? sum / count / max : 0.1);
+            }
+            return bars;
+        }
+
         function createAudioPlayer(messageId, chatId, attach) {
             const src = resolveMediaSrc(attach);
             const rawUrl = attach.baseUrl || attach.fileUrl || attach.url || '';
@@ -6122,6 +6208,40 @@
             <button type="button" id="${uid}_t_btn" title="Расшифровать"
                     onclick="transcribeVoiceMessage('${uid}', '${messageId}', '${chatId}', ${audioId != null ? audioId : 'null'}, '${rawUrl.replace(/'/g, "\\'")}', false)"
                     style="flex:0 0 auto;border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;">📝</button>` : '';
+
+            // Полоса амплитуды (waveform) — как в Telegram, вместо плоской
+            // линии прогресса. attach.wave (см. Komet: AudioAttachment,
+            // сырое поле 'wave') — не всегда присутствует (старые сообщения,
+            // другой источник записи), тогда используем прежнюю плоскую
+            // полосу как честный фолбэк, а не рисуем волну из ничего.
+            const waveBars = parseVoiceWave(attach.wave);
+            const BAR_W = 2, BAR_GAP = 2;
+            let progressHtml;
+            if (waveBars) {
+                const waveWidthPx = waveBars.length * (BAR_W + BAR_GAP) - BAR_GAP;
+                const renderBars = (color) => waveBars.map(h =>
+                    `<span style="width:${BAR_W}px;flex:0 0 ${BAR_W}px;height:${Math.max(3, Math.round(h * 20))}px;background:${color};border-radius:1px;"></span>`
+                ).join('');
+                progressHtml = `
+            <div class="voice-wave" onclick="seekAudioPlayer(event,'${uid}')"
+                 style="position:relative;width:${waveWidthPx}px;height:22px;cursor:pointer;flex:0 0 auto;">
+              <div style="position:absolute;inset:0;display:flex;align-items:flex-end;gap:${BAR_GAP}px;">
+                ${renderBars('rgba(120,120,120,.35)')}
+              </div>
+              <div class="voice-wave-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;overflow:hidden;">
+                <div style="display:flex;align-items:flex-end;gap:${BAR_GAP}px;width:${waveWidthPx}px;height:100%;">
+                  ${renderBars('var(--tg-blue,#2196f3)')}
+                </div>
+              </div>
+            </div>`;
+            } else {
+                progressHtml = `
+            <div class="voice-progress-track" onclick="seekAudioPlayer(event, '${uid}')"
+                style="flex:1 1 auto;height:4px;border-radius:2px;background:rgba(0,0,0,0.15);position:relative;cursor:pointer;">
+              <div class="voice-progress-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:2px;background:var(--tg-blue,#2196f3);"></div>
+            </div>`;
+            }
+
             // <audio> без атрибута controls — интерфейс полностью свой,
             // элемент используется только как источник звука/событий.
             return `
@@ -6131,10 +6251,7 @@
             <audio preload="none" src="${src}" style="display:none;"></audio>
             <button type="button" class="voice-play-btn" onclick="toggleAudioPlayer('${uid}')"
                 style="flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:#2196f3;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">▶</button>
-            <div class="voice-progress-track" onclick="seekAudioPlayer(event, '${uid}')"
-                style="flex:1 1 auto;height:4px;border-radius:2px;background:rgba(0,0,0,0.15);position:relative;cursor:pointer;">
-              <div class="voice-progress-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:2px;background:#2196f3;"></div>
-            </div>
+            ${progressHtml}
             <span class="voice-time-label" style="flex:0 0 auto;font-size:11px;color:#888;min-width:32px;text-align:right;">${totalLabel || '0:00'}</span>
             ${transcribeBtn}
           </div>
@@ -6171,7 +6288,7 @@
             const root = document.getElementById(uid);
             if (!root) return;
             const audio = root.querySelector('audio');
-            const track = root.querySelector('.voice-progress-track');
+            const track = root.querySelector('.voice-wave, .voice-progress-track');
             if (!audio || !track || !audio.duration) return;
             const rect = track.getBoundingClientRect();
             const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
@@ -6182,7 +6299,7 @@
             if (!(e.target instanceof HTMLAudioElement)) return;
             const root = e.target.closest('.msg-audio-player');
             if (!root) return;
-            const fill = root.querySelector('.voice-progress-fill');
+            const fill = root.querySelector('.voice-wave-fill, .voice-progress-fill');
             const label = root.querySelector('.voice-time-label');
             const dur = e.target.duration || (Number(root.dataset.durationMs) / 1000) || 0;
             if (fill && dur) fill.style.width = Math.min(100, (e.target.currentTime / dur) * 100) + '%';
@@ -6194,7 +6311,7 @@
             const root = e.target.closest('.msg-audio-player');
             if (!root) return;
             const btn = root.querySelector('.voice-play-btn');
-            const fill = root.querySelector('.voice-progress-fill');
+            const fill = root.querySelector('.voice-wave-fill, .voice-progress-fill');
             const label = root.querySelector('.voice-time-label');
             if (btn) btn.textContent = '▶';
             if (fill) fill.style.width = '0%';
@@ -11306,10 +11423,10 @@
             const fileId = linkEl.dataset.fileId;
             const messageId = linkEl.dataset.msgId2;
             const chatId = linkEl.dataset.chatId;
-            const fileName = linkEl.querySelector('.file-name')?.textContent || 'file';
+            const fileName = linkEl.querySelector('.file-card-name')?.textContent || 'file';
 
             const originalHtml = linkEl.innerHTML;
-            linkEl.innerHTML = '<span class="file-name">⏳ Получаю ссылку...</span>';
+            linkEl.innerHTML = '<span class="file-card-name">⏳ Получаю ссылку...</span>';
 
             try {
                 const res = await fetch('/api/file-url', {
@@ -12556,8 +12673,13 @@
                     ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
                     : initial;
                 const avatarBg = avatarUrl ? '' : `background:${avatarGradient(item.id)};`;
+                // Маленький значок типа результата (человек/группа/канал) в
+                // углу аватара — как бейдж типа результата в Telegram.
+                const typeBadge = item.typeIcon
+                    ? `<span style="position:absolute;right:-2px;bottom:-2px;background:var(--tg-panel,#fff);border-radius:50%;font-size:11px;line-height:1;padding:1px;">${item.typeIcon}</span>`
+                    : '';
                 el.innerHTML = `
-                    <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${item.id}" style="${avatarBg}">${avatarHtml}</div>
+                    <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${item.id}" style="position:relative;${avatarBg}">${avatarHtml}${typeBadge}</div>
                     <div class="chat-info">
                         <div class="chat-name">${escapeHtml(item.name || '')}</div>
                         <div class="chat-preview">${escapeHtml(item.subtitle || '')}</div>
@@ -13676,31 +13798,35 @@
                     let sizeText = '';
                     if (a.size) {
                         if (a.size >= 1024 * 1024) {
-                            sizeText = `(${(a.size / (1024 * 1024)).toFixed(2)} МБ)`;
+                            sizeText = `${(a.size / (1024 * 1024)).toFixed(2)} МБ`;
                         } else {
-                            sizeText = `(${(a.size / 1024).toFixed(1)} КБ)`;
+                            sizeText = `${(a.size / 1024).toFixed(1)} КБ`;
                         }
                     }
 
-                    const isPdf = /\.pdf$/i.test(fileName);
-                    const fileIcon = isPdf ? '📄' : '📎';
+                    // Расширение в круглой иконке — как в Telegram (PDF/ZIP/
+                    // DOCX и т.п. текстом, а не эмодзи). До 4 символов, чтобы
+                    // помещалось в кружок; длиннее — просто "FILE".
+                    const extMatch = fileName.match(/\.([a-zA-Z0-9]{1,4})$/);
+                    const ext = extMatch ? extMatch[1] : 'FILE';
 
                     if (a.fileId) {
                         attachesHtml += `
           <div class="msg-attach msg-file">
-            <a href="javascript:void(0)" class="msg-file-link"
+            <a href="javascript:void(0)" class="file-card"
                data-file-id="${a.fileId}" data-msg-id2="${m.id}" data-chat-id="${currentChatId}"
-               onclick="downloadFileAttach(this)"
-               style="text-decoration: none; color: #007bff; display: inline-flex; align-items: center; gap: 5px;">
-              <span class="file-icon">${fileIcon}</span> 
-              <span class="file-name" style="font-weight: 500; text-decoration: underline;">${escapeHtml(fileName)}</span> 
-              <span class="file-size" style="color: #888; font-size: 12px; font-weight: normal;">${sizeText}</span>
+               onclick="downloadFileAttach(this)">
+              <span class="file-card-icon">${escapeHtml(ext)}</span>
+              <span class="file-card-info">
+                <span class="file-card-name">${escapeHtml(fileName)}</span><br>
+                <span class="file-card-meta">${sizeText}${sizeText ? ' · ' : ''}${ext.toUpperCase()}</span>
+              </span>
             </a>
           </div>`;
                     } else {
                         attachesHtml += `
           <div class="msg-attach msg-file" style="color: #888;">
-            ${fileIcon} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
+            📎 ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
           </div>`;
                     }
                     return;
@@ -14270,6 +14396,7 @@
                     name: chat.title || ('Чат #' + chat.id),
                     subtitle: chat.link ? '@' + chat.link : (chat.type || ''),
                     avatarUrl: chat.baseIconUrl || null,
+                    typeIcon: chat.type === 'CHANNEL' ? '📢' : (chat.type === 'CHAT' ? '👥' : '👤'),
                     onOpen: () => {
                         chatsById[chat.id] = chatsById[chat.id] || chat;
                         openChat(chat.id);

@@ -2602,6 +2602,14 @@ def stringify_big_ints(obj):
         return obj
     if isinstance(obj, int) and abs(obj) > _JS_SAFE_INT:
         return str(obj)
+    if isinstance(obj, bytes):
+        # msgpack "bin" (например, поле 'wave' у голосовых — waveform в виде
+        # сырых байт) распаковывается в Python как bytes — а json.dumps их
+        # не умеет сериализовать вообще, бросает TypeError. Раньше это молча
+        # ронял бы отправку ВСЕГО пакета на фронт при первом попадании
+        # такого поля. Отдаём список чисел 0-255 — фронту этого достаточно
+        # для рисования амплитуды волны.
+        return list(obj)
     if isinstance(obj, dict):
         return {k: stringify_big_ints(v) for k, v in obj.items()}
     if isinstance(obj, list):
