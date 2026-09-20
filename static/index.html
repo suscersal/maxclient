@@ -3234,6 +3234,105 @@
             flex-shrink: 0;
         }
 
+        /* Цветная плитка-иконка (как в Настройках) — для пунктов вроде
+           "Создать группу"/"Вступить по ссылке" в модалке нового чата.
+           Отдельный класс от .opt-icon, чтобы не задеть существующие
+           пункты (заглушить/удалить/медиа и т.п.) в профиле чата. */
+        .opt-icon-tile {
+            width: 34px;
+            height: 34px;
+            min-width: 34px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 17px;
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        /* ===== Строка выбора контакта (создание группы, добавление
+           участника, чаты в папке) — Telegram-style: галочка поверх
+           аватара, а не голый нативный чекбокс сбоку. ===== */
+        .selectable-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 4px;
+            cursor: pointer;
+        }
+
+        .selectable-row input[type=checkbox] {
+            display: none;
+        }
+
+        .selectable-row-avatar {
+            position: relative;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            color: #fff;
+            font-size: 16px;
+            flex: 0 0 auto;
+            transition: box-shadow 0.15s;
+        }
+
+        .selectable-row-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .selectable-row-check {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 700;
+            opacity: 0;
+            background: rgba(42, 171, 238, 0);
+            transition: opacity 0.15s, background 0.15s;
+        }
+
+        .selectable-row.checked .selectable-row-avatar {
+            box-shadow: 0 0 0 2px var(--tg-blue, #2AABEE);
+        }
+
+        .selectable-row.checked .selectable-row-check {
+            opacity: 1;
+            background: rgba(42, 171, 238, 0.55);
+        }
+
+        .selectable-row-name {
+            font-size: 15px;
+            color: var(--tg-text, #17212B);
+        }
+
+        /* Pill-инпут в стиле панели ввода сообщения — используется в
+           модалках создания группы/вступления по ссылке и т.п., вместо
+           разномастных инлайн-стилей по всему коду. */
+        .pill-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px 16px;
+            border: none;
+            border-radius: 20px;
+            background: var(--tg-bg, #f0f2f5);
+            color: var(--tg-text, #17212B);
+            font-size: 15px;
+        }
+
+        .pill-input:focus {
+            outline: none;
+        }
+
         .chat-profile-option .opt-label {
             flex: 1;
         }
@@ -4994,24 +5093,22 @@
             </div>
             <div id="newChatModalMenu">
                 <button class="chat-profile-option" onclick="openCreateGroupForm()">
-                    <span class="opt-icon">👥</span>
+                    <span class="opt-icon-tile" style="background:#4E9DE0;">👥</span>
                     <span class="opt-label">Создать группу</span>
                 </button>
                 <button class="chat-profile-option" onclick="openJoinByLinkForm()">
-                    <span class="opt-icon">🔗</span>
+                    <span class="opt-icon-tile" style="background:#8B7FE8;">🔗</span>
                     <span class="opt-label">Вступить по ссылке</span>
                 </button>
             </div>
             <div id="createGroupForm" class="hidden" style="padding:4px 12px 12px;">
-                <input type="text" id="newGroupTitle" placeholder="Название группы"
-                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:border-box;">
+                <input type="text" id="newGroupTitle" placeholder="Название группы" class="pill-input" style="margin-bottom:10px;">
                 <div style="font-size:13px;color:#888;margin-bottom:6px;">Участники:</div>
                 <div id="newGroupMembersList" style="max-height:260px;overflow-y:auto;margin-bottom:10px;"></div>
                 <button class="btn-save" style="width:100%;" onclick="submitCreateGroup()">Создать</button>
             </div>
             <div id="joinByLinkForm" class="hidden" style="padding:4px 12px 12px;">
-                <input type="text" id="joinLinkInput" placeholder="Ссылка-приглашение или @username"
-                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:border-box;">
+                <input type="text" id="joinLinkInput" placeholder="Ссылка-приглашение или @username" class="pill-input" style="margin-bottom:10px;">
                 <div id="joinLinkPreview" style="font-size:13px;color:#888;margin-bottom:10px;"></div>
                 <button class="btn-save" style="width:100%;" onclick="submitJoinByLink()">Вступить</button>
             </div>
@@ -5180,6 +5277,7 @@
                 📵 Отозвать доступ к контактам телефона</button>
         </div>
         <div id="contactsList" class="hidden"></div>
+        <div id="callsList" class="hidden"></div>
         <div id="folderTabsBar" class="hidden"></div>
         <div id="chatsList"></div>
         <div id="globalSearchResultsList" class="hidden"></div>
@@ -8892,13 +8990,13 @@
             <div style="margin-top:14px;">
                 <label style="font-size:12px;color:#888;">Имя</label>
                 <input type="text" id="accountFirstNameInput" value="${escapeHtml(displayFirstName)}" placeholder="Имя"
-                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;">
+                    class="pill-input" style="margin:4px 0 8px;">
                 <label style="font-size:12px;color:#888;">Фамилия</label>
                 <input type="text" id="accountLastNameInput" value="${escapeHtml(displayLastName)}" placeholder="Фамилия (необязательно)"
-                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;">
+                    class="pill-input" style="margin:4px 0 8px;">
                 <label style="font-size:12px;color:#888;">Описание профиля</label>
                 <textarea id="accountDescriptionInput" placeholder="О себе" rows="3"
-                    style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--tg-border,#ddd);margin:4px 0 8px;resize:vertical;font-family:inherit;">${escapeHtml(profile.description || '')}</textarea>
+                    class="pill-input" style="margin:4px 0 8px;resize:vertical;border-radius:14px;font-family:inherit;">${escapeHtml(profile.description || '')}</textarea>
                 <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitProfileNameEdit()">💾 Сохранить</button>
             </div>
             ` : ''}
@@ -10299,18 +10397,35 @@
             document.body.style.overflow = '';
         }
 
+        // Строка выбора контакта с галочкой на аватаре вместо голого
+        // чекбокса — переиспользуется в создании группы, добавлении
+        // участника и выборе чатов для папки.
+        function selectableContactRowHtml(id, name, avatarUrl, checked, cbClass, extraAttrs) {
+            const initial = getInitials(name);
+            const avatarHtml = avatarUrl
+                ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                : initial;
+            const avatarBg = avatarUrl ? '' : `background:${avatarGradient(id)};`;
+            return `
+                <label class="selectable-row${checked ? ' checked' : ''}">
+                    <input type="checkbox" class="${cbClass}" value="${id}" ${extraAttrs || ''} ${checked ? 'checked' : ''}
+                        onchange="this.closest('.selectable-row').classList.toggle('checked', this.checked)">
+                    <span class="selectable-row-avatar" style="${avatarBg}">${avatarHtml}<span class="selectable-row-check">✓</span></span>
+                    <span class="selectable-row-name">${escapeHtml(name)}</span>
+                </label>
+            `;
+        }
+
         function openCreateGroupForm() {
             document.getElementById('newChatModalMenu').classList.add('hidden');
             document.getElementById('createGroupForm').classList.remove('hidden');
             document.getElementById('newChatModalTitle').textContent = 'Создать группу';
             const list = document.getElementById('newGroupMembersList');
             const contacts = Object.values(contactsById).filter(c => c && c.id !== selfId);
-            list.innerHTML = contacts.map(c => `
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;">
-                <input type="checkbox" class="new-group-member-cb" value="${c.id}">
-                <span>${escapeHtml(c.names?.[0]?.firstName || c.name || ('#' + c.id))}</span>
-            </label>
-        `).join('') || '<div style="color:#888;font-size:13px;">Нет доступных контактов</div>';
+            list.innerHTML = contacts.map(c => {
+                const name = c.names?.[0]?.firstName || c.name || ('#' + c.id);
+                return selectableContactRowHtml(c.id, name, memberAvatarUrl(c.id), false, 'new-group-member-cb');
+            }).join('') || '<div style="color:#888;font-size:13px;">Нет доступных контактов</div>';
         }
 
         function openJoinByLinkForm() {
@@ -10736,6 +10851,7 @@
             document.getElementById('chatDetailSection')?.classList.add('hidden');
             document.getElementById('chatsSection')?.classList.remove('hidden');
             document.getElementById('contactsList')?.classList.add('hidden');
+            document.getElementById('callsList')?.classList.add('hidden');
             document.getElementById('chatsList')?.classList.remove('hidden');
             document.getElementById('localChatSearchWrap')?.classList.remove('hidden');
             setActiveNavTab('navChatsBtn');
@@ -10746,15 +10862,108 @@
             document.getElementById('chatsSection')?.classList.remove('hidden');
             document.getElementById('globalSearchResultsList')?.classList.add('hidden');
             document.getElementById('chatsList')?.classList.add('hidden');
+            document.getElementById('callsList')?.classList.add('hidden');
             document.getElementById('localChatSearchWrap')?.classList.add('hidden');
             document.getElementById('contactsList')?.classList.remove('hidden');
             renderContactsPanel();
             setActiveNavTab('navContactsBtn');
         }
 
+        // ============ ЗВОНКИ (история — videoChatHistory, opcode 79) ============
+        // Сам звонок инициировать нельзя (в клиенте нет функции звонков
+        // вообще), но ПРОСМОТР истории — отдельная, честно проверенная по
+        // Komet возможность (CallsModule.fetchHistory), опкод не требует
+        // самой возможности звонить, только читает лог.
+        let _callHistory = [];
+
         function bottomNavCalls() {
-            alert('📞 Звонки пока не поддерживаются в этом клиенте');
-            setActiveNavTab('navChatsBtn');
+            document.getElementById('chatDetailSection')?.classList.add('hidden');
+            document.getElementById('chatsSection')?.classList.remove('hidden');
+            document.getElementById('globalSearchResultsList')?.classList.add('hidden');
+            document.getElementById('chatsList')?.classList.add('hidden');
+            document.getElementById('contactsList')?.classList.add('hidden');
+            document.getElementById('localChatSearchWrap')?.classList.add('hidden');
+            document.getElementById('callsList')?.classList.remove('hidden');
+            setActiveNavTab('navCallsBtn');
+            document.getElementById('callsList').innerHTML = '<div style="padding:16px;color:#888;font-size:13px;text-align:center;">Загрузка...</div>';
+            send(79, {});
+        }
+
+        // Ответ на opcode 79: payload.history — массив {message:{sender,
+        // time, id, attaches:[{_type:'CALL', contactIds, hangupType,
+        // duration}]}}. Разбор в точности по Komet: CallsModule.
+        // parseHistoryPayload/_parseCallStatus — статус (пропущен/исходящий/
+        // входящий/отменён) вычисляется из hangupType и duration, а не
+        // приходит готовым полем.
+        function handleCallHistoryResponse(payload) {
+            const history = Array.isArray(payload?.history) ? payload.history : [];
+            const missingIds = new Set();
+            _callHistory = history.map(item => {
+                const msg = item?.message;
+                const callAttach = (msg?.attaches || []).find(a => a?._type === 'CALL');
+                if (!msg || !callAttach) return null;
+                const isOutgoing = msg.sender === selfId;
+                let peerId = 0;
+                if (isOutgoing) {
+                    peerId = (callAttach.contactIds || [])[0] || 0;
+                } else {
+                    peerId = msg.sender || 0;
+                }
+                const hangupType = callAttach.hangupType;
+                const duration = callAttach.duration || 0;
+                let status;
+                if (isOutgoing) {
+                    status = (hangupType === 'CANCELED' || duration === 0) ? 'canceled' : 'outgoing';
+                } else {
+                    status = (hangupType === 'CANCELED' || hangupType === 'REJECTED' || hangupType === 'MISSED' || duration === 0)
+                        ? 'missed' : 'incoming';
+                }
+                if (peerId && !contactsById[peerId]) missingIds.add(peerId);
+                return { id: msg.id, peerId, status, time: msg.time || 0, duration };
+            }).filter(Boolean);
+
+            if (missingIds.size) {
+                const ids = Array.from(missingIds).filter(id => !requestedContactIds.has(id));
+                if (ids.length) {
+                    ids.forEach(id => requestedContactIds.add(id));
+                    send(32, { contactIds: ids });
+                }
+            }
+            renderCallsList();
+        }
+
+        function renderCallsList() {
+            const list = document.getElementById('callsList');
+            if (!list) return;
+            if (!_callHistory.length) {
+                list.innerHTML = '<div style="padding:16px;color:#888;font-size:13px;text-align:center;">Звонков пока нет</div>';
+                return;
+            }
+            const statusIcon = { outgoing: '↗', incoming: '↙', missed: '↙', canceled: '↗' };
+            const statusColor = { outgoing: '#4CD964', incoming: '#4CD964', missed: '#E53935', canceled: '#8A9199' };
+            list.innerHTML = _callHistory.map(c => {
+                const name = c.peerId ? contactNameFromPayload(contactsById[c.peerId] || { id: c.peerId }) : 'Неизвестно';
+                const avatarUrl = c.peerId ? memberAvatarUrl(c.peerId) : null;
+                const initial = getInitials(name);
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                    : initial;
+                const avatarBg = avatarUrl ? '' : `background:${avatarGradient(c.peerId || 0)};`;
+                const timeStr = c.time ? new Date(c.time).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+                const durStr = c.duration ? ` (${formatTime(c.duration)})` : '';
+                return `
+                    <div class="chat-item" style="cursor:default;">
+                        <div class="chat-avatar" style="${avatarBg}">${avatarHtml}</div>
+                        <div class="chat-info">
+                            <div class="chat-name">${escapeHtml(name)}</div>
+                            <div class="chat-preview" style="color:${statusColor[c.status] || '#8A9199'};">
+                                ${statusIcon[c.status] || ''} ${c.status === 'missed' ? 'Пропущен' : c.status === 'canceled' ? 'Отменён' : 'Звонок'}${durStr}
+                            </div>
+                        </div>
+                        <div class="chat-meta"><span style="font-size:12px;">${timeStr}</span></div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function showAuthenticatedUI() {
@@ -11772,7 +11981,7 @@
                 <div style="padding:4px 0;">
                     <input type="text" id="folderEditorTitle" placeholder="Название папки" maxlength="20"
                         value="${escapeHtml(folder ? folder.title : '')}"
-                        style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;border:1px solid var(--tg-border,#ddd);margin-bottom:10px;">
+                        class="pill-input" style="margin-bottom:10px;">
                     <div style="font-size:12px;color:#888;margin-bottom:6px;">Чаты в папке:</div>
                     <div id="folderEditorChats" style="max-height:260px;overflow-y:auto;">${chatsHtml}</div>
                     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -15032,6 +15241,7 @@
                             refreshChatProfileMembersIfOpen();
                             refreshVisibleMessageSenders();
                             renderStoriesFeed();
+                            if (_callHistory.length) renderCallsList();
                             const openOwnerId = _storyViewOwnerIds[_storyViewOwnerIdx];
                             if (openOwnerId && document.getElementById('storyViewer').style.display !== 'none') {
                                 showCurrentStory();
@@ -15306,6 +15516,16 @@
                             handleProfileUpdateResponse(data.payload);
                         } else {
                             log('❌ Не удалось обновить профиль: ' + (data.payload?.localizedMessage || 'сервер отклонил запрос'), 'error');
+                        }
+                        return;
+                    }
+                    if (data.opcode === 79) {
+                        // videoChatHistory — история звонков
+                        if (data.cmd === 256) {
+                            handleCallHistoryResponse(data.payload);
+                        } else {
+                            document.getElementById('callsList').innerHTML =
+                                '<div style="padding:16px;color:#888;font-size:13px;text-align:center;">Не удалось загрузить историю звонков</div>';
                         }
                         return;
                     }
