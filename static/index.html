@@ -10448,12 +10448,10 @@
             const list = document.getElementById('addMemberMembersList');
             const contacts = Object.values(contactsById)
                 .filter(c => c && c.id !== selfId && !existingIds.has(c.id));
-            list.innerHTML = contacts.map(c => `
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;">
-                <input type="checkbox" class="add-member-cb" value="${c.id}">
-                <span>${escapeHtml(c.names?.[0]?.firstName || c.name || ('#' + c.id))}</span>
-            </label>
-        `).join('') || '<div style="color:#888;font-size:13px;">Все контакты уже в группе</div>';
+            list.innerHTML = contacts.map(c => {
+                const name = c.names?.[0]?.firstName || c.name || ('#' + c.id);
+                return selectableContactRowHtml(c.id, name, memberAvatarUrl(c.id), false, 'add-member-cb');
+            }).join('') || '<div style="color:#888;font-size:13px;">Все контакты уже в группе</div>';
 
             document.getElementById('newChatModalMenu').classList.add('hidden');
             document.getElementById('addMemberForm').classList.remove('hidden');
@@ -11971,12 +11969,9 @@
         function openFolderEditor(folderId) {
             const folder = folderId ? _folders.find(f => f.id === folderId) : null;
             _folderEditorIncludeIds = new Set(folder ? (folder.include || []) : []);
-            const chatsHtml = chatsSortedCache.map(c => `
-                <label style="display:flex;align-items:center;gap:8px;padding:6px 0;">
-                    <input type="checkbox" data-chat-id="${c.id}" ${_folderEditorIncludeIds.has(c.id) ? 'checked' : ''}>
-                    <span>${escapeHtml(chatDisplayName(c))}</span>
-                </label>
-            `).join('');
+            const chatsHtml = chatsSortedCache.map(c =>
+                selectableContactRowHtml(c.id, chatDisplayName(c), chatAvatarUrl(c), _folderEditorIncludeIds.has(c.id), '', `data-chat-id="${c.id}"`)
+            ).join('');
             const html = `
                 <div style="padding:4px 0;">
                     <input type="text" id="folderEditorTitle" placeholder="Название папки" maxlength="20"
