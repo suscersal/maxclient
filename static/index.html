@@ -5108,7 +5108,7 @@
                 <button class="btn-save" style="width:100%;" onclick="submitCreateGroup()">Создать</button>
             </div>
             <div id="joinByLinkForm" class="hidden" style="padding:4px 12px 12px;">
-                <input type="text" id="joinLinkInput" placeholder="Ссылка-приглашение или @username" class="pill-input" style="margin-bottom:10px;">
+                <input type="text" id="joinLinkInput" placeholder="Ссылка-приглашение или @username" class="pill-input" style="margin-bottom:10px;" oninput="scheduleJoinLinkPreview()">
                 <div id="joinLinkPreview" style="font-size:13px;color:#888;margin-bottom:10px;"></div>
                 <button class="btn-save" style="width:100%;" onclick="submitJoinByLink()">Вступить</button>
             </div>
@@ -10428,12 +10428,60 @@
             }).join('') || '<div style="color:#888;font-size:13px;">Нет доступных контактов</div>';
         }
 
+        let _joinPreviewTimer = null;
+        let _joinPreviewAwaiting = false;
+        let _joinPreviewChat = null;
+
         function openJoinByLinkForm() {
             document.getElementById('newChatModalMenu').classList.add('hidden');
             document.getElementById('joinByLinkForm').classList.remove('hidden');
             document.getElementById('newChatModalTitle').textContent = 'Вступить по ссылке';
             document.getElementById('joinLinkInput').value = '';
-            document.getElementById('joinLinkPreview').textContent = '';
+            document.getElementById('joinLinkPreview').innerHTML = '';
+            _joinPreviewChat = null;
+        }
+
+        // Превью канала/группы перед вступлением (как в Telegram) — резолвим
+        // ссылку через linkInfo (opcode 89, тот же, что и для стикерпаков/
+        // поиска), с debounce по вводу, показываем карточку и требуем
+        // явного нажатия "Вступить", а не отправляем запрос сразу по вводу.
+        function scheduleJoinLinkPreview() {
+            clearTimeout(_joinPreviewTimer);
+            _joinPreviewChat = null;
+            const link = document.getElementById('joinLinkInput').value.trim();
+            const preview = document.getElementById('joinLinkPreview');
+            if (!link) { preview.innerHTML = ''; return; }
+            preview.innerHTML = '<div style="color:#888;font-size:13px;">Проверяю ссылку…</div>';
+            _joinPreviewTimer = setTimeout(() => {
+                _joinPreviewAwaiting = true;
+                send(89, { link });
+            }, 500);
+        }
+
+        function renderJoinLinkPreview(chat) {
+            _joinPreviewChat = chat;
+            const preview = document.getElementById('joinLinkPreview');
+            if (!chat) {
+                preview.innerHTML = '<div style="color:#E53935;font-size:13px;">Ссылка не найдена</div>';
+                return;
+            }
+            const avatarUrl = chat.baseIconUrl ? '/img?url=' + encodeURIComponent(chat.baseIconUrl) : null;
+            const name = chat.title || 'Чат';
+            const initial = getInitials(name);
+            const avatarHtml = avatarUrl
+                ? `<img src="${avatarUrl}" alt="" loading="lazy" onerror="handleAvatarError(this)">`
+                : initial;
+            const avatarBg = avatarUrl ? '' : `background:${avatarGradient(chat.id || 0)};`;
+            const memberLabel = chat.type === 'CHANNEL' ? 'подписчиков' : 'участников';
+            preview.innerHTML = `
+                <div style="display:flex;align-items:center;gap:10px;padding:6px 2px;">
+                    <div class="chat-avatar" style="${avatarBg}">${avatarHtml}</div>
+                    <div>
+                        <div style="font-weight:600;font-size:15px;">${escapeHtml(name)}</div>
+                        <div style="font-size:13px;color:#888;">${chat.type === 'CHANNEL' ? '📢 Канал' : '👥 Группа'}${chat.participantsCount ? ` · ${chat.participantsCount} ${memberLabel}` : ''}</div>
+                    </div>
+                </div>
+            `;
         }
 
         // «Добавить участника» в уже существующую группу — вызывается кнопкой
@@ -14666,6 +14714,15 @@
 
         function handleLinkResolved(payload) {
             if (!payload) return;
+            if (_joinPreviewAwaiting) {
+                // Форма "Вступить по ссылке" ждёт превью — не открываем чат
+                // сразу (в отличие от обычного резолва ссылки из текста
+                // сообщения), просто показываем карточку и ждём явного
+                // нажатия "Вступить".
+                _joinPreviewAwaiting = false;
+                renderJoinLinkPreview(payload.chat && typeof payload.chat.id === 'number' ? payload.chat : null);
+                return;
+            }
             if (payload.stickerSet && typeof payload.stickerSet.id === 'number') {
                 handleStickerSetLinkResolved(payload);
                 return;
@@ -14690,6 +14747,11 @@
                 globalSearchLoading = false;
                 globalSearchResults = [];
                 renderGlobalSearchResults();
+            }
+            if (opcode === 89 && _joinPreviewAwaiting) {
+                _joinPreviewAwaiting = false;
+                renderJoinLinkPreview(null);
+                return;
             }
             log(`❌ ${msg}`, 'error');
         }
