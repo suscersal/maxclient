@@ -13947,6 +13947,36 @@
             }
         }
 
+        // Текст системного события по типу — точно по Komet:
+        // ControlBubble._buildContent (control_bubble.dart). Раньше
+        // показывался только сырой title/shortMessage от сервера как общий
+        // fallback — теперь разбираются конкретные типы event, как у
+        // официального клиента.
+        function buildControlEventText(m, control) {
+            const senderId = m.sender;
+            const senderName = senderId === selfId ? 'Вы'
+                : (senderId != null ? contactNameFromPayload(contactsById[senderId] || { id: senderId }) : 'Кто-то');
+            switch (control.event) {
+                case 'new':
+                    return `${senderName} создал(а) чат`;
+                case 'add': {
+                    const ids = Array.isArray(control.userIds) ? control.userIds : (control.userId != null ? [control.userId] : []);
+                    const names = ids.map(id => id === selfId ? 'Вы' : contactNameFromPayload(contactsById[id] || { id })).join(', ');
+                    return `${senderName} добавил(а) ${names || 'участника'}`;
+                }
+                case 'leave':
+                    return `${senderName} покинул(а) чат`;
+                case 'joinByLink':
+                    return `${senderName} присоединился(-ась) к чату`;
+                case 'pin':
+                    return `${senderName} закрепил(а) сообщение`;
+                case 'botStarted':
+                    return `Бот запущен${control.startPayload ? ': ' + control.startPayload : ''}`;
+                default:
+                    return control.title || control.shortMessage || 'Системное событие';
+            }
+        }
+
         function createMessageElement(m, allMessages) {
             // Системные события (добавили/удалили участника, чат создан и
             // т.п., attach _type: 'CONTROL') — в Telegram это не обычный
@@ -13958,7 +13988,7 @@
                 sysEl.className = 'system-message';
                 sysEl.dataset.msgId = m.id;
                 sysEl.dataset.msgTime = m.time || Date.now();
-                sysEl.textContent = controlAttach.message || controlAttach.shortMessage || 'Системное событие';
+                sysEl.textContent = buildControlEventText(m, controlAttach);
                 return sysEl;
             }
             const el = document.createElement('div');
