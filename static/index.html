@@ -3978,6 +3978,82 @@
             padding: 0;
             border-radius: 16px;
             overflow: hidden;
+            position: relative;
+        }
+
+        /* Липнущий заголовок дня. НЕ пытаемся делать position:sticky на самих
+           .date-separator (см. комментарий у .date-separator ниже — список
+           сообщений плоский, обёрточных контейнеров по дням нет). Вместо
+           этого — один-единственный плавающий элемент ВНЕ #messagesList
+           (сиблинг, а не потомок), поэтому list.innerHTML = '' при открытии
+           чата его не удаляет и он не участвует в потоке/скролле списка.
+           Текст и видимость обновляются в JS (updateStickyDateBadge) по
+           событию scroll — она же сама решает, какой день сейчас "наверху". */
+        .sticky-date-badge {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 6;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        /* ---- Опросы, модалки жалоб/создания опроса ---- */
+        .msg-poll { min-width: 220px; max-width: 320px; padding: 4px 2px; }
+        .poll-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; word-break: break-word; }
+        .poll-meta { font-size: 12px; opacity: .65; margin-bottom: 8px; }
+        .poll-ans { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin: 4px 0;
+            border-radius: 10px; background: rgba(0,0,0,.05); overflow: hidden; cursor: pointer; user-select: none; font-size: 14px; }
+        .poll-ans.voted { cursor: default; }
+        .poll-ans .poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(36,129,204,.22); z-index: 0; transition: width .25s; }
+        .poll-ans > * { position: relative; z-index: 1; }
+        .poll-ans .poll-mark { width: 16px; height: 16px; flex: none; border: 2px solid currentColor; opacity: .55; border-radius: 50%; box-sizing: border-box; }
+        .poll-ans.multi .poll-mark { border-radius: 4px; }
+        .poll-ans.selected .poll-mark { background: var(--tg-blue, #2481cc); border-color: var(--tg-blue, #2481cc); opacity: 1; }
+        .poll-ans.mine .poll-mark { opacity: 1; border-color: var(--tg-blue, #2481cc); }
+        .poll-ans .poll-text { flex: 1; min-width: 0; word-break: break-word; }
+        .poll-ans .poll-pct { font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }
+        .poll-submit { width: 100%; margin-top: 6px; padding: 8px; border: 0; border-radius: 10px; background: var(--tg-blue, #2481cc); color: #fff; font-size: 14px; cursor: pointer; }
+        .poll-submit:disabled { opacity: .5; cursor: default; }
+        .mx-modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .mx-modal { background: var(--tg-panel, #fff); color: var(--tg-text, #222); border-radius: 16px; width: 100%; max-width: 380px; max-height: 85vh; overflow-y: auto; padding: 18px; box-sizing: border-box; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+        .mx-modal h4 { margin: 0 0 12px; font-size: 17px; }
+        .mx-modal input[type=text] { width: 100%; box-sizing: border-box; padding: 9px 11px; margin: 4px 0; border: 1px solid var(--tg-border, #ddd); border-radius: 10px; background: var(--tg-bg, #fff); color: inherit; font-size: 14px; }
+        .mx-modal label.mx-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; cursor: pointer; }
+        .mx-modal .mx-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+        .mx-modal button.mx-btn { padding: 8px 14px; border: 0; border-radius: 10px; background: rgba(0,0,0,.07); color: inherit; font-size: 14px; cursor: pointer; }
+        .mx-modal button.mx-btn.primary { background: var(--tg-blue, #2481cc); color: #fff; }
+        .mx-modal button.mx-btn:disabled { opacity: .5; }
+        .mx-reason { display: block; width: 100%; text-align: left; padding: 11px 12px; margin: 4px 0; border: 0; border-radius: 10px; background: rgba(0,0,0,.05); color: inherit; font-size: 14px; cursor: pointer; }
+        .mx-toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: rgba(0,0,0,.8); color: #fff; padding: 9px 16px; border-radius: 18px; font-size: 14px; z-index: 10001; max-width: 90vw; }
+
+        /* ---- Комментарии к постам канала ---- */
+        .msg-comments { display: none; margin: 6px -4px 0; padding: 7px 10px; border-top: 1px solid var(--tg-border, rgba(0,0,0,.1));
+            color: var(--tg-blue, #2481cc); font-size: 13.5px; font-weight: 500; cursor: pointer; align-items: center; gap: 6px; }
+        .msg-comments.ready { display: flex; }
+        .mx-sheet { display: flex; flex-direction: column; height: min(80vh, 640px); padding: 0; }
+        .mx-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--tg-border, #ddd); font-weight: 600; }
+        .mx-sheet-head button { border: 0; background: none; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+        .cm-list { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+        .cm-item { background: rgba(0,0,0,.05); border-radius: 12px; padding: 7px 11px; word-break: break-word; }
+        .cm-item.own { background: rgba(36,129,204,.16); }
+        .cm-name { font-size: 12.5px; font-weight: 600; color: var(--tg-blue, #2481cc); }
+        .cm-time { font-size: 11px; opacity: .6; margin-top: 2px; text-align: right; }
+        .cm-empty { text-align: center; opacity: .6; padding: 24px 0; font-size: 14px; }
+        .cm-input { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--tg-border, #ddd); }
+        .cm-input input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--tg-border, #ddd); border-radius: 18px; background: var(--tg-bg, #fff); color: inherit; font-size: 14px; }
+        .cm-input button { border: 0; border-radius: 50%; width: 38px; height: 38px; background: var(--tg-blue, #2481cc); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .cm-input button:disabled { opacity: .5; }
+
+        svg.ic {
+            display: inline-block;
+            vertical-align: -2px;
+            flex: none;
+        }
+
+        .sticky-date-badge.visible {
+            opacity: 1;
         }
 
         .chat-header {
@@ -4989,7 +5065,7 @@
                 <div class="icon-row">
                     <div class="volume-group">
                         <button onclick="toggleMute()" aria-label="Mute">
-                            <span id="muteIcon">🔊</span>
+                            <span id="muteIcon" data-ic="volume" data-ic-size="20"></span>
                         </button>
                         <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100"
                             oninput="setVolumeFromSlider(this.value)">
@@ -5013,8 +5089,8 @@
                 </div>
             </div>
             <div class="media-bottom-bar" id="videoBottomBar">
-                <button onclick="jumpToMessageFromViewer()">↗ Перейти к сообщению</button>
-                <button onclick="downloadCurrentVideo()">⬇ Скачать видео</button>
+                <button onclick="jumpToMessageFromViewer()"><span data-ic="external" data-ic-size="15"></span> Перейти к сообщению</button>
+                <button onclick="downloadCurrentVideo()"><span data-ic="download" data-ic-size="15"></span> Скачать видео</button>
             </div>
         </div>
     </div>
@@ -5023,19 +5099,19 @@
         <button class="close-btn" onclick="closePhotoViewer()">✕</button>
         <img id="photoViewerImg" src="" alt="Фото" draggable="false" oncontextmenu="return false;">
         <div class="media-bottom-bar">
-            <button onclick="jumpToMessageFromViewer()">↗ Перейти к сообщению</button>
-            <button onclick="downloadCurrentPhoto()">⬇ Скачать фото</button>
+            <button onclick="jumpToMessageFromViewer()"><span data-ic="external" data-ic-size="15"></span> Перейти к сообщению</button>
+            <button onclick="downloadCurrentPhoto()"><span data-ic="download" data-ic-size="15"></span> Скачать фото</button>
         </div>
     </div>
 
     <!-- ===== SETTINGS MODAL ===== -->
     <nav class="bottom-nav hidden" id="bottomNav">
         <button class="bottom-nav-item active" id="navChatsBtn" onclick="bottomNavGoChats()"><span
-                class="bn-icon">💬</span><span>Чаты</span></button>
+                class="bn-icon" data-ic="chat" data-ic-size="24"></span><span>Чаты</span></button>
         <button class="bottom-nav-item" id="navContactsBtn" onclick="bottomNavContacts()"><span
-                class="bn-icon">👥</span><span>Контакты</span></button>
+                class="bn-icon" data-ic="users" data-ic-size="24"></span><span>Контакты</span></button>
         <button class="bottom-nav-item" id="navCallsBtn" onclick="bottomNavCalls()"><span
-                class="bn-icon">📞</span><span>Звонки</span></button>
+                class="bn-icon" data-ic="phone" data-ic-size="24"></span><span>Звонки</span></button>
         <button class="bottom-nav-item" id="navSettingsBtn" onclick="openSettingsModal()"><span
                 class="bn-icon">⚙️</span><span>Настройки</span></button>
     </nav>
@@ -5093,11 +5169,11 @@
             </div>
             <div id="newChatModalMenu">
                 <button class="chat-profile-option" onclick="openCreateGroupForm()">
-                    <span class="opt-icon-tile" style="background:#4E9DE0;">👥</span>
+                    <span class="opt-icon-tile" style="background:#4E9DE0;color:#fff;" data-ic="users" data-ic-size="20"></span>
                     <span class="opt-label">Создать группу</span>
                 </button>
                 <button class="chat-profile-option" onclick="openJoinByLinkForm()">
-                    <span class="opt-icon-tile" style="background:#8B7FE8;">🔗</span>
+                    <span class="opt-icon-tile" style="background:#8B7FE8;color:#fff;" data-ic="link" data-ic-size="20"></span>
                     <span class="opt-label">Вступить по ссылке</span>
                 </button>
             </div>
@@ -5232,11 +5308,11 @@
     </symbol>
     <div id="chatsSection" class="section hidden">
         <div class="section-header-row">
-            <h3>💬 Чаты</h3>
+            <h3>Чаты</h3>
             <button type="button" class="chat-profile-close" title="Новая история"
-                style="position:static;" onclick="openStoryCreator()">📷</button>
+                style="position:static;" onclick="openStoryCreator()" data-ic="camera" data-ic-size="18"></button>
             <button type="button" id="newChatBtn" class="chat-profile-close" title="Новый чат"
-                style="position:static;margin-left:4px;" onclick="openNewChatModal()">✏️</button>
+                style="position:static;margin-left:4px;" onclick="openNewChatModal()" data-ic="edit" data-ic-size="18"></button>
         </div>
         <!-- Лента историй (прокручивается горизонтально, как в оф. MAX-приложении) -->
         <div id="storiesFeed" style="display:none;flex-direction:row;gap:12px;overflow-x:auto;padding:8px 0 12px;scrollbar-width:none;-ms-overflow-style:none;"></div>
@@ -5285,7 +5361,7 @@
 
     <div id="chatDetailSection" class="section hidden">
         <div class="chat-header">
-            <button class="back-btn" id="backBtn">←</button>
+            <button class="back-btn" id="backBtn" aria-label="Назад"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
             <div class="chat-avatar" id="chatDetailAvatar"></div>
             <div class="chat-info-block">
                 <div class="chat-name chat-name-clickable" id="chatDetailName" onclick="openChatProfile()"></div>
@@ -5295,9 +5371,10 @@
             <label id="e2eToggleWrap" title="Шифрование сообщений"
                 style="display:flex;align-items:center;gap:4px;margin-left:8px;cursor:pointer;user-select:none;">
                 <input type="checkbox" id="e2eCheckbox" onchange="onE2eCheckboxChange()" style="cursor:pointer;">
-                <span id="e2eStatusIcon" style="font-size:16px;">🔓</span>
+                <span id="e2eStatusIcon" style="display:inline-flex;align-items:center;"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg></span>
             </label>
         </div>
+        <div id="stickyDateBadge" class="date-separator sticky-date-badge"></div>
         <div id="messagesList"></div>
         <button type="button" id="botWebAppBtn" class="bot-webapp-bar hidden" onclick="openBotWebApp()">
             <span class="bot-webapp-icon">⊞</span>
@@ -5338,14 +5415,16 @@
             <button type="button" id="botMenuBtn" onclick="toggleBotMenu()" title="Меню команд бота"
                 class="composer-icon-btn" style="display:none;font-size:18px;">☰</button>
             <button type="button" id="stickerBtn" onclick="toggleStickerPanel()" title="Стикеры"
-                class="composer-icon-btn" style="font-size:19px;">😀</button>
+                class="composer-icon-btn" style="font-size:19px;"><span data-ic="smile" data-ic-size="22"></span></button>
+            <button type="button" id="pollBtn" onclick="openPollCreator()" title="Создать опрос"
+                class="composer-icon-btn"><span data-ic="poll" data-ic-size="22"></span></button>
             <input type="text" id="messageText" placeholder="Сообщение" oninput="updateComposerSendState()">
             <!-- Кружок и "Отправить" — Telegram-style: пока поле пустое, справа
                  виден только кружок (запись); как только появился текст,
                  кружок прячется и вместо него — круглая синяя кнопка отправки
                  (paper-plane), как в настоящем Telegram. -->
             <button type="button" id="videoNoteBtn" title="Видео-кружок (удержи для записи)"
-                class="composer-icon-btn" style="font-size:19px;user-select:none;-webkit-user-select:none;">🔴</button>
+                class="composer-icon-btn" style="font-size:19px;user-select:none;-webkit-user-select:none;"><span data-ic="record" data-ic-size="22"></span></button>
             <button id="sendMessageBtn" class="composer-send-btn" title="Отправить" style="display:none;">
                 <svg width="20" height="20" viewBox="0 0 24 24" style="display:block;pointer-events:none;">
                     <use href="#icon_send"></use>
@@ -5656,7 +5735,7 @@
         function toggleMute() {
             video.muted = !video.muted;
             isMuted = video.muted;
-            document.getElementById('muteIcon').textContent = isMuted ? '🔇' : '🔊';
+            document.getElementById('muteIcon').innerHTML = icon(isMuted ? 'volumeOff' : 'volume', 20);
             const slider = document.getElementById('volumeSlider');
             if (slider) slider.value = isMuted ? 0 : Math.round((video.volume || 1) * 100);
         }
@@ -5666,7 +5745,7 @@
             video.volume = v;
             video.muted = v === 0;
             isMuted = video.muted;
-            document.getElementById('muteIcon').textContent = video.muted ? '🔇' : (v < 0.5 ? '🔉' : '🔊');
+            document.getElementById('muteIcon').innerHTML = icon(video.muted ? 'volumeOff' : (v < 0.5 ? 'volumeLow' : 'volume'), 20);
         }
 
         function toggleFullscreen() {
@@ -5926,7 +6005,7 @@
             const btn = container?.querySelector('.inline-mute-btn');
             if (!video) return;
             video.muted = !video.muted;
-            if (btn) btn.textContent = video.muted ? '🔇' : '🔊';
+            if (btn) btn.innerHTML = icon(video.muted ? 'volumeOff' : 'volume', 18);
         }
 
 
@@ -6648,7 +6727,7 @@
                 // качаем и кешируем (cachedObjectUrl) только по клику, см.
                 // inlineVideoTap().
                 html +=
-                    `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">🎬</div>`;
+                    `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#666;font-size:40px;">${icon('film', 40)}</div>`;
             }
             html += `
                     <div class="play-icon">▶</div>
@@ -6656,7 +6735,7 @@
                 </div>
                 <div class="inline-top-actions" onclick="event.stopPropagation();">
                     <button class="inline-icon-btn" onclick="expandInlineVideo('${uid}')" aria-label="Развернуть на весь экран">⛶</button>
-                    <button class="inline-icon-btn inline-mute-btn" onclick="toggleInlineMute('${uid}')" aria-label="Звук">🔇</button>
+                    <button class="inline-icon-btn inline-mute-btn" onclick="toggleInlineMute('${uid}')" aria-label="Звук">${icon('volumeOff', 18)}</button>
                 </div>
             </div>
         `;
@@ -7410,8 +7489,8 @@
                             <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(bot.url)}</div>
                             <div style="font-size:11px;color:#aaa;margin-top:2px;">${bot.source === 'manual' ? 'добавлен вручную' : 'из реестра'}${bot.lastUsedAt ? ' · запускался' : ''}</div>
                         </div>
-                        <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openLocalBotChat('${bot.id}')">💬 Чат</button>
-                        <button class="settings-menu-item danger" style="width:auto;padding:6px 10px;" onclick="removeCustomBot('${bot.id}')">🗑️</button>
+                        <button class="settings-menu-item" style="width:auto;padding:6px 10px;" onclick="openLocalBotChat('${bot.id}')">${icon('chat', 15)} Чат</button>
+                        <button class="settings-menu-item danger" style="width:auto;padding:6px 10px;" onclick="removeCustomBot('${bot.id}')">${icon('trash', 15)}</button>
                     </div>`).join('')
                 : `<div class="settings-empty">Пока нет добавленных ботов</div>`;
 
@@ -7481,7 +7560,7 @@
                         ${bot.description ? `<div style="font-size:12px;color:#666;margin-top:2px;">${escapeHtml(bot.description)}</div>` : ''}
                     </div>
                     <button class="settings-menu-item" style="width:auto;padding:6px 10px;" ${already ? 'disabled' : ''}
-                        onclick="addCustomBotFromRegistry(${idx})">${already ? '✅ Добавлен' : '➕ Добавить'}</button>
+                        onclick="addCustomBotFromRegistry(${idx})">${already ? 'Добавлен' : icon('plus', 14) + ' Добавить'}</button>
                 </div>`;
             }).join('');
         }
@@ -8751,7 +8830,7 @@
                     btn.className = 'settings-menu-item';
                     if (item.danger) btn.classList.add('danger');
                     btn.innerHTML = `
-                    <span class="icon" style="background:${item.color || '#8E8E93'};">${item.icon || '•'}</span>
+                    <span class="icon" style="background:${item.color || '#8E8E93'};color:#fff;">${/^[a-z][A-Za-z]*$/.test(item.icon || '') ? icon(item.icon, 18) : (item.icon || '•')}</span>
                     <span class="label">${item.label}</span>
                     ${item.badge ? `<span class="settings-menu-badge">${item.badge}</span>` : ''}
                     <span class="arrow">›</span>
@@ -8782,6 +8861,7 @@
                 }
                 this.currentPage = id;
                 if (id === 'sessions') loadSessions();
+                if (id === 'security') tfaInit();
                 if (id === 'storage') settingsMenu.refreshPage('storage');
                 this.menuContainer.querySelectorAll('.settings-menu-item').forEach((btn, index) => {
                     const items = this.items.filter(it => !it.divider);
@@ -9337,25 +9417,25 @@
 
         const settingsMenu = new SettingsMenu();
         settingsMenu
-            .addItem({ id: 'account', icon: '👤', color: '#4E9DE0', label: 'Аккаунт', page: renderAccountPage })
-            .addItem({ id: 'inviteFriends', icon: '🔗', color: '#8B7FE8', label: 'Пригласить друзей', page: renderInviteFriendsPage })
+            .addItem({ id: 'account', icon: 'user', color: '#4E9DE0', label: 'Аккаунт', page: renderAccountPage })
+            .addItem({ id: 'inviteFriends', icon: 'link', color: '#8B7FE8', label: 'Пригласить друзей', page: renderInviteFriendsPage })
             .addDivider()
-            .addItem({ id: 'folders', icon: '🗂️', color: '#4E9DE0', label: 'Папки', page: renderFoldersPage })
-            .addItem({ id: 'security', icon: '🔒', color: '#4FCF6E', label: 'Безопасность', page: renderSecurityPage })
-            .addItem({ id: 'sessions', icon: '💻', color: '#43BFC7', label: 'Устройства', page: renderSessionsPage })
-            .addItem({ id: 'notifications', icon: '🔔', color: '#F05656', label: 'Уведомления', page: renderNotificationsPage })
-            .addItem({ id: 'storage', icon: '💾', color: '#5A9CE8', label: 'Использование памяти', page: renderStoragePage })
-            .addItem({ id: 'theme', icon: '🎨', color: '#D6549E', label: 'Оформление', page: renderThemePage })
-            .addItem({ id: 'language', icon: '🌐', color: '#9B59D0', label: 'Язык приложения', page: renderLanguagePage })
+            .addItem({ id: 'folders', icon: 'folder', color: '#4E9DE0', label: 'Папки', page: renderFoldersPage })
+            .addItem({ id: 'security', icon: 'lock', color: '#4FCF6E', label: 'Безопасность', page: renderSecurityPage })
+            .addItem({ id: 'sessions', icon: 'laptop', color: '#43BFC7', label: 'Устройства', page: renderSessionsPage })
+            .addItem({ id: 'notifications', icon: 'bell', color: '#F05656', label: 'Уведомления', page: renderNotificationsPage })
+            .addItem({ id: 'storage', icon: 'save', color: '#5A9CE8', label: 'Использование памяти', page: renderStoragePage })
+            .addItem({ id: 'theme', icon: 'palette', color: '#D6549E', label: 'Оформление', page: renderThemePage })
+            .addItem({ id: 'language', icon: 'globe', color: '#9B59D0', label: 'Язык приложения', page: renderLanguagePage })
             .addDivider()
-            .addItem({ id: 'vars', icon: '⚙️', color: '#8E8E93', label: 'Переменные', page: renderVarsPage })
-            .addItem({ id: 'debugDump', icon: '🐞', color: '#8E8E93', label: 'Дебаг-дамп', page: renderDebugDumpPage })
-            .addItem({ id: 'device', icon: '🛠️', color: '#8E8E93', label: 'Устройство (протокол)', page: renderDevicePage })
-            .addItem({ id: 'gifPreview', icon: '🖼️', color: '#8E8E93', label: 'Просмотреть Gif', page: renderGifPreviewPage })
-            .addItem({ id: 'bots', icon: '🤖', color: '#8E8E93', label: 'Кастомные боты', page: renderBotsPage })
-            .addItem({ id: 'scamCheck', icon: '🛡️', color: '#8E8E93', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
+            .addItem({ id: 'vars', icon: 'gear', color: '#8E8E93', label: 'Переменные', page: renderVarsPage })
+            .addItem({ id: 'debugDump', icon: 'bug', color: '#8E8E93', label: 'Дебаг-дамп', page: renderDebugDumpPage })
+            .addItem({ id: 'device', icon: 'wrench', color: '#8E8E93', label: 'Устройство (протокол)', page: renderDevicePage })
+            .addItem({ id: 'gifPreview', icon: 'image', color: '#8E8E93', label: 'Просмотреть Gif', page: renderGifPreviewPage })
+            .addItem({ id: 'bots', icon: 'bot', color: '#8E8E93', label: 'Кастомные боты', page: renderBotsPage })
+            .addItem({ id: 'scamCheck', icon: 'shield', color: '#8E8E93', label: 'Скам-проверка (ИИ)', page: renderScamCheckPage })
 
-            .addItem({ id: 'about', icon: 'ℹ️', color: '#8E8E93', label: 'О приложении', page: renderAboutPage })
+            .addItem({ id: 'about', icon: 'info', color: '#8E8E93', label: 'О приложении', page: renderAboutPage })
             .render();
 
         applyLogPanelVisibility();
@@ -9978,7 +10058,7 @@
             const optionsContainer = document.getElementById('chatProfileOptions');
             optionsContainer.innerHTML = `
             <button class="chat-profile-option" onclick="closeChatProfile(); openOrCreateDialogWithContact(contactsById[${JSON.stringify(userId)}] || { id: ${JSON.stringify(userId)} });">
-                <span class="opt-icon">💬</span>
+                <span class="opt-icon">${icon('chat', 20)}</span>
                 <span class="opt-label">Написать сообщение</span>
             </button>
         `;
@@ -10031,10 +10111,10 @@
             optionsContainer.innerHTML += isGroupLike ? `
             <div class="profile-quick-actions">
                 <button class="profile-quick-action" onclick="closeChatProfile()">
-                    <span class="pqa-icon">💬</span><span>Чат</span>
+                    <span class="pqa-icon">${icon('chat', 20)}</span><span>Чат</span>
                 </button>
                 <button class="profile-quick-action" id="profileQuickMuteBtn" onclick="toggleChatMuteAction(${chat.id})">
-                    <span class="pqa-icon">${mutedForQuickRow ? '🔕' : '🔔'}</span><span>Звук</span>
+                    <span class="pqa-icon">${icon(mutedForQuickRow ? 'bellOff' : 'bell', 20)}</span><span>Звук</span>
                 </button>
                 <button class="profile-quick-action" style="color:#E53935;" onclick="leaveChatAction(${chat.id})">
                     <span class="pqa-icon">🚪</span><span>Покинуть</span>
@@ -10046,7 +10126,7 @@
                     <span class="pqa-icon">✉️</span><span>Написать</span>
                 </button>
                 <button class="profile-quick-action" id="profileQuickMuteBtn" onclick="toggleChatMuteAction(${chat.id})">
-                    <span class="pqa-icon">${mutedForQuickRow ? '🔕' : '🔔'}</span><span>${mutedForQuickRow ? 'Включить' : 'Уведомления'}</span>
+                    <span class="pqa-icon">${icon(mutedForQuickRow ? 'bellOff' : 'bell', 20)}</span><span>${mutedForQuickRow ? 'Включить' : 'Уведомления'}</span>
                 </button>
                 <button class="profile-quick-action" onclick="openChatMediaModal(${chat.id})">
                     <span class="pqa-icon">🗂️</span><span>Медиа</span>
@@ -10090,7 +10170,7 @@
             if (chat.type === 'CHAT') {
                 optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="openAddMemberForm(${chat.id})">
-                <span class="opt-icon">➕</span>
+                <span class="opt-icon">${icon('plus', 20)}</span>
                 <span class="opt-label">Добавить участника</span>
             </button>
         `;
@@ -10157,11 +10237,11 @@
             if (chat.type === 'DIALOG' && otherId != null && otherId !== selfId && !isBotChat(chat)) {
                 optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="addContactAction(${JSON.stringify(otherId)})">
-                <span class="opt-icon">➕</span>
+                <span class="opt-icon">${icon('plus', 20)}</span>
                 <span class="opt-label">Добавить в контакты</span>
             </button>
             <button class="chat-profile-option" onclick="openContactPhotosModal(${JSON.stringify(otherId)})">
-                <span class="opt-icon">🖼️</span>
+                <span class="opt-icon">${icon('image', 20)}</span>
                 <span class="opt-label">Фотографии</span>
             </button>
         `;
@@ -10180,7 +10260,7 @@
             <input type="file" id="groupPhotoInput" accept="image/*" style="display:none;"
                    onchange="uploadGroupPhotoAction(${chat.id}, this.files[0])">
             <button class="chat-profile-option" onclick="document.getElementById('groupPhotoInput').click()">
-                <span class="opt-icon">🖼️</span>
+                <span class="opt-icon">${icon('image', 20)}</span>
                 <span class="opt-label">Сменить фото группы</span>
             </button>
         `;
@@ -10190,7 +10270,7 @@
             const muted = (chat.dontDisturbUntil || 0) !== 0;
             optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="toggleChatMuteAction(${chat.id})">
-                <span class="opt-icon">🔔</span>
+                <span class="opt-icon">${icon('bell', 20)}</span>
                 <span class="opt-label">Уведомления</span>
                 <span class="opt-toggle">
                     <div class="toggle-switch ${!muted ? 'active' : ''}" id="toggleMute">
@@ -10234,7 +10314,7 @@
                 <span class="opt-label">Очистить чат</span>
             </button>
             <button class="chat-profile-option chat-profile-danger" onclick="deleteChatAction(${chat.id})">
-                <span class="opt-icon">🗑️</span>
+                <span class="opt-icon">${icon('trash', 20)}</span>
                 <span class="opt-label">Удалить чат</span>
             </button>
         `;
@@ -10478,7 +10558,7 @@
                     <div class="chat-avatar" style="${avatarBg}">${avatarHtml}</div>
                     <div>
                         <div style="font-weight:600;font-size:15px;">${escapeHtml(name)}</div>
-                        <div style="font-size:13px;color:#888;">${chat.type === 'CHANNEL' ? '📢 Канал' : '👥 Группа'}${chat.participantsCount ? ` · ${chat.participantsCount} ${memberLabel}` : ''}</div>
+                        <div style="font-size:13px;color:#888;">${chat.type === 'CHANNEL' ? icon('megaphone', 14) + ' Канал' : icon('users', 14) + ' Группа'}${chat.participantsCount ? ` · ${chat.participantsCount} ${memberLabel}` : ''}</div>
                     </div>
                 </div>
             `;
@@ -10644,7 +10724,7 @@
             const quickBtn = document.getElementById('profileQuickMuteBtn');
             if (quickBtn) {
                 const nowMuted = dontDisturbUntil !== 0;
-                quickBtn.querySelector('.pqa-icon').textContent = nowMuted ? '🔕' : '🔔';
+                quickBtn.querySelector('.pqa-icon').innerHTML = icon(nowMuted ? 'bellOff' : 'bell', 20);
                 quickBtn.querySelector('span:last-child').textContent = nowMuted ? 'Включить' : 'Уведомления';
             }
         }
@@ -11041,6 +11121,7 @@
 
         function send(opcode, payload) {
             if (!isConnected) { log('❌ Нет соединения', 'error'); return; }
+            apiTrackPlainSend(opcode);
             ws.send(JSON.stringify({ opcode, payload }));
         }
 
@@ -11673,7 +11754,7 @@
             return `<div class="msg-code-block">
                 <div class="msg-code-header">
                     <span class="msg-code-lang">${escapeHtml(displayLang)}</span>
-                    <button type="button" class="msg-code-copy" onclick="copyCodeBlock(this)">📋 Копировать</button>
+                    <button type="button" class="msg-code-copy" onclick="copyCodeBlock(this)">${icon('copy', 13)} Копировать</button>
                 </div>
                 <pre class="msg-code-pre"><code class="msg-code-content language-${escapeHtml(displayLang)}">${codeHtml}</code></pre>
             </div>`;
@@ -12029,7 +12110,7 @@
                     <div id="folderEditorChats" style="max-height:260px;overflow-y:auto;">${chatsHtml}</div>
                     <div style="display:flex;gap:8px;margin-top:12px;">
                         <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="submitFolderEditor('${folder ? folder.id : ''}')">💾 Сохранить</button>
-                        ${folder ? `<button class="settings-menu-item danger" style="width:auto;padding:8px 14px;" onclick="deleteFolder('${folder.id}');closeFolderEditor();">🗑 Удалить</button>` : ''}
+                        ${folder ? `<button class="settings-menu-item danger" style="width:auto;padding:8px 14px;" onclick="deleteFolder('${folder.id}');closeFolderEditor();">${icon('trash', 15)} Удалить</button>` : ''}
                         <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="closeFolderEditor()">Отмена</button>
                     </div>
                 </div>
@@ -12063,18 +12144,18 @@
             if (!_folders.length) {
                 return `
                     <div style="padding:12px 0;color:#888;font-size:13px;">Папок пока нет.</div>
-                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="openFolderEditor(null)">➕ Создать папку</button>
+                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="openFolderEditor(null)">${icon('plus', 15)} Создать папку</button>
                 `;
             }
             const rows = _folders.filter(f => !isAllChatsFolder(f)).map(f => `
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--tg-border,#eee);">
                     <span>${f.emoji ? f.emoji + ' ' : ''}${escapeHtml(f.title)}</span>
-                    <button class="settings-menu-item" style="width:auto;padding:4px 10px;" onclick="openFolderEditor('${f.id}')">✏️</button>
+                    <button class="settings-menu-item" style="width:auto;padding:4px 10px;" onclick="openFolderEditor('${f.id}')">${icon('edit', 15)}</button>
                 </div>
             `).join('');
             return `
                 <div style="padding:4px 0;">${rows}</div>
-                <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:8px;" onclick="openFolderEditor(null)">➕ Создать папку</button>
+                <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:8px;" onclick="openFolderEditor(null)">${icon('plus', 15)} Создать папку</button>
             `;
         }
 
@@ -12277,19 +12358,183 @@
         function renderSecurityPage() {
             return `
                 <div style="padding:12px 0;">
-                    <div style="font-size:13px;color:#888;line-height:1.5;">
-                        Полная настройка двухфакторной аутентификации (включение, смена пароля,
-                        email для восстановления) в этом клиенте не реализована — в протоколе MAX
-                        это отдельный набор запросов, которые пока не подключены.
-                        <br><br>
-                        Если 2FA уже включена на аккаунте (через другой клиент), при входе
-                        по-прежнему потребуется её пароль — это работает.
-                        <br><br>
+                    <div style="font-weight:600;margin-bottom:8px;">Двухфакторная аутентификация</div>
+                    <div id="tfaBox" style="font-size:14px;line-height:1.5;">Загрузка…</div>
+                    <div style="font-size:13px;color:#888;line-height:1.5;margin-top:16px;">
                         Посмотреть и завершить чужие активные входы можно в разделе «Устройства».
                     </div>
-                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:12px;" onclick="settingsMenu.showPage('sessions')">💻 Перейти в «Устройства»</button>
+                    <button class="settings-menu-item" style="width:auto;padding:8px 14px;margin-top:12px;" onclick="settingsMenu.showPage('sessions')">${icon('laptop', 15)} Перейти в «Устройства»</button>
                 </div>
             `;
+        }
+
+        // ============ 2FA (формат: Komet two_factor_module.dart) ============
+        //   112 {type:0} -> {trackId}                  создать трек
+        //   104 {trackId} -> {password:{enabled,email,hint}}  статус
+        //   113 {trackId, password}                    проверить ТЕКУЩИЙ пароль (ответ с error = неверный)
+        //   107 {trackId, password}                    валидировать новый пароль
+        //   108 {trackId, hint}                        подсказка
+        //   109 {trackId, email} / 110 {trackId, verifyCode}   email для восстановления
+        //   111 {expectedCapabilities, trackId, password, hint?}  применить
+        //       включить: [0, 3 если подсказка, 4 если email]; сменить: [1, 3?]; отключить: [5] + remove2fa:true
+        // Пароли уходят только в запрос и нигде не сохраняются и не логируются.
+        function tfaErr(res, fallback) {
+            const p = (res && res.payload) || {};
+            return (p && (p.localizedMessage || p.message)) || fallback;
+        }
+
+        async function tfaNewTrack() {
+            const res = await apiCall(112, { type: 0 });
+            const id = res.ok && res.payload && res.payload.trackId;
+            if (!id) throw new Error(tfaErr(res, 'Не удалось начать операцию'));
+            return id;
+        }
+
+        async function tfaInit() {
+            const box = document.getElementById('tfaBox');
+            if (!box) return;
+            box.textContent = 'Загрузка…';
+            try {
+                const trackId = await tfaNewTrack();
+                const res = await apiCall(104, { trackId });
+                if (!res.ok) throw new Error(tfaErr(res, 'Не удалось получить статус'));
+                const pw = (res.payload && res.payload.password) || {};
+                const enabled = !!pw.enabled;
+                let html = enabled
+                    ? `<div>Включена${pw.email ? ' · email: ' + escapeHtml(pw.email) : ''}${pw.hint ? '<br>Подсказка: ' + escapeHtml(pw.hint) : ''}</div>
+                       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+                         <button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="tfaChangeWizard()">Сменить пароль</button>
+                         <button class="settings-menu-item danger" style="width:auto;padding:8px 14px;" onclick="tfaRemoveWizard()">Отключить</button>
+                       </div>`
+                    : `<div>Выключена</div>
+                       <div style="margin-top:10px;"><button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="tfaEnableWizard()">Включить</button></div>`;
+                box.innerHTML = html;
+            } catch (e) {
+                box.innerHTML = '<div>' + escapeHtml(e.message || 'Ошибка') + '</div><div style="margin-top:10px;"><button class="settings-menu-item" style="width:auto;padding:8px 14px;" onclick="tfaInit()">Повторить</button></div>';
+            }
+        }
+
+        function tfaForm(title, fieldsHtml, submitLabel, onSubmit, extraHtml) {
+            const back = mxModal(`<h4>${escapeHtml(title)}</h4><div id="tfaFormBody">${fieldsHtml}</div><div id="tfaFormErr" style="color:#d33;font-size:13px;min-height:16px;margin-top:4px;"></div><div class="mx-row">${extraHtml || ''}<button type="button" class="mx-btn" id="tfaCancel">Отмена</button><button type="button" class="mx-btn primary" id="tfaOk">${escapeHtml(submitLabel)}</button></div>`);
+            const errEl = back.querySelector('#tfaFormErr');
+            const okBtn = back.querySelector('#tfaOk');
+            const val = id => { const el = back.querySelector('#' + id); return el ? el.value : ''; };
+            back.querySelector('#tfaCancel').onclick = () => back.remove();
+            const run = async () => {
+                errEl.textContent = '';
+                okBtn.disabled = true;
+                try { await onSubmit(val, back); }
+                catch (e) { errEl.textContent = e.message || 'Ошибка'; }
+                finally { okBtn.disabled = false; }
+            };
+            okBtn.onclick = run;
+            back.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+            const first = back.querySelector('input');
+            if (first) first.focus();
+            return back;
+        }
+
+        const tfaPw = (id, ph) => `<input type="password" id="${id}" placeholder="${ph}" autocomplete="new-password">`;
+
+        async function tfaCheckCurrent(trackId, password) {
+            const res = await apiCall(113, { trackId, password });
+            if (!res.ok) throw new Error(tfaErr(res, 'Не удалось проверить пароль'));
+            if (res.payload && res.payload.error) throw new Error('Неверный пароль');
+        }
+
+        async function tfaValidateNew(trackId, password, hint) {
+            let res = await apiCall(107, { trackId, password });
+            if (!res.ok) throw new Error(tfaErr(res, 'Пароль не подходит'));
+            if (hint) {
+                res = await apiCall(108, { trackId, hint });
+                if (!res.ok) throw new Error(tfaErr(res, 'Подсказка не подходит'));
+            }
+        }
+
+        async function tfaEnableWizard() {
+            let trackId;
+            try { trackId = await tfaNewTrack(); } catch (e) { mxToast(e.message); return; }
+            let state = { password: '', hint: '' };
+            let back = tfaForm('Включить 2FA', tfaPw('tfaP1', 'Пароль') + tfaPw('tfaP2', 'Повторите пароль') + '<input type="text" id="tfaH" placeholder="Подсказка (необязательно)" maxlength="100">', 'Далее', async (val, m) => {
+                const p1 = val('tfaP1'), p2 = val('tfaP2'), h = val('tfaH').trim();
+                if (!p1) throw new Error('Введите пароль');
+                if (p1 !== p2) throw new Error('Пароли не совпадают');
+                await tfaValidateNew(trackId, p1, h);
+                state = { password: p1, hint: h };
+                m.remove();
+                tfaEnableEmailStep(trackId, state);
+            });
+        }
+
+        function tfaEnableEmailStep(trackId, state) {
+            tfaForm('Email для восстановления', '<input type="text" id="tfaE" placeholder="Email" autocomplete="email">', 'Отправить код', async (val, m) => {
+                const email = val('tfaE').trim();
+                if (!email) throw new Error('Введите email');
+                const res = await apiCall(109, { trackId, email });
+                if (!res.ok) throw new Error(tfaErr(res, 'Не удалось отправить код'));
+                m.remove();
+                tfaEnableCodeStep(trackId, state);
+            }, '<button type="button" class="mx-btn" id="tfaSkip">Пропустить</button>').querySelector('#tfaSkip').onclick = async function () {
+                this.closest('.mx-modal-back').remove();
+                try { await tfaEnableFinish(trackId, state, false); } catch (e) { mxToast(e.message); }
+            };
+        }
+
+        function tfaEnableCodeStep(trackId, state) {
+            tfaForm('Код из письма', '<input type="text" id="tfaC" placeholder="Код" inputmode="numeric" autocomplete="one-time-code">', 'Подтвердить', async (val, m) => {
+                const code = val('tfaC').trim();
+                if (!code) throw new Error('Введите код');
+                const res = await apiCall(110, { trackId, verifyCode: code });
+                if (!res.ok) throw new Error(tfaErr(res, 'Неверный код'));
+                await tfaEnableFinish(trackId, state, true);
+                m.remove();
+            });
+        }
+
+        async function tfaEnableFinish(trackId, state, withEmail) {
+            const payload = {
+                expectedCapabilities: [0].concat(state.hint ? [3] : [], withEmail ? [4] : []),
+                trackId,
+                password: state.password,
+            };
+            if (state.hint) payload.hint = state.hint;
+            const res = await apiCall(111, payload);
+            state.password = '';
+            if (!res.ok) throw new Error(tfaErr(res, 'Не удалось включить 2FA'));
+            mxToast('Двухфакторная аутентификация включена');
+            tfaInit();
+        }
+
+        function tfaChangeWizard() {
+            tfaForm('Сменить пароль', tfaPw('tfaCur', 'Текущий пароль') + tfaPw('tfaN1', 'Новый пароль') + tfaPw('tfaN2', 'Повторите новый пароль') + '<input type="text" id="tfaH" placeholder="Подсказка (необязательно)" maxlength="100">', 'Сменить', async (val, m) => {
+                const cur = val('tfaCur'), n1 = val('tfaN1'), n2 = val('tfaN2'), h = val('tfaH').trim();
+                if (!cur || !n1) throw new Error('Заполните пароли');
+                if (n1 !== n2) throw new Error('Новые пароли не совпадают');
+                const trackId = await tfaNewTrack();
+                await tfaCheckCurrent(trackId, cur);
+                await tfaValidateNew(trackId, n1, h);
+                const payload = { expectedCapabilities: [1].concat(h ? [3] : []), trackId, password: n1 };
+                if (h) payload.hint = h;
+                const res = await apiCall(111, payload);
+                if (!res.ok) throw new Error(tfaErr(res, 'Не удалось сменить пароль'));
+                m.remove();
+                mxToast('Пароль изменён');
+                tfaInit();
+            });
+        }
+
+        function tfaRemoveWizard() {
+            tfaForm('Отключить 2FA', '<div style="font-size:14px;margin-bottom:6px;">Введите текущий пароль, чтобы отключить двухфакторную аутентификацию.</div>' + tfaPw('tfaCur', 'Текущий пароль'), 'Отключить', async (val, m) => {
+                const cur = val('tfaCur');
+                if (!cur) throw new Error('Введите пароль');
+                const trackId = await tfaNewTrack();
+                await tfaCheckCurrent(trackId, cur);
+                const res = await apiCall(111, { expectedCapabilities: [5], trackId, remove2fa: true });
+                if (!res.ok) throw new Error(tfaErr(res, 'Не удалось отключить 2FA'));
+                m.remove();
+                mxToast('Двухфакторная аутентификация отключена');
+                tfaInit();
+            });
         }
 
         // ============ ЯЗЫК ПРИЛОЖЕНИЯ ============
@@ -12376,7 +12621,7 @@
             const isOnline = otherId != null && presenceById[otherId]?.online && !isBotChat(chat);
             const onlineDot = isOnline ? '<span class="online-dot"></span>' : '';
             const pinned = isChatPinned(chat.id);
-            const pinIcon = pinned ? '<span class="chat-pin-icon" title="Закреплён">📌</span>' : '';
+            const pinIcon = pinned ? '<span class="chat-pin-icon" title="Закреплён">' + icon('pin', 13) + '</span>' : '';
             const muted = (chat.dontDisturbUntil || 0) !== 0;
 
             const el = document.createElement('div');
@@ -12389,9 +12634,9 @@
             // сделать, кнопку под него рисовать не стал.
             el.innerHTML = `
                 <div class="chat-item-actions">
-                    <button class="chat-swipe-btn pin" onclick="event.stopPropagation();togglePinChat(${chat.id});closeSwipedChatItem(this);">${pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
-                    <button class="chat-swipe-btn mute" onclick="event.stopPropagation();toggleChatMuteAction(${chat.id});closeSwipedChatItem(this);">${muted ? '🔔 Вкл.' : '🔇 Выкл.'}</button>
-                    <button class="chat-swipe-btn delete" onclick="event.stopPropagation();deleteChatAction(${chat.id});">🗑 Удалить</button>
+                    <button class="chat-swipe-btn pin" onclick="event.stopPropagation();togglePinChat(${chat.id});closeSwipedChatItem(this);">${icon('pin', 15)} ${pinned ? 'Открепить' : 'Закрепить'}</button>
+                    <button class="chat-swipe-btn mute" onclick="event.stopPropagation();toggleChatMuteAction(${chat.id});closeSwipedChatItem(this);">${muted ? icon('bell', 15) + ' Вкл.' : icon('bellOff', 15) + ' Выкл.'}</button>
+                    <button class="chat-swipe-btn delete" onclick="event.stopPropagation();deleteChatAction(${chat.id});">${icon('trash', 15)} Удалить</button>
                 </div>
                 <div class="chat-item" style="position:relative;">
                     <div class="chat-avatar" data-initials="${initial}" data-avatar-seed="${chat.id}" style="position:relative;${avatarBg}">${avatarHtml}${onlineDot}</div>
@@ -12486,7 +12731,7 @@
                 <button onclick="togglePinChat(${chatId});closeChatPinMenu();"
                     style="display:flex;align-items:center;gap:8px;width:100%;padding:11px 16px;border:none;background:none;
                     text-align:left;font-size:14px;color:var(--tg-text,#222);cursor:pointer;">
-                    ${pinned ? '📌 Открепить' : '📌 Закрепить'}
+                    ${icon('pin', 15)} ${pinned ? 'Открепить' : 'Закрепить'}
                 </button>
             `;
             document.body.appendChild(menu);
@@ -13061,7 +13306,7 @@
                     if (timeEl && !timeEl.querySelector('.msg-deleted-badge')) {
                         const badge = document.createElement('span');
                         badge.className = 'msg-deleted-badge';
-                        badge.textContent = '🗑 Удалено';
+                        badge.innerHTML = icon('trash', 12) + ' Удалено';
                         timeEl.insertBefore(badge, timeEl.firstChild);
                     }
                 });
@@ -13632,7 +13877,7 @@
                 });
                 const moreBtn = document.createElement('div');
                 moreBtn.className = 'map-emoji map-more';
-                moreBtn.textContent = '➕';
+                moreBtn.innerHTML = icon('plus', 16);
                 moreBtn.title = 'Больше реакций';
                 moreBtn.onclick = () => {
                     hideMessageActionPanel();
@@ -13654,7 +13899,7 @@
             if (stickerAttach) {
                 const sendBtn = document.createElement('div');
                 sendBtn.className = 'map-action';
-                sendBtn.textContent = '↪️ Отправить ещё раз';
+                sendBtn.innerHTML = icon('retry', 15) + ' Отправить ещё раз';
                 sendBtn.onclick = () => {
                     hideMessageActionPanel();
                     resendStickerAttach(stickerAttach);
@@ -13668,7 +13913,7 @@
                 if (setId != null) {
                     const addPackBtn = document.createElement('div');
                     addPackBtn.className = 'map-action';
-                    addPackBtn.textContent = '➕ Добавить стикерпак';
+                    addPackBtn.innerHTML = icon('plus', 15) + ' Добавить стикерпак';
                     addPackBtn.onclick = () => {
                         hideMessageActionPanel();
                         favoriteStickerSetIds = [setId, ...favoriteStickerSetIds.filter(id => id !== setId)];
@@ -13687,10 +13932,21 @@
                 }
             }
 
+            if (!isOwn && !m.deleted && /^\d+$/.test(String(m.id))) {
+                const reportBtn = document.createElement('div');
+                reportBtn.className = 'map-action';
+                reportBtn.innerHTML = icon('flag', 15) + ' Пожаловаться';
+                reportBtn.onclick = () => {
+                    hideMessageActionPanel();
+                    reportMessageAction(m);
+                };
+                panel.appendChild(reportBtn);
+            }
+
             if (!m.deleted) {
                 const deleteBtn = document.createElement('div');
                 deleteBtn.className = 'map-action danger';
-                deleteBtn.textContent = '🗑 Удалить';
+                deleteBtn.innerHTML = icon('trash', 15) + ' Удалить';
                 deleteBtn.onclick = () => {
                     hideMessageActionPanel();
                     deleteMessageAction(m, isOwn);
@@ -14028,10 +14284,10 @@
             if (m.__e2e && m.__e2e.encrypted) {
                 if (m.__e2e.ok) {
                     m.text = m.__e2e.text;
-                    encBadgeHtml = '<div class="msg-enc-badge">🔒 Зашифровано (E2E)</div>';
+                    encBadgeHtml = '<div class="msg-enc-badge">' + icon('lock', 12) + ' Зашифровано (E2E)</div>';
                 } else {
                     m.text = '🔒 Не удалось расшифровать сообщение';
-                    encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">🔒 Ошибка расшифровки</div>';
+                    encBadgeHtml = '<div class="msg-enc-badge msg-enc-badge-error">' + icon('lock', 12) + ' Ошибка расшифровки</div>';
                 }
             }
             // Бейдж скам-проверки: пустой и скрытый, пока не пришёл вердикт
@@ -14085,7 +14341,7 @@
                         attachesHtml +=
                             `<div class="msg-attach"><div class="lazy-media-placeholder${previewUrl ? ' has-preview' : ''}" data-src="${src}" data-msg-id="${m.id}" onclick="loadLazyPhoto(this)"${previewStyle}><span class="lazy-media-icon">🖼️</span><span class="lazy-media-label">Нажмите, чтобы загрузить</span></div></div>`;
                     } else {
-                        attachesHtml += `<div class="msg-attach msg-file">🖼️ Фото (недоступно)</div>`;
+                        attachesHtml += `<div class="msg-attach msg-file">${icon('image', 15)} Фото (недоступно)</div>`;
                     }
                     return;
                 }
@@ -14139,7 +14395,7 @@
                     } else {
                         attachesHtml += `
           <div class="msg-attach msg-file" style="color: #888;">
-            📎 ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
+            ${icon('clip', 15)} ${escapeHtml(fileName)} ${sizeText} (ссылка недоступна)
           </div>`;
                     }
                     return;
@@ -14189,7 +14445,7 @@
                         }
                         callText += ` (${durationStr})`;
                     }
-                    attachesHtml += `<div class="msg-attach msg-file">📞 ${callText}</div>`;
+                    attachesHtml += `<div class="msg-attach msg-file">${icon('phone', 15)} ${callText}</div>`;
                     return;
                 }
                 if (a._type === 'CONTROL') {
@@ -14200,6 +14456,10 @@
                 }
                 if (a._type === 'INLINE_KEYBOARD' || a._type === 'KEYBOARD') {
                     keyboardHtml += renderKeyboardAttach(a, m.id);
+                    return;
+                }
+                if (a._type === 'POLL') {
+                    attachesHtml += renderPollAttach(a, m);
                     return;
                 }
                 // Неизвестный тип attach — не рендерим, но логируем, чтобы можно было
@@ -14229,7 +14489,7 @@
                         fwdName = 'Неизвестно';
                     }
                 }
-                forwardHeaderHtml = `<div class="msg-forward-header">↪ Переслано от <span>${escapeHtml(fwdName)}</span></div>`;
+                forwardHeaderHtml = `<div class="msg-forward-header">${icon('forward', 13)} Переслано от <span>${escapeHtml(fwdName)}</span></div>`;
             }
             const isTranslationKey = m.text && /^[a-z0-9]+(\.[a-z0-9]+)+$/i.test(m.text);
             const hasControlAttach = (m.attaches || []).some(a => a._type === 'CONTROL');
@@ -14277,11 +14537,15 @@
             const chat = chatsById[currentChatId];
             const statusHtml = isOwn ? buildStatusTicksHtml(m, chat) : '';
             const deletedBadgeHtml = m.deleted
-                ? '<span class="msg-deleted-badge">🗑 Удалено</span>'
+                ? '<span class="msg-deleted-badge">' + icon('trash', 12) + ' Удалено</span>'
                 : '';
             const timeHtml = `<div class="msg-time">${deletedBadgeHtml}${time}${statusHtml}</div>`;
             const reactionsHtml = buildReactionsHtml(m);
-            el.innerHTML = avatarHtml + senderNameHtml + forwardHeaderHtml + replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + timeHtml
+            let commentsHtml = '';
+            if (chat && chat.type === 'CHANNEL' && /^\d+$/.test(String(m.id)) && !m.deleted) {
+                commentsHtml = `<div class="msg-comments" data-chat-id="${escapeHtml(String(currentChatId))}" data-post-id="${escapeHtml(String(m.id))}"></div>`;
+            }
+            el.innerHTML = avatarHtml + senderNameHtml + forwardHeaderHtml + replyQuoteHtml + attachesHtml + textHtml + encBadgeHtml + scamBadgeHtml + reactionsHtml + keyboardHtml + commentsHtml + timeHtml
             return el;
         }
 
@@ -14828,6 +15092,8 @@
             list.innerHTML = '';
             earliestMessageTime = null;
             isLoadingMore = false;
+            document.getElementById('stickyDateBadge')?.classList.remove('visible');
+            positionStickyDateBadge();
             // Инвалидируем ожидание ответов chatHistory от ПРЕДЫДУЩЕГО чата —
             // если его опоздавший ответ всё же придёт, обработчик opcode 49
             // теперь его отбросит вместо того, чтобы отрендерить не туда.
@@ -14880,6 +15146,75 @@
         // ========================================
         // Разделители дат в списке сообщений
         // ========================================
+        // Единый набор SVG-иконок (stroke = currentColor, наследуют цвет текста
+        // и темы) вместо эмодзи в интерфейсе чата. Объявлено функцией, а не
+        // const-объектом на верхнем уровне — чтобы не зависеть от порядка
+        // инициализации (функции поднимаются, const — нет).
+        function icon(name, size) {
+            const P = {
+                back: '<path d="M15 5l-7 7 7 7"/>',
+                forward: '<path d="M15 4l6 5-6 5"/><path d="M21 9H9a6 6 0 0 0-6 6v3"/>',
+                trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
+                clip: '<path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7L14 4.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3L15 7.5"/>',
+                lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+                unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+                clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+                chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+                users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2A6.5 6.5 0 0 1 21.5 20"/>',
+                user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+                phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+                link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/>',
+                pin: '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/>',
+                bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+                bellOff: '<path d="M6 9a6 6 0 0 1 9.3-5M18 9c0 3 .6 4.8 1.2 5.8M4 16s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/>',
+                volume: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+                volumeLow: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>',
+                volumeOff: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+                download: '<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
+                external: '<path d="M7 17L17 7"/><path d="M8 7h9v9"/>',
+                edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+                copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+                plus: '<path d="M12 5v14M5 12h14"/>',
+                camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+                image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
+                film: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M10 9l5 3-5 3z"/>',
+                megaphone: '<path d="M4 10v4h3l8 4V6L7 10z"/><path d="M18 9a4 4 0 0 1 0 6"/>',
+                retry: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/>',
+                smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5v.01M15 9.5v.01"/>',
+                record: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+                flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+                poll: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+                folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+                laptop: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M2.5 19h19"/>',
+                palette: '<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.6-2.5H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/>',
+                globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+                gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/>',
+                bug: '<rect x="8" y="8" width="8" height="11" rx="4"/><path d="M9 8a3 3 0 0 1 6 0M3 12h5M16 12h5M4 19l4-2M20 19l-4-2M4 6l4 3M20 6l-4 3"/>',
+                wrench: '<path d="M14.5 6.5a4 4 0 0 0 5 5L10 21a2.1 2.1 0 0 1-3-3z"/><path d="M14.5 6.5l3-3 3 3-3 3"/>',
+                bot: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4"/><circle cx="9" cy="13" r="1.2"/><circle cx="15" cy="13" r="1.2"/>',
+                shield: '<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+                info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>',
+                save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>'
+            };
+            const s = size || 14;
+            return '<svg class="ic" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P[name] || '') + '</svg>';
+        }
+
+        // Статичная разметка не может вызывать icon() — помечаем места
+        // атрибутом data-ic="имя" (опц. data-ic-size) и заполняем при старте.
+        function fillStaticIcons(root) {
+            (root || document).querySelectorAll('[data-ic]').forEach(el => {
+                if (el.dataset.icDone) return;
+                el.innerHTML = icon(el.dataset.ic, Number(el.dataset.icSize) || 18);
+                el.dataset.icDone = '1';
+            });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => fillStaticIcons());
+        } else {
+            fillStaticIcons();
+        }
+
         function dateKeyOf(ts) {
             const d = new Date(ts || Date.now());
             return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
@@ -14921,7 +15256,55 @@
                     lastKey = key;
                 }
             });
+            updateStickyDateBadge();
         }
+
+        // Ставим плавающий заголовок сразу под шапкой чата — высота шапки не
+        // фиксирована (зависит от контента chat-info-block), поэтому меряем
+        // её реально, а не хардкодим пиксели.
+        function positionStickyDateBadge() {
+            const header = document.querySelector('#chatDetailSection .chat-header');
+            const badge = document.getElementById('stickyDateBadge');
+            if (header && badge) {
+                badge.style.top = (header.offsetHeight + 6) + 'px';
+            }
+        }
+
+        // Определяет, какой день сейчас "наверху" видимой области списка, и
+        // подставляет его текст в плавающий бейдж. Простая и надёжная схема:
+        // сравниваем реальные экранные координаты (getBoundingClientRect), а
+        // не offsetTop — тогда не важно, что является offsetParent-ом.
+        function updateStickyDateBadge() {
+            const list = document.getElementById('messagesList');
+            const badge = document.getElementById('stickyDateBadge');
+            if (!list || !badge) return;
+            const seps = list.querySelectorAll('.date-separator:not(.sticky-date-badge)');
+            if (!seps.length) {
+                badge.classList.remove('visible');
+                return;
+            }
+            const listTop = list.getBoundingClientRect().top;
+            let current = null;
+            seps.forEach(sep => {
+                const sepTop = sep.getBoundingClientRect().top;
+                // Разделитель уже "прошёл" верхнюю границу списка (или
+                // вот-вот пройдёт, небольшой буфер в 4px) — значит именно
+                // его день сейчас отображается наверху.
+                if (sepTop - listTop <= 4) {
+                    current = sep;
+                }
+            });
+            if (current) {
+                badge.textContent = current.textContent;
+                badge.classList.add('visible');
+            } else {
+                // Ещё не доскроллили до первого разделителя (он сам виден
+                // целиком внизу верхней границы) — плавающий дубликат не нужен.
+                badge.classList.remove('visible');
+            }
+        }
+
+        window.addEventListener('resize', positionStickyDateBadge);
 
         // ========================================
         // Отметка сообщений прочитанными (CHAT_MARK, opcode 50)
@@ -15067,6 +15450,8 @@
             // так что принцип "не тянуть трафик без явного действия"
             // соблюдается — просто не переспрашиваем то, что уже скачано.
             autoLoadCachedPhotos(list);
+            hydratePolls(list);
+            hydrateComments(list);
 
             // --------------------------------------------
             // Догружаем видео-источник для GIF-вложений, у которых нет
@@ -15083,6 +15468,7 @@
         }
 
         document.getElementById('messagesList').addEventListener('scroll', function () {
+            updateStickyDateBadge();
             if (this.scrollTop < 50 && !isLoadingMore && earliestMessageTime != null && currentChatId != null) {
                 isLoadingMore = true;
                 send(49, {
@@ -15093,6 +15479,509 @@
                     getMessages: true,
                 });
             }
+        });
+
+
+        // ========================================
+        // Запрос-ответ поверх WS: apiCall(opcode, payload) -> Promise
+        // ========================================
+        // bridge.py присылает {_seqAck, opcode, seq} сразу после отправки
+        // запроса, а ответ сервера приходит с тем же seq — по нему и
+        // сопоставляем (та же схема, что Komet: Api.sendRequest).
+        // Только для опкодов, где нет собственных обработчиков в onmessage.
+        // Очередь ожиданий ack по опкоду: элемент — запись apiCall либо null
+        // (обычный send() того же опкода). Так ack/ответ на apiCall(49, …)
+        // не путается с обычными запросами истории чата.
+        const _apiAckQueue = {};
+        const _apiTracked = new Set([49, 64, 91]);
+        const _apiPending = new Map();
+        let _apiSending = false;
+
+        function apiTrackPlainSend(opcode) {
+            if (_apiSending || !_apiTracked.has(opcode)) return;
+            (_apiAckQueue[opcode] = _apiAckQueue[opcode] || []).push(null);
+        }
+
+        function apiCall(opcode, payload, timeoutMs) {
+            return new Promise(resolve => {
+                if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                    resolve({ ok: false, error: 'offline' });
+                    return;
+                }
+                const entry = { opcode, resolve, done: false, seq: null };
+                entry.timer = setTimeout(() => _apiFinish(entry, { ok: false, error: 'timeout' }), timeoutMs || 15000);
+                (_apiAckQueue[opcode] = _apiAckQueue[opcode] || []).push(entry);
+                _apiSending = true;
+                try { send(opcode, payload); } finally { _apiSending = false; }
+            });
+        }
+
+        function _apiFinish(entry, res) {
+            if (entry.done) return;
+            entry.done = true;
+            clearTimeout(entry.timer);
+            if (entry.seq != null) _apiPending.delete(entry.seq);
+            const q = _apiAckQueue[entry.opcode];
+            if (q) { const i = q.indexOf(entry); if (i >= 0) q.splice(i, 1); }
+            entry.resolve(res);
+        }
+
+        // true — ack принадлежит apiCall (обычный обработчик ack пропускаем)
+        function apiOnAck(data) {
+            const q = _apiAckQueue[data.opcode];
+            if (!q || !q.length) return false;
+            const entry = q.shift();
+            if (!entry) return false;
+            entry.seq = data.seq;
+            _apiPending.set(data.seq, entry);
+            return true;
+        }
+
+        // true — ответ принадлежит apiCall (обычные обработчики пропускаем)
+        function apiOnResponse(data) {
+            if (data.seq == null || (data.cmd !== 256 && data.cmd !== 768)) return false;
+            const entry = _apiPending.get(data.seq);
+            if (!entry) return false;
+            _apiFinish(entry, { ok: data.cmd === 256, payload: data.payload });
+            return true;
+        }
+
+        function mxToast(text) {
+            const el = document.createElement('div');
+            el.className = 'mx-toast';
+            el.textContent = text;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2500);
+        }
+
+        function mxModal(innerHtml) {
+            const back = document.createElement('div');
+            back.className = 'mx-modal-back';
+            back.innerHTML = '<div class="mx-modal">' + innerHtml + '</div>';
+            back.addEventListener('mousedown', e => { if (e.target === back) back.remove(); });
+            document.body.appendChild(back);
+            return back;
+        }
+
+        // ========================================
+        // Опросы (формат: Komet polls.dart / poll.dart)
+        //   GET_POLL_UPDATES 306 {chatId, polls:[{messageId, pollId}]}
+        //   SEND_VOTE 304 {messageId, chatId, pollId, answersIds}
+        //   создание: MSG_SEND 64, attach {_type:'POLL', title, settings, answers:[{text}]}
+        //   settings: 1 = несколько ответов, 4 = анонимный
+        // ========================================
+        const pollCache = new Map();   // pollId -> { raw, poll }
+        const pollInFlight = new Set();
+
+        function parsePoll(raw) {
+            const st = raw.state || {};
+            const res = {};
+            (st.result || []).forEach(r => { if (r && r.answerId != null) res[String(r.answerId)] = r; });
+            const answers = (raw.answers || []).map(a => {
+                const r = res[String(a.answerId)] || {};
+                return {
+                    answerId: a.answerId,
+                    text: a.text || '',
+                    voteCount: Number(r.voteCount) || 0,
+                    mine: ((Number(r.options) || 0) & 1) !== 0,
+                };
+            });
+            return {
+                pollId: raw.pollId,
+                title: raw.title || '',
+                settings: Number(raw.settings) || 0,
+                total: Number(st.total) || 0,
+                answers,
+            };
+        }
+
+        function renderPollAttach(a, m) {
+            const pid = a.pollId ?? a.id;
+            return `<div class="msg-attach msg-poll" data-poll-id="${escapeHtml(String(pid ?? ''))}" data-poll-msg="${escapeHtml(String(m.id))}"><div class="poll-title">${escapeHtml(a.title || 'Опрос')}</div><div class="poll-meta">Загрузка…</div></div>`;
+        }
+
+        function paintPoll(el) {
+            const entry = pollCache.get(el.dataset.pollId);
+            if (!entry) return;
+            const p = entry.poll;
+            const voted = p.answers.some(x => x.mine);
+            const multi = (p.settings & 1) !== 0;
+            const anon = (p.settings & 4) !== 0;
+            const sel = el._pollSel || (el._pollSel = new Set());
+            const totalVotes = p.answers.reduce((s, x) => s + x.voteCount, 0) || p.total || 0;
+            let html = `<div class="poll-title">${escapeHtml(p.title)}</div>`;
+            html += `<div class="poll-meta">${anon ? 'Анонимный опрос' : 'Опрос'}${multi ? ' · несколько ответов' : ''}${p.total ? ' · ' + p.total + ' голос.' : ''}</div>`;
+            p.answers.forEach(x => {
+                const pct = totalVotes > 0 ? Math.round(x.voteCount * 100 / totalVotes) : 0;
+                const cls = ['poll-ans', multi ? 'multi' : '', voted ? 'voted' : '', x.mine ? 'mine' : '', sel.has(String(x.answerId)) ? 'selected' : ''].filter(Boolean).join(' ');
+                html += `<div class="${cls}" data-answer-id="${escapeHtml(String(x.answerId))}">${voted ? `<div class="poll-bar" style="width:${pct}%"></div>` : ''}<span class="poll-mark"></span><span class="poll-text">${escapeHtml(x.text)}</span>${voted ? `<span class="poll-pct">${pct}%</span>` : ''}</div>`;
+            });
+            if (multi && !voted) {
+                html += `<button type="button" class="poll-submit" ${sel.size ? '' : 'disabled'}>Проголосовать</button>`;
+            }
+            el.innerHTML = html;
+        }
+
+        async function fetchPoll(el, force) {
+            const pollId = el.dataset.pollId;
+            if (!pollId || pollId === '0' || pollId === 'undefined') return;
+            if (!force && pollCache.has(pollId)) { paintPoll(el); return; }
+            if (pollInFlight.has(pollId)) return;
+            pollInFlight.add(pollId);
+            try {
+                const res = await apiCall(306, {
+                    chatId: currentChatId,
+                    polls: [{ messageId: el.dataset.pollMsg, pollId: /^\d{1,15}$/.test(pollId) ? Number(pollId) : pollId }],
+                });
+                const list = res.ok && res.payload && Array.isArray(res.payload.polls) ? res.payload.polls : [];
+                list.forEach(raw => {
+                    if (raw && raw.pollId != null) pollCache.set(String(raw.pollId), { raw, poll: parsePoll(raw) });
+                });
+            } finally {
+                pollInFlight.delete(pollId);
+            }
+            document.querySelectorAll(`#messagesList .msg-poll[data-poll-id="${CSS.escape(pollId)}"]`).forEach(paintPoll);
+        }
+
+        function hydratePolls(list) {
+            (list || document).querySelectorAll('.msg-poll[data-poll-id]').forEach(el => {
+                if (!el.dataset.pollHydrated) { el.dataset.pollHydrated = '1'; fetchPoll(el, false); }
+            });
+        }
+
+        async function submitPollVote(el, answerIds) {
+            const pollId = el.dataset.pollId;
+            const num = v => (/^\d{1,15}$/.test(String(v)) ? Number(v) : v);
+            const res = await apiCall(304, {
+                messageId: el.dataset.pollMsg,
+                chatId: currentChatId,
+                pollId: num(pollId),
+                answersIds: answerIds.map(num),
+            });
+            if (!res.ok) { mxToast('Не удалось проголосовать'); return; }
+            const cached = pollCache.get(pollId);
+            const state = res.payload && res.payload.state;
+            if (state && cached) {
+                const raw = Object.assign({}, cached.raw, { state });
+                pollCache.set(pollId, { raw, poll: parsePoll(raw) });
+                document.querySelectorAll(`#messagesList .msg-poll[data-poll-id="${CSS.escape(pollId)}"]`).forEach(x => { x._pollSel = null; paintPoll(x); });
+            } else {
+                fetchPoll(el, true);
+            }
+        }
+
+        document.getElementById('messagesList').addEventListener('click', function (e) {
+            const pollEl = e.target.closest && e.target.closest('.msg-poll');
+            if (!pollEl) return;
+            const entry = pollCache.get(pollEl.dataset.pollId);
+            if (!entry) return;
+            const p = entry.poll;
+            if (p.answers.some(x => x.mine)) return;   // повторное/отзыв голоса: формат не подтверждён
+            const multi = (p.settings & 1) !== 0;
+            if (e.target.closest('.poll-submit')) {
+                const ids = Array.from(pollEl._pollSel || []);
+                if (ids.length) submitPollVote(pollEl, ids);
+                return;
+            }
+            const ans = e.target.closest('.poll-ans');
+            if (!ans) return;
+            const id = ans.dataset.answerId;
+            if (multi) {
+                const sel = pollEl._pollSel || (pollEl._pollSel = new Set());
+                if (sel.has(id)) sel.delete(id); else sel.add(id);
+                paintPoll(pollEl);
+            } else {
+                submitPollVote(pollEl, [id]);
+            }
+        });
+
+        function openPollCreator() {
+            if (currentChatId == null) return;
+            const back = mxModal(`
+                <h4>Новый опрос</h4>
+                <input type="text" id="pollQ" maxlength="200" placeholder="Вопрос">
+                <div id="pollOpts"></div>
+                <button type="button" class="mx-btn" id="pollAddOpt">${icon('plus', 14)} Вариант</button>
+                <label class="mx-check"><input type="checkbox" id="pollAnon" checked> Анонимное голосование</label>
+                <label class="mx-check"><input type="checkbox" id="pollMulti"> Несколько ответов</label>
+                <div class="mx-row"><button type="button" class="mx-btn" id="pollCancel">Отмена</button><button type="button" class="mx-btn primary" id="pollSend">Отправить</button></div>`);
+            const optsBox = back.querySelector('#pollOpts');
+            const addOpt = () => {
+                if (optsBox.children.length >= 10) return;
+                const inp = document.createElement('input');
+                inp.type = 'text'; inp.maxLength = 100;
+                inp.placeholder = 'Вариант ' + (optsBox.children.length + 1);
+                optsBox.appendChild(inp);
+            };
+            addOpt(); addOpt();
+            back.querySelector('#pollAddOpt').onclick = addOpt;
+            back.querySelector('#pollCancel').onclick = () => back.remove();
+            back.querySelector('#pollSend').onclick = () => {
+                const title = back.querySelector('#pollQ').value.trim();
+                const answers = Array.from(optsBox.querySelectorAll('input')).map(i => i.value.trim()).filter(Boolean);
+                if (!title || answers.length < 2) { mxToast('Нужен вопрос и минимум два варианта'); return; }
+                const settings = (back.querySelector('#pollAnon').checked ? 4 : 0) | (back.querySelector('#pollMulti').checked ? 1 : 0);
+                send(64, {
+                    chatId: currentChatId,
+                    message: { cid: -Date.now(), attaches: [{ _type: 'POLL', title, settings, answers: answers.map(text => ({ text })) }] },
+                    notify: true,
+                });
+                back.remove();
+            };
+            back.querySelector('#pollQ').focus();
+        }
+
+        // ========================================
+        // Жалобы (формат: Komet complaints.dart)
+        //   COMPLAIN_REASONS_GET 162 {complainSync:0} -> {complains:[{typeId, reasons:[{reasonId, reasonTitle}]}]}
+        //   COMPLAIN 161 {reasonId, typeId, ids:[messageId], parentId: chatId} -> {success:true}
+        //   typeId: 3 = диалог, 4 = группа, 5 = канал
+        // ========================================
+        let _complaintReasonsCache = null;
+
+        function complaintTypeIdForChat(chat) {
+            if (chat && chat.type === 'CHANNEL') return 5;
+            if (chat && chat.type === 'CHAT') return 4;
+            return 3;
+        }
+
+        async function loadComplaintReasons(typeId) {
+            if (!_complaintReasonsCache) {
+                const res = await apiCall(162, { complainSync: 0 });
+                const map = {};
+                const arr = res.ok && res.payload && Array.isArray(res.payload.complains) ? res.payload.complains : [];
+                arr.forEach(c => {
+                    if (c && typeof c.typeId === 'number' && Array.isArray(c.reasons)) {
+                        map[c.typeId] = c.reasons.filter(r => r && r.reasonId).map(r => ({ id: r.reasonId, title: String(r.reasonTitle || '') }));
+                    }
+                });
+                if (!Object.keys(map).length) return [];
+                _complaintReasonsCache = map;
+            }
+            const own = _complaintReasonsCache[typeId];
+            if (own && own.length) return own;
+            for (const k of Object.keys(_complaintReasonsCache)) {
+                if (_complaintReasonsCache[k].length) return _complaintReasonsCache[k];
+            }
+            return [];
+        }
+
+        async function reportMessageAction(m) {
+            const chat = chatsById[currentChatId];
+            const typeId = complaintTypeIdForChat(chat);
+            const back = mxModal('<h4>Пожаловаться</h4><div id="repBody">Загрузка…</div><div class="mx-row"><button type="button" class="mx-btn" id="repCancel">Отмена</button></div>');
+            back.querySelector('#repCancel').onclick = () => back.remove();
+            const reasons = await loadComplaintReasons(typeId);
+            const body = back.querySelector('#repBody');
+            if (!body) return;
+            if (!reasons.length) { body.textContent = 'Не удалось загрузить причины'; return; }
+            body.innerHTML = '';
+            reasons.forEach(r => {
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'mx-reason'; b.textContent = r.title;
+                b.onclick = async () => {
+                    body.querySelectorAll('button').forEach(x => x.disabled = true);
+                    const idNum = /^\d{1,15}$/.test(String(m.id)) ? Number(m.id) : m.id;
+                    const res = await apiCall(161, { reasonId: r.id, typeId, ids: [idNum], parentId: currentChatId });
+                    back.remove();
+                    mxToast(res.ok && res.payload && res.payload.success === true ? 'Жалоба отправлена' : 'Не удалось отправить жалобу');
+                };
+                body.appendChild(b);
+            });
+        }
+
+
+        // ========================================
+        // Комментарии к постам каналов (формат: Komet comments.dart)
+        //   COMMENTS_INFO 91 {chatId, postIds:[...]} -> {commentsInfoUpdates:[{postId, commentsInfo:{totalCount}}]}
+        //   история:  CHAT_HISTORY 49 {chatId, postId, from, forward, backward, getMessages:true}
+        //   отправка: MSG_SEND 64 {chatId, postId, message:{text, cid, elements, attaches}, notify}
+        //   новые комментарии приходят push-ом 128 с postId, счётчики — push-ом 91
+        // ========================================
+        const commentCounts = new Map();     // 'chatId:postId' -> totalCount
+        const commentInfoRequested = new Set();
+        let commentsCtx = null;              // { chatId, postId, items: Map(id -> msg), els }
+
+        const commentKey = (chatId, postId) => chatId + ':' + postId;
+        const numIfSafe = v => (/^\d{1,15}$/.test(String(v)) ? Number(v) : v);
+
+        function commentsLabel(n) {
+            const m10 = n % 10, m100 = n % 100;
+            if (!n) return 'Оставить комментарий';
+            if (m10 === 1 && m100 !== 11) return n + ' комментарий';
+            if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' комментария';
+            return n + ' комментариев';
+        }
+
+        function paintCommentsLink(el) {
+            const key = commentKey(el.dataset.chatId, el.dataset.postId);
+            if (!commentCounts.has(key)) return;
+            el.innerHTML = icon('chat', 15) + '<span>' + escapeHtml(commentsLabel(commentCounts.get(key))) + '</span>';
+            el.classList.add('ready');
+        }
+
+        function repaintCommentLinks(chatId, postId) {
+            document.querySelectorAll(`#messagesList .msg-comments[data-chat-id="${chatId}"][data-post-id="${postId}"]`).forEach(paintCommentsLink);
+        }
+
+        function applyCommentsInfoUpdates(chatId, updates) {
+            (updates || []).forEach(u => {
+                if (!u || u.postId == null || !u.commentsInfo) return;
+                const raw = u.commentsInfo.totalCount;
+                const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+                if (!Number.isFinite(n)) return;
+                commentCounts.set(commentKey(chatId, String(u.postId)), n);
+                repaintCommentLinks(chatId, String(u.postId));
+            });
+        }
+
+        async function hydrateComments(list) {
+            const chat = chatsById[currentChatId];
+            if (!chat || chat.type !== 'CHANNEL') return;
+            const chatId = currentChatId;
+            const els = Array.from((list || document).querySelectorAll('.msg-comments[data-post-id]'));
+            const pending = [];
+            els.forEach(el => {
+                const key = commentKey(chatId, el.dataset.postId);
+                if (commentCounts.has(key)) { paintCommentsLink(el); return; }
+                if (commentInfoRequested.has(key)) return;
+                commentInfoRequested.add(key);
+                pending.push(el.dataset.postId);
+            });
+            for (let i = 0; i < pending.length; i += 30) {
+                const batch = pending.slice(i, i + 30);
+                const res = await apiCall(91, { chatId, postIds: batch.map(numIfSafe) });
+                if (res.ok && res.payload) applyCommentsInfoUpdates(chatId, res.payload.commentsInfoUpdates);
+                // не пришло — не показываем ссылку (у поста комментарии, судя по всему, выключены);
+                // ключ остаётся в requested, чтобы не долбить сервер повторно
+            }
+        }
+
+        function commentSenderName(m) {
+            if (m.sender === selfId) return 'Вы';
+            const c = contactsById[m.sender];
+            return (c && (c.name || c.firstName)) || 'Участник';
+        }
+
+        function commentAuthorsNeeded(msgs) {
+            const missing = [];
+            msgs.forEach(m => {
+                const id = m.sender;
+                if (id != null && id !== selfId && !contactsById[id] && !requestedContactIds.has(id) && !missing.includes(id)) missing.push(id);
+            });
+            if (missing.length) {
+                missing.forEach(id => requestedContactIds.add(id));
+                send(32, { contactIds: missing });
+                setTimeout(paintCommentsList, 1500);
+            }
+        }
+
+        function paintCommentsList() {
+            if (!commentsCtx || !commentsCtx.listEl || !commentsCtx.listEl.isConnected) return;
+            const box = commentsCtx.listEl;
+            const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+            const msgs = Array.from(commentsCtx.items.values()).sort((a, b) => (a.time || 0) - (b.time || 0));
+            if (!msgs.length) { box.innerHTML = '<div class="cm-empty">Комментариев пока нет</div>'; return; }
+            box.innerHTML = msgs.map(m => {
+                const own = m.sender === selfId;
+                const hasText = !!(m.text && String(m.text).trim());
+                const body = hasText ? buildMessageTextHtml(m)
+                    : (Array.isArray(m.attaches) && m.attaches.length ? icon('clip', 14) + ' Вложение' : '');
+                const time = m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                return `<div class="cm-item${own ? ' own' : ''}"><div class="cm-name">${escapeHtml(commentSenderName(m))}</div><div>${body}</div><div class="cm-time">${time}</div></div>`;
+            }).join('');
+            if (stick) box.scrollTop = box.scrollHeight;
+        }
+
+        function addCommentToCtx(msg) {
+            if (!commentsCtx || msg == null || msg.id == null) return;
+            commentsCtx.items.set(String(msg.id), msg);
+            commentAuthorsNeeded([msg]);
+            paintCommentsList();
+        }
+
+        async function openComments(chatId, postId) {
+            const back = mxModal(`
+                <div class="mx-sheet">
+                    <div class="mx-sheet-head"><span>Комментарии</span><button type="button" id="cmClose" aria-label="Закрыть">×</button></div>
+                    <div class="cm-list" id="cmList"><div class="cm-empty">Загрузка…</div></div>
+                    <div class="cm-input"><input type="text" id="cmText" placeholder="Комментарий" maxlength="4000"><button type="button" id="cmSend" aria-label="Отправить">${icon('forward', 18)}</button></div>
+                </div>`);
+            back.firstElementChild.style.padding = '0';
+            const ctx = { chatId, postId, items: new Map(), listEl: back.querySelector('#cmList') };
+            commentsCtx = ctx;
+            const close = () => { back.remove(); if (commentsCtx === ctx) commentsCtx = null; };
+            back.querySelector('#cmClose').onclick = close;
+            back.addEventListener('mousedown', e => { if (e.target === back && commentsCtx === ctx) commentsCtx = null; });
+
+            const input = back.querySelector('#cmText');
+            const sendBtn = back.querySelector('#cmSend');
+            const doSend = async () => {
+                const text = input.value.trim();
+                if (!text) return;
+                sendBtn.disabled = true;
+                const res = await apiCall(64, {
+                    chatId,
+                    postId: numIfSafe(postId),
+                    message: { text, cid: -Date.now(), elements: [], attaches: [] },
+                    notify: true,
+                });
+                sendBtn.disabled = false;
+                if (!res.ok) {
+                    const p = res.payload || {};
+                    mxToast(p.localizedMessage || p.message || 'Не удалось отправить комментарий');
+                    return;
+                }
+                input.value = '';
+                const sent = res.payload && res.payload.message;
+                if (sent && commentsCtx === ctx) addCommentToCtx(sent);
+                const key = commentKey(chatId, postId);
+                commentCounts.set(key, (commentCounts.get(key) || 0) + 1);
+                repaintCommentLinks(chatId, postId);
+            };
+            sendBtn.onclick = doSend;
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSend(); } });
+
+            const res = await apiCall(49, {
+                chatId,
+                postId: numIfSafe(postId),
+                from: Date.now() + 86400000,
+                forward: 0,
+                backward: 50,
+                getMessages: true,
+            });
+            if (commentsCtx !== ctx) return;
+            const msgs = res.ok && res.payload && Array.isArray(res.payload.messages) ? res.payload.messages : null;
+            if (!msgs) { ctx.listEl.innerHTML = '<div class="cm-empty">Не удалось загрузить комментарии</div>'; return; }
+            msgs.forEach(m => { if (m && m.id != null) ctx.items.set(String(m.id), m); });
+            commentAuthorsNeeded(msgs);
+            paintCommentsList();
+            ctx.listEl.scrollTop = ctx.listEl.scrollHeight;
+        }
+
+        // Push 128 с postId — это комментарий, а не сообщение чата: в основной
+        // список его вставлять нельзя.
+        function commentPostIdOf(payload, msg) {
+            const link = msg && msg.link;
+            const v = payload.postId ?? (link && link.postId) ?? (msg && msg.postId);
+            return v == null || v === '' ? null : String(v);
+        }
+
+        function handleCommentPush(chatId, postId, msg) {
+            const key = commentKey(chatId, postId);
+            if (commentCounts.has(key)) {
+                const already = commentsCtx && commentsCtx.items.has(String(msg.id));
+                if (!already && msg.sender !== selfId) commentCounts.set(key, commentCounts.get(key) + 1);
+                repaintCommentLinks(chatId, postId);
+            }
+            if (commentsCtx && commentsCtx.chatId === chatId && commentsCtx.postId === postId) addCommentToCtx(msg);
+        }
+
+        document.getElementById('messagesList').addEventListener('click', function (e) {
+            const link = e.target.closest && e.target.closest('.msg-comments.ready');
+            if (!link) return;
+            e.stopPropagation();
+            openComments(Number(link.dataset.chatId) || link.dataset.chatId, link.dataset.postId);
         });
 
         function connect() {
@@ -15142,6 +16031,8 @@
             ws.onmessage = async (e) => {
                 try {
                     const data = JSON.parse(e.data);
+                    if (data._seqAck) { if (apiOnAck(data)) return; }
+                    else if (apiOnResponse(data)) return;
                     if (data.error && data.offline && !data.opcode && !data.type) {
                         // Наш собственный bridge.py не смог достучаться до сервера
                         // MAX (нет интернета / сервер недоступен) — это надёжный
@@ -15744,10 +16635,21 @@
                     }
 
                     // notifMessage — новое входящее сообщение в реальном времени
+                    if (data.opcode === 91 && data.payload && Array.isArray(data.payload.commentsInfoUpdates)) {
+                        const cid = data.payload.chatId ?? currentChatId;
+                        if (cid != null) applyCommentsInfoUpdates(cid, data.payload.commentsInfoUpdates);
+                        return;
+                    }
                     if (data.opcode === 128 && data.payload) {
                         const msg = data.payload.message || data.payload;
                         const chatId = data.payload.chatId ?? msg.chatId;
                         if (chatId == null) return;
+
+                        const commentPostId = commentPostIdOf(data.payload, msg);
+                        if (commentPostId != null) {
+                            handleCommentPush(chatId, commentPostId, msg);
+                            return;
+                        }
 
                         await e2ePreprocessMessage(msg, chatId);
 
@@ -16452,13 +17354,13 @@
             if (!cb || !icon) return;
             if (status === 'active') {
                 cb.checked = true; cb.disabled = false;
-                icon.textContent = '🔒'; icon.title = 'Шифрование включено';
+                icon.innerHTML = window.icon('lock', 16); icon.title = 'Шифрование включено';
             } else if (status === 'pending') {
                 cb.checked = true; cb.disabled = true;
-                icon.textContent = '⏳'; icon.title = 'Ожидание подтверждения...';
+                icon.innerHTML = window.icon('clock', 16); icon.title = 'Ожидание подтверждения...';
             } else {
                 cb.checked = false; cb.disabled = false;
-                icon.textContent = '🔓'; icon.title = 'Шифрование выключено';
+                icon.innerHTML = window.icon('unlock', 16); icon.title = 'Шифрование выключено';
             }
         }
 
