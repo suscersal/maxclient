@@ -3014,27 +3014,41 @@ def proxy_image():
         # MAX иногда отвечает не с первого раза, особенно для каналов с
         # большими фото; раньше единственная попытка с таймаутом 8с считалась
         # окончательным провалом.
-        for attempt in range(2):
+        # В больших/старых группах много фото догружается почти
+        # одновременно (по клику пачками) — CDN иногда отвечает 502/503 под
+        # нагрузкой, хотя ссылка рабочая. Раньше было 2 попытки без паузы;
+        # теперь для 5xx/сетевых ошибок — 4 попытки с нарастающей паузой.
+        # 4xx (истёкшая подписанная ссылка) как и раньше не повторяем.
+        max_attempts = 4
+        for attempt in range(max_attempts):
             try:
                 req = urllib.request.Request(
                     url,
                     headers={
                         "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
                 )
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                with urllib.request.urlopen(req, timeout=20) as resp:
                     data = resp.read()
                     content_type = resp.headers.get("Content-Type", "image/jpeg")
                 break
             except urllib.error.HTTPError as e:
-                # 4xx (например, истёкшая подписанная ссылка) повторять
-                # бессмысленно — сразу отдаём наружу.
                 last_err = e
-                logger.warning(f"[img proxy] HTTP {e.code} for {url}: {e.reason}")
+                try:
+                    body_preview = e.read(300).decode("utf-8", "replace")
+                except Exception:
+                    body_preview = ""
+                host = urllib.parse.urlsplit(url).netloc
+                logger.warning(
+                    f"[img proxy] HTTP {e.code} for host={host} (попытка {attempt + 1}/{max_attempts}): "
+                    f"{e.reason} | тело ответа: {body_preview!r}"
+                )
                 if 400 <= e.code < 500:
                     break
             except Exception as e:
                 last_err = e
-                logger.warning(f"[img proxy] attempt {attempt + 1} failed for {url}: {e}")
+                logger.warning(f"[img proxy] попытка {attempt + 1}/{max_attempts} неудачна для {url}: {e}")
+            if attempt < max_attempts - 1:
+                time.sleep(0.4 * (attempt + 1))
         if data is None:
             raise last_err or Exception("unknown error")
         return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=3600"})
