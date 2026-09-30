@@ -4092,7 +4092,10 @@
             min-width: 0; white-space: normal; overflow-wrap: anywhere;
         }
         #settingsModal .settings-menu-item .label small { font-size: 13px; font-weight: 400; color: var(--tg-text-secondary, #888); }
-        #settingsModal .settings-content { padding: 0 14px 8px !important; flex: 1 1 auto; min-height: 0; }
+        #settingsModal .settings-content {
+            padding: 0 14px 8px !important; flex: 1 1 auto; min-height: 0;
+            max-height: none !important; overflow-y: visible !important;
+        }
 
         svg.ic {
             display: inline-block;
@@ -5546,7 +5549,7 @@
 
 
 
-    <div class="section" id="logSection">
+    <div class="section hidden" id="logSection">
         <h3>📋 Лог</h3>
         <div id="log"></div>
     </div>
@@ -6277,6 +6280,33 @@
             }
         }
 
+        // Локальный кэш обновлённых ссылок на фото (chatId:msgId -> сырой
+        // url ещё ДО оборачивания в /img?url=), переживает перезагрузку
+        // страницы. Как только один раз перезапросили протухшую ссылку у
+        // сервера — больше не дёргаем историю для этого же сообщения снова,
+        // подставляем сохранённую сразу. Ограничение по размеру простое:
+        // при превышении лимита выкидываем самые старые записи (порядок
+        // вставки в JS-объекте с строковыми ключами сохраняется).
+        const REFRESHED_URL_CACHE_KEY = 'maxclient_refreshed_photo_urls';
+        const REFRESHED_URL_CACHE_LIMIT = 500;
+        function getRefreshedUrl(chatId, msgId) {
+            try {
+                const map = JSON.parse(localStorage.getItem(REFRESHED_URL_CACHE_KEY) || '{}');
+                return map[chatId + ':' + msgId] || null;
+            } catch (e) { return null; }
+        }
+        function storeRefreshedUrl(chatId, msgId, url) {
+            try {
+                const map = JSON.parse(localStorage.getItem(REFRESHED_URL_CACHE_KEY) || '{}');
+                map[chatId + ':' + msgId] = url;
+                const keys = Object.keys(map);
+                if (keys.length > REFRESHED_URL_CACHE_LIMIT) {
+                    keys.slice(0, keys.length - REFRESHED_URL_CACHE_LIMIT).forEach(k => delete map[k]);
+                }
+                localStorage.setItem(REFRESHED_URL_CACHE_KEY, JSON.stringify(map));
+            } catch (e) { /* localStorage переполнен/недоступен — не критично */ }
+        }
+
         // Подписанные ссылки на фото (i.oneme.ru/...&expires=...) живут
         // ограниченное время — в старой переписке сервер честно отвечает
         // "URL expired" (410). Один раз пробуем перезапросить это же
@@ -6293,6 +6323,7 @@
             const fresh = list.find(x => x && String(x.id) === String(idNum));
             const attach = fresh && Array.isArray(fresh.attaches) ? fresh.attaches.find(a => a._type === 'PHOTO') : null;
             const url = attach && (attach.baseUrl || attach.url);
+            if (url) storeRefreshedUrl(currentChatId, msgId, url);
             return url || null;
         }
 
@@ -6300,6 +6331,18 @@
             if (el.classList.contains('loading')) return;
             let src = el.dataset.src;
             const msgId = el.dataset.msgId || '';
+            // Раньше уже обновляли эту же ссылку — берём сохранённую сразу,
+            // без похода к серверу за историей.
+            if (msgId && currentChatId != null) {
+                const cachedFresh = getRefreshedUrl(currentChatId, msgId);
+                if (cachedFresh) {
+                    const wrapped = '/img?url=' + encodeURIComponent(cachedFresh);
+                    // urlRefreshed НЕ трогаем: если и сохранённая ссылка
+                    // успела протухнуть, ниже всё равно должна остаться
+                    // одна попытка перезапросить историю заново.
+                    if (wrapped !== src) { src = wrapped; el.dataset.src = src; }
+                }
+            }
             const label = el.querySelector('.lazy-media-label');
             el.classList.add('loading');
             if (label) label.textContent = 'Загрузка…';
@@ -7255,10 +7298,26 @@
             <label style="display:flex;align-items:center;gap:8px;">
                 <input type="checkbox" id="logPanelEnabled" ${getLogPanelEnabled() ? 'checked' : ''}
                        onchange="setLogPanelEnabled(this.checked)">
-                Показывать панель «📋 Лог» внизу экрана
+                Показывать лог ниже (тот же, что раньше торчал под чатом)
             </label>
         </div>
+        <div id="debugDumpLogSlot"></div>
     `;
+        }
+
+        // #logSection/#log — тот самый живой элемент, в который пишет
+        // log(). Раньше он всегда сидел в основной вёрстке под чатом;
+        // теперь физически переносим тот же DOM-узел (не копию — с уже
+        // накопленными записями) сюда при открытии страницы, а видимость
+        // внутри регулирует тот же чекбокс/getLogPanelEnabled(), что и
+        // раньше.
+        function mountDebugLogPanel() {
+            const slot = document.getElementById('debugDumpLogSlot');
+            const section = document.getElementById('logSection');
+            if (slot && section && section.parentElement !== slot) {
+                slot.appendChild(section);
+            }
+            if (section) section.classList.toggle('hidden', !getLogPanelEnabled());
         }
 
         function renderScamCheckPage() {
@@ -9010,6 +9069,7 @@
                 if (id === 'sessions') loadSessions();
                 if (id === 'security') tfaInit();
                 if (id === 'storage') settingsMenu.refreshPage('storage');
+                if (id === 'debugDump') mountDebugLogPanel();
             }
 
             refreshPage(id) {
