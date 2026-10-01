@@ -283,7 +283,6 @@ jobs:
             --hidden-import=webview `
             --collect-all webview `
             --add-data "static/index.html;static" `
-            
             --add-data "static/manifest.json;static" `
             --add-data "static/assets/favorite.png;static" `
             --add-data "static/loading.gif;static" `
