@@ -819,7 +819,20 @@
             font-size: 11px;
             color: #999;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             margin-left: 4px;
+            flex: 0 1 auto;
+            max-width: 72px;
+        }
+
+        /* Узкий экран — ID чата в шапке совсем не критичен (это отладочная
+           подпись), а место для имени важнее. Раньше он не обрезался и
+           визуально наезжал на имя/статус. */
+        @media (max-width: 420px) {
+            .chat-header .chat-id-label {
+                display: none;
+            }
         }
 
         .msg-enc-badge {
@@ -9152,7 +9165,36 @@
                 localStorage.setItem('maxclient_avatar_url_cache', JSON.stringify(avatarUrlCache));
             } catch (e) { /* квота localStorage — не критично, просто не сохранится */ }
         }
+        // presenceById раньше жил только в памяти — после перезагрузки
+        // страницы "время захода" пропадало до первого нового пуша с
+        // сервера (opcode 132) или до следующего снапшота presence в
+        // chats-payload, то есть могло быть пустым довольно долго.
+        // Персистентно кэшируем в localStorage (размер ограничен — это те
+        // же самые данные, что и так приходят с сервера, просто переживают
+        // перезагрузку, а не новый источник правды).
+        const PRESENCE_CACHE_KEY = 'maxclient_presence_cache';
+        const PRESENCE_CACHE_LIMIT = 1000;
         let presenceById = {};
+        try {
+            presenceById = JSON.parse(localStorage.getItem(PRESENCE_CACHE_KEY) || '{}');
+            // "online" — сиюминутный факт, после перезагрузки доверять ему
+            // нельзя (человек мог выйти из сети, пока вкладка была закрыта).
+            // "seen" — абсолютная метка времени, ей доверять можно.
+            Object.values(presenceById).forEach(p => { if (p) p.online = false; });
+        } catch (e) { presenceById = {}; }
+        let _presenceSaveTimer = null;
+        function schedulePresenceSave() {
+            clearTimeout(_presenceSaveTimer);
+            _presenceSaveTimer = setTimeout(() => {
+                try {
+                    const keys = Object.keys(presenceById);
+                    if (keys.length > PRESENCE_CACHE_LIMIT) {
+                        keys.slice(0, keys.length - PRESENCE_CACHE_LIMIT).forEach(k => delete presenceById[k]);
+                    }
+                    localStorage.setItem(PRESENCE_CACHE_KEY, JSON.stringify(presenceById));
+                } catch (e) { /* localStorage переполнен/недоступен — не критично, останется в памяти */ }
+            }, 500);
+        }
 
         // Функция проверки авторизации — использует глобальную переменную selfId
         function isAuthenticated() {
@@ -10344,6 +10386,13 @@
             const otherId = otherParticipantId(chat);
             if (isBotChat(chat)) {
                 document.getElementById('chatProfileSub').textContent = '🤖 Бот';
+            } else if (chat.type === 'CHAT' || chat.type === 'CHANNEL') {
+                // У групп/каналов нет «в сети»/«не в сети» — это свойство
+                // конкретного человека, не чата. Раньше тут всегда писало
+                // «не в сети», как будто у группы есть один онлайн-статус.
+                const count = chatParticipantsCountCache[chat.id] ??
+                    (chat.participants ? Object.keys(chat.participants).length : null);
+                document.getElementById('chatProfileSub').textContent = participantsCountLabel(chat, count);
             } else {
                 const isOnline = otherId != null && presenceById[otherId]?.online;
                 document.getElementById('chatProfileSub').textContent = isOnline ? '🟢 в сети' : '⚪ не в сети';
@@ -12854,6 +12903,7 @@
                 Object.entries(payload.presence).forEach(([uid, p]) => {
                     presenceById[uid] = { online: p?.status === 1, seen: p?.seen || 0 };
                 });
+                schedulePresenceSave();
             }
             // Вторичный ключ (chat.id) обязателен: при равном/нулевом
             // lastEventTime (например, у чатов без сообщений) Array.sort
@@ -15814,7 +15864,12 @@
 
         document.getElementById('messagesList').addEventListener('scroll', function () {
             updateStickyDateBadge();
-            if (this.scrollTop < 50 && !isLoadingMore && earliestMessageTime != null && currentChatId != null) {
+            // Раньше подгрузка срабатывала только когда упирались в самый
+            // верх (50px) — было заметно: доскроллил, упёрся, подождал,
+            // список дёрнулся. Подгружаем заранее, с запасом в экран,
+            // так новые сообщения успевают прийти ДО того, как до них
+            // доскроллили.
+            if (this.scrollTop < 600 && !isLoadingMore && earliestMessageTime != null && currentChatId != null) {
                 isLoadingMore = true;
                 send(49, {
                     chatId: currentChatId,
@@ -17025,6 +17080,7 @@
                                 online: p.status === 1,
                                 seen: p.seen || 0
                             };
+                            schedulePresenceSave();
 
                             // Шапка личного чата, если сейчас открыт диалог с этим человеком.
                             if (currentChatId) {
