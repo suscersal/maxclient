@@ -5422,6 +5422,8 @@
                 <div id="chatDetailStatus" style="font-size:12px;color:#888;"></div>
             </div>
             <span class="chat-id-label" id="chatIdLabel"></span>
+            <button type="button" class="back-btn" id="chatSearchBtn" onclick="openChatSearch()"
+                title="Поиск по чату" aria-label="Поиск по чату" style="margin-left:4px;" data-ic="search" data-ic-size="18"></button>
             <label id="e2eToggleWrap" title="Шифрование сообщений"
                 style="display:flex;align-items:center;gap:4px;margin-left:8px;cursor:pointer;user-select:none;">
                 <input type="checkbox" id="e2eCheckbox" onchange="onE2eCheckboxChange()" style="cursor:pointer;">
@@ -10531,6 +10533,17 @@
             </button>
         `;
 
+            // Экспорт переписки — только то, что уже загружено в текущем
+            // сеансе (видимое + подгруженное скроллом), без похода к
+            // серверу за полной историей: формата "выгрузить весь чат
+            // сразу" у меня нет, а то, что отрендерено в DOM, уже надёжно.
+            optionsContainer.innerHTML += `
+            <button class="chat-profile-option" onclick="exportChatAction(${chat.id})">
+                <span class="opt-icon">${icon('download', 20)}</span>
+                <span class="opt-label">Экспортировать загруженную часть</span>
+            </button>
+        `;
+
             // Скам-проверка этого чата
             optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="checkCurrentChatForScam()">
@@ -13717,6 +13730,56 @@
             }
         }
 
+        // Экспортирует то, что сейчас загружено в #messagesList (видимое +
+        // подгруженное скроллом вверх), в обычный текстовый файл —
+        // дата/время, отправитель, текст; вложения помечаются по типу без
+        // содержимого (фото/файлы качать отдельно, это только текстовый лог).
+        function exportChatAction(chatId) {
+            const chat = chatsById[chatId];
+            const list = document.getElementById('messagesList');
+            if (!list) return;
+            const bubbles = Array.from(list.querySelectorAll('.msg-bubble[data-msg-id]'));
+            if (!bubbles.length) { mxToast('В этом чате пока ничего не загружено — прокрутите историю выше'); return; }
+            const lines = [];
+            lines.push('Экспорт переписки: ' + (chatDisplayName(chat) || chatId));
+            lines.push('Сформировано: ' + new Date().toLocaleString());
+            lines.push('Диапазон: только то, что было загружено в приложении на момент экспорта.');
+            lines.push('');
+            bubbles.forEach(bubble => {
+                const ts = Number(bubble.dataset.msgTime) || 0;
+                const when = ts ? new Date(ts).toLocaleString() : '';
+                if (bubble.classList.contains('system-message')) {
+                    lines.push(`[${when}] * ${bubble.textContent.trim()}`);
+                    return;
+                }
+                const nameEl = bubble.querySelector('.msg-sender-name');
+                const sender = nameEl ? nameEl.textContent.trim() : (bubble.classList.contains('own') ? 'Вы' : (chatDisplayName(chat) || ''));
+                const textEl = bubble.querySelector('.msg-text');
+                let body = textEl ? textEl.textContent.trim() : '';
+                if (!body) {
+                    const kinds = [];
+                    if (bubble.querySelector('.msg-img, .lazy-media-placeholder')) kinds.push('фото');
+                    if (bubble.querySelector('.msg-poll')) kinds.push('опрос');
+                    if (bubble.querySelector('audio')) kinds.push('голосовое/аудио');
+                    if (bubble.querySelector('video')) kinds.push('видео');
+                    if (bubble.querySelector('.msg-file')) kinds.push('файл');
+                    body = kinds.length ? `[${kinds.join(', ')}]` : '[вложение]';
+                }
+                if (bubble.classList.contains('deleted') || bubble.querySelector('.msg-deleted-badge')) body += ' (удалено)';
+                lines.push(`[${when}] ${sender}: ${body}`);
+            });
+            const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            const safeName = (chatDisplayName(chat) || String(chatId)).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+            a.download = `chat_${safeName}_${new Date().toISOString().slice(0, 10)}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            mxToast(`Экспортировано сообщений: ${bubbles.length}`);
+        }
+
         function chatPreview(chat) {
             const draft = getDrafts()[chat.id];
             if (draft) return `✏️ Черновик: ${escapeHtml(draft.slice(0, 80))}`;
@@ -15464,6 +15527,7 @@
                 smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5v.01M15 9.5v.01"/>',
                 record: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
                 flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+                search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
                 poll: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
                 folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
                 laptop: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M2.5 19h19"/>',
@@ -15774,7 +15838,7 @@
         // (обычный send() того же опкода). Так ack/ответ на apiCall(49, …)
         // не путается с обычными запросами истории чата.
         const _apiAckQueue = {};
-        const _apiTracked = new Set([49, 64, 91, 215, 272, 274]);
+        const _apiTracked = new Set([49, 64, 73, 91, 215, 272, 274]);
         const _apiPending = new Map();
         let _apiSending = false;
 
@@ -16010,6 +16074,87 @@
                 back.remove();
             };
             back.querySelector('#pollQ').focus();
+        }
+
+        // ========================================
+        // Поиск по чату (формат: Komet messages.dart searchMessages)
+        //   MSG_SEARCH 73 {chatId, query, count} -> {result: [...сообщения...]}
+        // ========================================
+        let _chatSearchSeq = 0;
+
+        function openChatSearch() {
+            if (currentChatId == null) return;
+            const back = mxModal(`
+                <h4>Поиск по чату</h4>
+                <input type="text" id="chatSearchInput" placeholder="Текст сообщения" autocomplete="off">
+                <div id="chatSearchResults" style="max-height:50vh;overflow-y:auto;margin-top:8px;"></div>
+                <div class="mx-row"><button type="button" class="mx-btn" id="chatSearchClose">Закрыть</button></div>`);
+            back.querySelector('#chatSearchClose').onclick = () => back.remove();
+            const input = back.querySelector('#chatSearchInput');
+            const resultsBox = back.querySelector('#chatSearchResults');
+            let timer = null;
+            input.addEventListener('input', () => {
+                clearTimeout(timer);
+                const q = input.value.trim();
+                if (!q) { resultsBox.innerHTML = ''; return; }
+                timer = setTimeout(() => runChatSearch(q, resultsBox, back), 350);
+            });
+            input.focus();
+        }
+
+        async function runChatSearch(query, resultsBox, modalBack) {
+            const mySeq = ++_chatSearchSeq;
+            resultsBox.innerHTML = '<div class="cm-empty">Ищу…</div>';
+            const res = await apiCall(73, { chatId: currentChatId, query, count: 30 });
+            if (mySeq !== _chatSearchSeq || !modalBack.isConnected) return;   // устарело или окно уже закрыто
+            const list = res.ok && res.payload && Array.isArray(res.payload.result) ? res.payload.result : [];
+            if (!list.length) { resultsBox.innerHTML = '<div class="cm-empty">Ничего не найдено</div>'; return; }
+            resultsBox.innerHTML = '';
+            list.slice().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(m => {
+                const row = document.createElement('div');
+                row.className = 'mx-reason';
+                row.style.cssText = 'display:block;';
+                const when = m.time ? new Date(m.time).toLocaleString() : '';
+                const sender = m.sender === selfId ? 'Вы' : commentSenderName(m);
+                const snippet = (m.text ? String(m.text) : '[вложение]').slice(0, 140);
+                row.innerHTML = `<div style="font-size:12px;color:var(--tg-text-secondary,#888);">${escapeHtml(sender)} · ${escapeHtml(when)}</div><div>${escapeHtml(snippet)}</div>`;
+                row.onclick = () => { modalBack.remove(); jumpToChatMessage(currentChatId, m.id, m.time); };
+                resultsBox.appendChild(row);
+            });
+        }
+
+        // Если сообщение уже отрисовано — просто скроллим и подсвечиваем.
+        // Если нет (результат поиска может быть далеко в истории) — честный
+        // способ без угадывания формата: заново запрашиваем историю (тот же
+        // chatHistory, что и обычная подгрузка по скроллу), заякорившись на
+        // времени найденного сообщения, вместо текущего хвоста списка.
+        // Ограничение: после такого прыжка список не "дотягивается" заново
+        // до самых новых сообщений автоматически — обычная подгрузка истории
+        // тут умеет грузить только более старое, более новое при открытом
+        // чате сервер и так пушит сам, но после прыжка в прошлое придётся
+        // переоткрыть чат, чтобы вернуться к актуальному хвосту.
+        async function jumpToChatMessage(chatId, msgId, msgTime) {
+            const existing = document.querySelector(`.msg-bubble[data-msg-id="${CSS.escape(String(msgId))}"]`);
+            if (existing) { highlightMessageBubble(existing); return; }
+            if (currentChatId !== chatId) return;
+            mxToast('Загружаю сообщение…');
+            const res = await apiCall(49, { chatId, from: (msgTime || 0) + 1, forward: 0, backward: 30, getMessages: true });
+            if (!res.ok || !res.payload) { mxToast('Не удалось загрузить сообщение'); return; }
+            const list = document.getElementById('messagesList');
+            list.innerHTML = '';
+            earliestMessageTime = null;
+            isLoadingMore = false;
+            await renderMessages(res.payload, true);   // prepend=true — список пуст, без побочной отметки "прочитано"
+            setTimeout(() => {
+                const b = document.querySelector(`.msg-bubble[data-msg-id="${CSS.escape(String(msgId))}"]`);
+                if (b) highlightMessageBubble(b); else mxToast('Сообщение не нашлось в загруженном диапазоне');
+            }, 50);
+        }
+
+        function highlightMessageBubble(bubble) {
+            bubble.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            bubble.style.outline = '2px solid #4fc3f7';
+            setTimeout(() => { bubble.style.outline = ''; }, 1200);
         }
 
         // ========================================
