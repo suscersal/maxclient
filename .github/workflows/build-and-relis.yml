@@ -123,6 +123,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Без явного packages действие по умолчанию пытается поставить
+          # пакет 'tools' (старый отдельный Android SDK Tools) — Google убрал
+          # его из репозитория, sdkmanager падает с "Failed to find package
+          # 'tools'". NDK и CMake и так ставятся отдельным шагом ниже.
+          packages: "platform-tools"
 
       - name: Install NDK + CMake
         # Версия NDK должна совпадать с android.ndkVersion в app/build.gradle —
