@@ -133,6 +133,7 @@ class MainActivity : AppCompatActivity() {
 
         createNotificationChannel()
         requestNotificationPermissionIfNeeded()
+        fetchAndSendFcmTokenIfAvailable()
 
         webView = findViewById(R.id.webview)
         val loadingGif = findViewById<GifView>(R.id.loadingGif)
@@ -440,6 +441,26 @@ class MainActivity : AppCompatActivity() {
                 "window.onAndroidContactsPermissionResult && window.onAndroidContactsPermissionResult($granted);",
                 null
             )
+        }
+    }
+
+    /** FirebaseMessaging.onNewToken срабатывает только когда токен реально
+     * ИЗМЕНИЛСЯ — если он тот же, что при прошлом запуске, повторного
+     * вызова не будет. На случай, если bridge.py (а с ним и сохранённый на
+     * сервере MAX токен) когда-то не получил регистрацию (например, первый
+     * запуск был офлайн), подстраховываемся и отправляем текущий токен
+     * явно при каждом старте приложения. */
+    private fun fetchAndSendFcmTokenIfAvailable() {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (token.isNullOrEmpty()) return@addOnSuccessListener
+                    Thread { FcmTokenSender.sendBlocking(token) }.start()
+                }
+        } catch (_: Exception) {
+            // Firebase не инициализирован (например, google-services.json
+            // ещё не добавлен в сборку) — тихо пропускаем, остальной
+            // функционал приложения на это не завязан.
         }
     }
 

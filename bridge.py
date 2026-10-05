@@ -2553,6 +2553,37 @@ def get_saved_auth_token():
     return token
 
 
+# ============================================================
+# Push-токен FCM (формат подтверждён Komet: backend/modules/account/
+# privacy_module.dart registerPushToken) — регистрируем на сервере MAX,
+# ДАЛЬШЕ пуш шлёт сам сервер через свой же Firebase-проект. Никакого
+# собственного relay/foreground-service для этого не нужно.
+# ============================================================
+def save_fcm_token(token: str):
+    sess = load_session()
+    sess["fcmToken"] = token
+    save_session(sess)
+    logger.info(f"[push] FCM-токен сохранён: {token[:20]}...")
+
+
+def get_saved_fcm_token():
+    return load_session().get("fcmToken")
+
+
+_active_client_for_push = {"client": None}
+
+
+def register_fcm_push_token(client: "MaxClient"):
+    token = get_saved_fcm_token()
+    if not token:
+        return
+    try:
+        client.send(22, {"pushToken": token, "pushOptions": 0})
+        logger.info("[push] Отправлена регистрация FCM-токена (opcode 22)")
+    except Exception as e:
+        logger.warning(f"[push] Не удалось отправить регистрацию FCM-токена: {e}")
+
+
 def clear_auth_token():
     """Удаляет токен при ошибке авторизации"""
     sess = load_session()
@@ -5167,6 +5198,7 @@ def relay(ws):
             "message": "Требуется авторизация"
         }))
 
+    _active_client_for_push["client"] = client
     try:
         while True:
             try:
@@ -5254,6 +5286,8 @@ def relay(ws):
     except Exception as e:
         logger.info(f"Connection closed: {e}")
     finally:
+        if _active_client_for_push.get("client") is client:
+            _active_client_for_push["client"] = None
         stop_event.set()
         client.close()
 
@@ -5334,6 +5368,15 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
                     logger.info(
                         f"[session] Auth token saved from alt field: {auth_token[:20]}...")
 
+            # Логин подтверждён сервером — это тот момент, когда настоящий
+            # клиент (см. Komet: PushService.onLoginSuccess) перерегистрирует
+            # FCM-токен. Делаем то же самое: сервер MAX сам пришлёт push
+            # через FCM на зарегистрированный токен, даже когда приложение
+            # полностью закрыто — никакого отдельного фонового соединения
+            # для этого не нужно.
+            if packet["opcode"] == 19 and packet["cmd"] == 256:
+                register_fcm_push_token(client)
+
             out_queue.put(packet)
             maybe_push_notify(packet)
         except Exception as e:
@@ -5354,14 +5397,22 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
 # Браузер подписывается через /api/push/subscribe, bridge сам
 # рассылает push'и при получении входящих сообщений.
 
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", """-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgt4nzkYd3apLGG/+n
-qOcwg1UzzRqZP46ec9uQfgdnC7ShRANCAATZUKKOlOzOSfbCC+eoKbJPM3XAQrLG
-bnaAzzFbxTW8pbIXVjQHsaAiwyIFo83hNfS0sMGEZOvT6vpadQSSKStS
------END PRIVATE KEY-----""")
-
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY",
-    "BNlQoo6U7M5J9sIL56gpsk8zdcBCssZudoDPMVvFNbylshdWNAexoCLDIgWjzeE19LSwwYRk69Pq-lp1BJIpK1I")
+# ВАЖНО: раньше здесь был зашит реальный приватный ключ как значение по
+# умолчанию — он попал в публичный репозиторий на GitHub и должен считаться
+# скомпрометированным. Сгенерируй новую пару (см. комментарий ниже) и больше
+# никогда не держи приватный ключ в коде — только в переменных окружения,
+# которые не коммитятся (.env и т.п., добавь в .gitignore).
+#   Сгенерировать новую пару: python3 -c "from py_vapid import Vapid02; v=Vapid02(); v.generate_keys(); print(v.private_pem().decode()); print(v.public_key.public_bytes(...))"
+#   либо: npx web-push generate-vapid-keys
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+    logger.warning(
+        "[push] VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY не заданы в окружении — "
+        "push-уведомления работать не будут, пока не сгенерируешь новую пару "
+        "и не пропишешь её в переменных окружения (старая, бывшая в коде, "
+        "считается слитой)."
+    )
 
 VAPID_CLAIMS = {"sub": os.getenv("VAPID_MAILTO", "mailto:admin@example.com")}
 
@@ -5421,6 +5472,24 @@ def _broadcast_push(data):
     if len(alive) != len(_push_subscriptions):
         _push_subscriptions = alive
         _save_push_subscriptions()
+
+
+@app.route("/api/push/register-fcm-token", methods=["POST"])
+def push_register_fcm_token():
+    """Принимает настоящий FCM device-токен от Android-приложения
+    (нативно, из FirebaseMessagingService.onNewToken). Сразу регистрирует
+    на сервере MAX, если сессия прямо сейчас онлайн; если офлайн —
+    зарегистрируется автоматически при следующем успешном логине
+    (см. recv_loop, opcode 19)."""
+    data = request.get_json(force=True) or {}
+    token = data.get("token", "")
+    if not token:
+        return jsonify({"error": "no token"}), 400
+    save_fcm_token(token)
+    client = _active_client_for_push.get("client")
+    if client is not None:
+        register_fcm_push_token(client)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/push/vapid-public-key")

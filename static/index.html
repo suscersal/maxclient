@@ -826,15 +826,6 @@
             max-width: 72px;
         }
 
-        /* Узкий экран — ID чата в шапке совсем не критичен (это отладочная
-           подпись), а место для имени важнее. Раньше он не обрезался и
-           визуально наезжал на имя/статус. */
-        @media (max-width: 420px) {
-            .chat-header .chat-id-label {
-                display: none;
-            }
-        }
-
         .msg-enc-badge {
             font-size: 11px;
             color: #4caf50;
@@ -5532,7 +5523,7 @@
             <input type="file" id="storyFileInput" accept="image/*" style="display:none;" onchange="onStoryFileChosen(this)">
             <div style="display:flex;gap:12px;">
                 <button onclick="document.getElementById('storyFileInput').click()"
-                    style="padding:12px 24px;border-radius:20px;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:15px;cursor:pointer;">📷 Выбрать фото</button>
+                    style="padding:12px 24px;border-radius:20px;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:6px;" data-ic="camera" data-ic-size="16">Выбрать фото</button>
                 <button onclick="submitStory()"
                     style="padding:12px 24px;border-radius:20px;border:none;background:#0d6efd;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">Опубликовать</button>
             </div>
@@ -7709,7 +7700,7 @@
                 const already = installed.some(b => b.url === url);
                 return `
                 <div class="chat-profile-option" style="align-items:flex-start;">
-                    <span class="opt-icon">🤖</span>
+                    <span class="opt-icon">${icon('bot', 20)}</span>
                     <div style="flex:1;min-width:0;">
                         <div style="font-weight:600;">${escapeHtml(bot.name || 'Бот без имени')}</div>
                         <div style="font-size:12px;color:#888;word-break:break-all;">${escapeHtml(url)}</div>
@@ -9286,9 +9277,56 @@
                 <button class="btn-add" onclick="addSettingRow()">+ переменная</button>
                 <button class="btn-save" onclick="saveSettings()">Сохранить</button>
                 <button class="btn-add" onclick="resetSettingsVars()">Сбросить к теме</button>
+                <button class="btn-add" onclick="exportThemeVars()">Поделиться темой</button>
+                <button class="btn-add" onclick="document.getElementById('themeImportInput').click()">Загрузить тему</button>
+                <input type="file" id="themeImportInput" accept="application/json" style="display:none;" onchange="importThemeVars(this)">
             </div>
         `;
             return html;
+        }
+
+        // Экспорт/импорт — просто тот же набор --tg-* в JSON-файл, никакого
+        // отдельного протокола тут нет, это чисто локальная фича для обмена
+        // цветовой схемой между своими устройствами/друзьями.
+        function exportThemeVars() {
+            const vars = loadSettingsVars();
+            const data = Object.keys(vars).length ? vars : (() => {
+                const cs = getComputedStyle(document.documentElement);
+                const out = {};
+                Object.keys(THEME_VAR_LABELS).forEach(k => {
+                    const v = cs.getPropertyValue('--' + k).trim();
+                    if (v) out[k] = v;
+                });
+                return out;
+            })();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'maxclient_theme.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        }
+
+        function importThemeVars(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                let data;
+                try { data = JSON.parse(reader.result); } catch (e) { mxToast('Файл повреждён или не JSON'); return; }
+                if (!data || typeof data !== 'object' || Array.isArray(data)) { mxToast('Неверный формат файла'); return; }
+                const vars = {};
+                Object.entries(data).forEach(([k, v]) => { if (typeof v === 'string') vars[k] = v; });
+                if (!Object.keys(vars).length) { mxToast('В файле нет цветов'); return; }
+                localStorage.setItem('maxclient_settings_vars', JSON.stringify(vars));
+                applySettingsVars();
+                settingsMenu.refreshPage('vars');
+                mxToast('Тема загружена');
+            };
+            reader.readAsText(file);
+            input.value = '';
         }
 
         // <input type=color> понимает только #rrggbb — грубая, но безопасная
@@ -10488,7 +10526,7 @@
                 const ars = getAutoreplySettings(chat.id);
                 optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="toggleChatOption('autoreply')">
-                <span class="opt-icon">🤖</span>
+                <span class="opt-icon">${icon('bot', 20)}</span>
                 <span class="opt-label">Автоответ</span>
                 <span class="opt-toggle">
                     <div class="toggle-switch ${ars.enabled ? 'active' : ''}" id="toggleAutoreply">
@@ -10593,10 +10631,19 @@
             </button>
         `;
 
+            if ((chat.type === 'CHAT' || chat.type === 'CHANNEL') && isChatAdmin(chat)) {
+                optionsContainer.innerHTML += `
+                <button class="chat-profile-option" onclick="openChatLinksManager(${chat.id})">
+                    <span class="opt-icon">${icon('link', 20)}</span>
+                    <span class="opt-label">Ссылки-приглашения</span>
+                </button>
+            `;
+            }
+
             // Скам-проверка этого чата
             optionsContainer.innerHTML += `
             <button class="chat-profile-option" onclick="checkCurrentChatForScam()">
-                <span class="opt-icon">🛡️</span>
+                <span class="opt-icon">${icon('shield', 20)}</span>
                 <span class="opt-label" id="scamCheckChatBtnLabel">Проверить чат на скам</span>
             </button>
             <div id="scamCheckChatResult" style="padding:0 12px 8px;font-size:12px;color:#888;"></div>
@@ -10643,6 +10690,69 @@
             if (!chat || !selfId) return false;
             if (chat.owner === selfId) return true;
             return !!(chat.adminParticipants && chat.adminParticipants[selfId]);
+        }
+
+
+        // ========================================
+        // Ссылки-приглашения на чат (формат подтверждён дампом схемы от
+        // пользователя, не Komet — там этих опкодов ещё нет, видимо, это
+        // появилось в более свежей версии MAX, 26.34.0):
+        //   CHAT_LINKS_LIST   221 {chatId} -> {links: [{id,title?,link,joinCount,createdAt}]}
+        //   CHAT_LINK_CREATE  222 {chatId, title?} -> {link: {...}}
+        //   CHAT_LINK_DELETE  223 {chatId, linkIds:[...]} -> {linkIds:[...]}
+        // ========================================
+        async function openChatLinksManager(chatId) {
+            const back = mxModal(`
+                <h4>Ссылки-приглашения</h4>
+                <div id="chatLinksList"><div class="cm-empty">Загрузка…</div></div>
+                <button type="button" class="mx-btn" id="chatLinkAdd" style="width:100%;margin-top:8px;">${icon('plus', 15)} Новая ссылка</button>
+                <div class="mx-row"><button type="button" class="mx-btn" id="chatLinksClose">Закрыть</button></div>`);
+            back.querySelector('#chatLinksClose').onclick = () => back.remove();
+            const box = back.querySelector('#chatLinksList');
+
+            const paint = (links) => {
+                if (!links.length) { box.innerHTML = '<div class="cm-empty">Ссылок пока нет</div>'; return; }
+                box.innerHTML = '';
+                links.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).forEach(l => {
+                    const row = document.createElement('div');
+                    row.className = 'cm-item';
+                    row.style.marginBottom = '6px';
+                    const created = l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '';
+                    row.innerHTML = `
+                        <div style="font-weight:600;">${escapeHtml(l.title || 'Без названия')}</div>
+                        <div style="font-size:13px;word-break:break-all;color:var(--tg-blue,#2481cc);">${escapeHtml(l.link || '')}</div>
+                        <div style="font-size:12px;color:var(--tg-text-secondary,#888);margin-top:2px;">Переходов: ${l.joinCount || 0}${created ? ' · создана ' + created : ''}</div>
+                        <div style="display:flex;gap:8px;margin-top:6px;">
+                            <button type="button" class="mx-btn" data-copy>Копировать</button>
+                            <button type="button" class="mx-btn danger" data-del>Удалить</button>
+                        </div>`;
+                    row.querySelector('[data-copy]').onclick = () => {
+                        navigator.clipboard?.writeText(l.link || '').then(() => mxToast('Скопировано'));
+                    };
+                    row.querySelector('[data-del]').onclick = async () => {
+                        const res = await apiCall(223, { chatId, linkIds: [l.id] });
+                        if (res.ok) { loadLinks(); mxToast('Ссылка удалена'); }
+                        else mxToast('Не удалось удалить ссылку');
+                    };
+                    box.appendChild(row);
+                });
+            };
+
+            const loadLinks = async () => {
+                const res = await apiCall(221, { chatId });
+                if (!back.isConnected) return;
+                if (!res.ok) { box.innerHTML = '<div class="cm-empty">Не удалось загрузить ссылки</div>'; return; }
+                paint(Array.isArray(res.payload?.links) ? res.payload.links : []);
+            };
+
+            back.querySelector('#chatLinkAdd').onclick = async () => {
+                const title = prompt('Название ссылки (необязательно):') || undefined;
+                const res = await apiCall(222, title ? { chatId, title } : { chatId });
+                if (res.ok) { loadLinks(); mxToast('Ссылка создана'); }
+                else mxToast('Не удалось создать ссылку — возможно, не хватает прав администратора');
+            };
+
+            loadLinks();
         }
 
         function closeChatProfile() {
@@ -11569,6 +11679,107 @@
 
         // Обновляет строку под названием чата в шапке (если открыт именно
         // этот groupovой/канальный чат) актуальным количеством участников.
+
+        // ========================================
+        // «Печатает…» (формат: Komet messages.dart sendTyping /
+        // chat_activity_store.dart). Отправка: MSG_TYPING 65
+        // {chatId, type} — подтверждённые в Komet типы 'STICKER' и 'FILE',
+        // для обычного набора текста беру 'TEXT' по аналогии (не нашёл явного
+        // вызова в Komet для простого текста, но на стороне получателя
+        // ЛЮБОЙ тип кроме 'STICKER' показывается как «Печатает…» — так что
+        // это не меняет видимое поведение, даже если сам тип не 1-в-1 как в
+        // оригинальном клиенте). Приём: NOTIF_TYPING 129 {chatId, userId,
+        // type}, TTL 6 секунд на запись, переотправка раз в 4 секунды, пока
+        // печатают (тайминги — из Komet).
+        // ========================================
+        const _typingByChat = new Map();   // chatId -> Map(userId -> {label, timer})
+        let _typingSendTimer = null;
+        let _typingLastSentAt = 0;
+
+        function typingLabelForType(type) {
+            return type === 'STICKER' ? 'выбирает стикер…' : 'печатает…';
+        }
+
+        function markTypingActivity(chatId, userId, type) {
+            if (userId === selfId) return;
+            let users = _typingByChat.get(chatId);
+            if (!users) { users = new Map(); _typingByChat.set(chatId, users); }
+            const entry = users.get(userId) || {};
+            clearTimeout(entry.timer);
+            entry.label = typingLabelForType(type);
+            entry.timer = setTimeout(() => {
+                users.delete(userId);
+                if (!users.size) _typingByChat.delete(chatId);
+                refreshTypingUi(chatId);
+            }, 6000);
+            users.set(userId, entry);
+            refreshTypingUi(chatId);
+        }
+
+        function typingSummaryFor(chatId) {
+            const users = _typingByChat.get(chatId);
+            if (!users || !users.size) return null;
+            const labels = Array.from(users.values()).map(e => e.label);
+            if (labels.length === 1) {
+                const chat = chatsById[chatId];
+                if (chat && chat.type === 'DIALOG') return labels[0][0].toUpperCase() + labels[0].slice(1);
+                const [uid] = users.keys();
+                const c = contactsById[uid];
+                const nm = (c && (c.name || c.firstName)) || 'Участник';
+                return `${nm} ${labels[0]}`;
+            }
+            return `${labels.length} участников печатают…`;
+        }
+
+        function refreshTypingUi(chatId) {
+            const summary = typingSummaryFor(chatId);
+            if (chatId === currentChatId) {
+                const statusEl = document.getElementById('chatDetailStatus');
+                if (statusEl) {
+                    if (summary) { statusEl.textContent = summary; statusEl.style.color = 'var(--tg-blue, #2481cc)'; }
+                    else { statusEl.style.color = ''; const chat = chatsById[chatId]; if (chat) renderChatDetailStatus(chat); }
+                }
+            }
+            const previewEl = document.querySelector(`.chat-item-wrap[data-chat-id="${chatId}"] .chat-preview`);
+            if (previewEl) {
+                if (summary) { previewEl.textContent = summary; previewEl.style.color = 'var(--tg-blue, #2481cc)'; }
+                else { previewEl.style.color = ''; const chat = chatsById[chatId]; if (chat) previewEl.textContent = chatPreview(chat); }
+            }
+        }
+
+        // Пока поле ввода непусто — раз в 4 секунды шлём MSG_TYPING (как в
+        // Komet: Timer.periodic(4s)); как только очистили/отправили/ушли из
+        // чата — останавливаем, сервер сам погасит индикатор через TTL.
+        function notifyTypingActivity() {
+            if (currentChatId == null) return;
+            const now = Date.now();
+            if (now - _typingLastSentAt < 3500) return;   // не чаще, чем раз в ~4с
+            _typingLastSentAt = now;
+            send(65, { chatId: currentChatId, type: 'TEXT' });
+        }
+
+        function stopTypingActivity() {
+            clearInterval(_typingSendTimer);
+            _typingSendTimer = null;
+            _typingLastSentAt = 0;
+        }
+
+        (function initTypingComposerHook() {
+            const input = document.getElementById('messageText');
+            if (!input) return;
+            input.addEventListener('input', () => {
+                if (!input.value.trim()) { stopTypingActivity(); return; }
+                if (!_typingSendTimer) {
+                    notifyTypingActivity();
+                    _typingSendTimer = setInterval(notifyTypingActivity, 4000);
+                }
+            });
+        })();
+
+        function clearTypingOnChatLeave() {
+            stopTypingActivity();
+        }
+
         function renderChatDetailStatus(chat) {
             const statusEl = document.getElementById('chatDetailStatus');
             if (!statusEl) return;
@@ -13785,13 +13996,136 @@
         // дата/время, отправитель, текст; вложения помечаются по типу без
         // содержимого (фото/файлы качать отдельно, это только текстовый лог).
         function exportChatAction(chatId) {
+            const back = mxModal(`
+                <h4>Экспорт переписки</h4>
+                <div style="font-size:13px;color:var(--tg-text-secondary,#888);margin-bottom:8px;">Только то, что уже загружено на экране.</div>
+                <button type="button" class="mx-reason" id="expTxt">Текст (.txt)</button>
+                <button type="button" class="mx-reason" id="expMd">Markdown (.md), с жирным/курсивом</button>
+                <button type="button" class="mx-reason" id="expHtml">HTML — с уже загруженными фото</button>
+                <div class="mx-row"><button type="button" class="mx-btn" id="expCancel">Отмена</button></div>`);
+            back.querySelector('#expCancel').onclick = () => back.remove();
+            back.querySelector('#expTxt').onclick = () => { back.remove(); runChatExport(chatId, 'txt'); };
+            back.querySelector('#expMd').onclick = () => { back.remove(); runChatExport(chatId, 'md'); };
+            back.querySelector('#expHtml').onclick = () => { back.remove(); runChatExport(chatId, 'html'); };
+        }
+
+        // Простой HTML -> Markdown/plain-текст: только то форматирование,
+        // что реально встречается в .msg-text (buildMessageTextHtml уже
+        // использует <b>/<strong>, <i>/<em>, <code>, <br>), остальные теги
+        // просто снимаем. Никакого внешнего парсера — для этого объёма
+        // достаточно.
+        function msgHtmlToText(html, format) {
+            if (!html) return '';
+            const box = document.createElement('div');
+            box.innerHTML = html;
+            const walk = (node) => {
+                if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+                if (node.nodeType !== Node.ELEMENT_NODE) return '';
+                const inner = Array.from(node.childNodes).map(walk).join('');
+                const tag = node.tagName;
+                if (format !== 'md') {
+                    return (tag === 'BR') ? '\n' : inner;
+                }
+                if (tag === 'BR') return '\n';
+                if (tag === 'B' || tag === 'STRONG') return `**${inner}**`;
+                if (tag === 'I' || tag === 'EM') return `_${inner}_`;
+                if (tag === 'CODE' || tag === 'PRE') return '`' + inner + '`';
+                if (tag === 'A') return `[${inner}](${node.getAttribute('href') || ''})`;
+                return inner;
+            };
+            return Array.from(box.childNodes).map(walk).join('').trim();
+        }
+
+        function attachKindsOf(bubble) {
+            const kinds = [];
+            if (bubble.querySelector('.msg-img, .lazy-media-placeholder')) kinds.push('фото');
+            if (bubble.querySelector('.msg-poll')) kinds.push('опрос');
+            if (bubble.querySelector('audio')) kinds.push('голосовое/аудио');
+            if (bubble.querySelector('video')) kinds.push('видео');
+            if (bubble.querySelector('.msg-file')) kinds.push('файл');
+            return kinds;
+        }
+
+        function downloadTextFile(text, filename, mime) {
+            const blob = new Blob(['\uFEFF' + text], { type: mime + ';charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        }
+
+        // blob: URL живёт только в этой вкладке — чтобы фото открылось и
+        // после переноса файла на другое устройство, перекодируем в
+        // data:-URI (base64) прямо в HTML. Берём из уже загруженного <img>,
+        // заново с сервера не ходим (сознательно — тут только то, что и так
+        // есть на экране).
+        async function blobImgToDataUri(src) {
+            try {
+                const resp = await fetch(src);
+                const blob = await resp.blob();
+                return await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (e) { return null; }
+        }
+
+        async function runChatExport(chatId, format) {
             const chat = chatsById[chatId];
             const list = document.getElementById('messagesList');
             if (!list) return;
             const bubbles = Array.from(list.querySelectorAll('.msg-bubble[data-msg-id]'));
             if (!bubbles.length) { mxToast('В этом чате пока ничего не загружено — прокрутите историю выше'); return; }
+            const chatName = chatDisplayName(chat) || String(chatId);
+            const safeName = chatName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+            const dateTag = new Date().toISOString().slice(0, 10);
+
+            if (format === 'html') {
+                mxToast('Готовлю HTML, фото могут грузиться дольше…');
+                const rows = [];
+                for (const bubble of bubbles) {
+                    const ts = Number(bubble.dataset.msgTime) || 0;
+                    const when = ts ? new Date(ts).toLocaleString() : '';
+                    if (bubble.classList.contains('system-message')) {
+                        rows.push(`<div class="sys">${escapeHtml(bubble.textContent.trim())}</div>`);
+                        continue;
+                    }
+                    const nameEl = bubble.querySelector('.msg-sender-name');
+                    const sender = nameEl ? nameEl.textContent.trim() : (bubble.classList.contains('own') ? 'Вы' : chatName);
+                    const textEl = bubble.querySelector('.msg-text');
+                    let bodyHtml = textEl ? textEl.innerHTML : '';
+                    const img = bubble.querySelector('.msg-img');
+                    let imgHtml = '';
+                    if (img && img.src) {
+                        const dataUri = await blobImgToDataUri(img.src);
+                        if (dataUri) imgHtml = `<img src="${dataUri}" style="max-width:260px;border-radius:8px;display:block;margin-top:4px;">`;
+                    }
+                    if (!bodyHtml && !imgHtml) {
+                        const kinds = attachKindsOf(bubble);
+                        bodyHtml = escapeHtml(kinds.length ? `[${kinds.join(', ')}]` : '[вложение]');
+                    }
+                    const own = bubble.classList.contains('own');
+                    rows.push(`<div class="msg${own ? ' own' : ''}"><div class="meta">${escapeHtml(sender)} · ${escapeHtml(when)}</div><div class="body">${bodyHtml}</div>${imgHtml}</div>`);
+                }
+                const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(chatName)}</title><style>
+                    body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;margin:0 auto;padding:16px;background:#f2f2f2;}
+                    .msg{background:#fff;border-radius:10px;padding:8px 12px;margin:8px 0;max-width:80%;}
+                    .msg.own{margin-left:auto;background:#e1ffc7;}
+                    .meta{font-size:12px;color:#888;margin-bottom:3px;}
+                    .sys{text-align:center;font-size:12px;color:#888;margin:10px 0;}
+                    </style></head><body><h2>${escapeHtml(chatName)}</h2>${rows.join('\n')}</body></html>`;
+                downloadTextFile(html, `chat_${safeName}_${dateTag}.html`, 'text/html');
+                mxToast(`Экспортировано сообщений: ${bubbles.length}`);
+                return;
+            }
+
             const lines = [];
-            lines.push('Экспорт переписки: ' + (chatDisplayName(chat) || chatId));
+            lines.push((format === 'md' ? '# ' : '') + 'Экспорт переписки: ' + chatName);
             lines.push('Сформировано: ' + new Date().toLocaleString());
             lines.push('Диапазон: только то, что было загружено в приложении на момент экспорта.');
             lines.push('');
@@ -13803,30 +14137,17 @@
                     return;
                 }
                 const nameEl = bubble.querySelector('.msg-sender-name');
-                const sender = nameEl ? nameEl.textContent.trim() : (bubble.classList.contains('own') ? 'Вы' : (chatDisplayName(chat) || ''));
+                const sender = nameEl ? nameEl.textContent.trim() : (bubble.classList.contains('own') ? 'Вы' : chatName);
                 const textEl = bubble.querySelector('.msg-text');
-                let body = textEl ? textEl.textContent.trim() : '';
+                let body = textEl ? msgHtmlToText(textEl.innerHTML, format) : '';
                 if (!body) {
-                    const kinds = [];
-                    if (bubble.querySelector('.msg-img, .lazy-media-placeholder')) kinds.push('фото');
-                    if (bubble.querySelector('.msg-poll')) kinds.push('опрос');
-                    if (bubble.querySelector('audio')) kinds.push('голосовое/аудио');
-                    if (bubble.querySelector('video')) kinds.push('видео');
-                    if (bubble.querySelector('.msg-file')) kinds.push('файл');
+                    const kinds = attachKindsOf(bubble);
                     body = kinds.length ? `[${kinds.join(', ')}]` : '[вложение]';
                 }
                 if (bubble.classList.contains('deleted') || bubble.querySelector('.msg-deleted-badge')) body += ' (удалено)';
-                lines.push(`[${when}] ${sender}: ${body}`);
+                lines.push(format === 'md' ? `**[${when}] ${sender}:** ${body}` : `[${when}] ${sender}: ${body}`);
             });
-            const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            const safeName = (chatDisplayName(chat) || String(chatId)).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
-            a.download = `chat_${safeName}_${new Date().toISOString().slice(0, 10)}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            downloadTextFile(lines.join('\n'), `chat_${safeName}_${dateTag}.${format}`, format === 'md' ? 'text/markdown' : 'text/plain');
             mxToast(`Экспортировано сообщений: ${bubbles.length}`);
         }
 
@@ -15486,6 +15807,7 @@
             isLoadingMore = false;
             document.getElementById('stickyDateBadge')?.classList.remove('visible');
             positionStickyDateBadge();
+            clearTypingOnChatLeave();
             // Инвалидируем ожидание ответов chatHistory от ПРЕДЫДУЩЕГО чата —
             // если его опоздавший ответ всё же придёт, обработчик opcode 49
             // теперь его отбросит вместо того, чтобы отрендерить не туда.
@@ -15893,7 +16215,7 @@
         // (обычный send() того же опкода). Так ack/ответ на apiCall(49, …)
         // не путается с обычными запросами истории чата.
         const _apiAckQueue = {};
-        const _apiTracked = new Set([49, 64, 73, 91, 215, 272, 274]);
+        const _apiTracked = new Set([49, 64, 73, 91, 215, 221, 222, 223, 272, 274]);
         const _apiPending = new Map();
         let _apiSending = false;
 
@@ -16142,27 +16464,54 @@
             const back = mxModal(`
                 <h4>Поиск по чату</h4>
                 <input type="text" id="chatSearchInput" placeholder="Текст сообщения" autocomplete="off">
-                <div id="chatSearchResults" style="max-height:50vh;overflow-y:auto;margin-top:8px;"></div>
+                <div class="mx-row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap;margin-top:6px;">
+                    <label style="font-size:12px;color:var(--tg-text-secondary,#888);">С <input type="date" id="chatSearchFrom" style="font-size:12px;"></label>
+                    <label style="font-size:12px;color:var(--tg-text-secondary,#888);">По <input type="date" id="chatSearchTo" style="font-size:12px;"></label>
+                </div>
+                <div id="chatSearchResults" style="max-height:45vh;overflow-y:auto;margin-top:8px;"></div>
+                <button type="button" class="mx-btn" id="chatSearchMore" style="display:none;width:100%;margin-top:6px;">Показать ещё</button>
                 <div class="mx-row"><button type="button" class="mx-btn" id="chatSearchClose">Закрыть</button></div>`);
             back.querySelector('#chatSearchClose').onclick = () => back.remove();
             const input = back.querySelector('#chatSearchInput');
             const resultsBox = back.querySelector('#chatSearchResults');
+            const moreBtn = back.querySelector('#chatSearchMore');
+            const fromEl = back.querySelector('#chatSearchFrom');
+            const toEl = back.querySelector('#chatSearchTo');
             let timer = null;
-            input.addEventListener('input', () => {
-                clearTimeout(timer);
+            let currentCount = 30;
+            const rerun = () => {
                 const q = input.value.trim();
-                if (!q) { resultsBox.innerHTML = ''; return; }
-                timer = setTimeout(() => runChatSearch(q, resultsBox, back), 350);
-            });
+                if (!q) { resultsBox.innerHTML = ''; moreBtn.style.display = 'none'; return; }
+                currentCount = 30;
+                runChatSearch(q, currentCount, resultsBox, moreBtn, back, fromEl, toEl);
+            };
+            input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(rerun, 350); });
+            fromEl.addEventListener('change', rerun);
+            toEl.addEventListener('change', rerun);
+            moreBtn.onclick = () => {
+                currentCount += 30;
+                runChatSearch(input.value.trim(), currentCount, resultsBox, moreBtn, back, fromEl, toEl);
+            };
             input.focus();
         }
 
-        async function runChatSearch(query, resultsBox, modalBack) {
+        async function runChatSearch(query, count, resultsBox, moreBtn, modalBack, fromEl, toEl) {
             const mySeq = ++_chatSearchSeq;
             resultsBox.innerHTML = '<div class="cm-empty">Ищу…</div>';
-            const res = await apiCall(73, { chatId: currentChatId, query, count: 30 });
+            moreBtn.style.display = 'none';
+            // count — единственный параметр ограничения результатов, который
+            // реально поддерживает сервер (MSG_SEARCH не умеет смещение
+            // /offset, так и в Komet). «Показать ещё» — просто повторный
+            // запрос с бОльшим count, а не honest-пагинация.
+            const res = await apiCall(73, { chatId: currentChatId, query, count });
             if (mySeq !== _chatSearchSeq || !modalBack.isConnected) return;   // устарело или окно уже закрыто
-            const list = res.ok && res.payload && Array.isArray(res.payload.result) ? res.payload.result : [];
+            let list = res.ok && res.payload && Array.isArray(res.payload.result) ? res.payload.result : [];
+            // Диапазон дат — фильтр чисто на клиенте: в самом MSG_SEARCH
+            // такого параметра нет, сервер его не поддерживает.
+            const fromTs = fromEl.value ? new Date(fromEl.value + 'T00:00:00').getTime() : null;
+            const toTs = toEl.value ? new Date(toEl.value + 'T23:59:59').getTime() : null;
+            if (fromTs != null) list = list.filter(m => (m.time || 0) >= fromTs);
+            if (toTs != null) list = list.filter(m => (m.time || 0) <= toTs);
             if (!list.length) { resultsBox.innerHTML = '<div class="cm-empty">Ничего не найдено</div>'; return; }
             resultsBox.innerHTML = '';
             list.slice().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(m => {
@@ -16176,6 +16525,9 @@
                 row.onclick = () => { modalBack.remove(); jumpToChatMessage(currentChatId, m.id, m.time); };
                 resultsBox.appendChild(row);
             });
+            // Если сервер вернул ровно столько, сколько просили, — вероятно,
+            // есть ещё; если меньше — это все совпадения, кнопку прячем.
+            moreBtn.style.display = (res.ok && res.payload && Array.isArray(res.payload.result) && res.payload.result.length >= count) ? '' : 'none';
         }
 
         // Если сообщение уже отрисовано — просто скроллим и подсвечиваем.
@@ -16934,7 +17286,7 @@
                                 }
                                 return `
                                     <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--tg-border,#eee);">
-                                        <span style="font-size:22px;">📎</span>
+                                        <span style="font-size:22px;display:inline-flex;">${icon('clip', 20)}</span>
                                         <div style="min-width:0;">
                                             <div style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(fileName)}</div>
                                             <div style="font-size:12px;color:#888;">${sizeText}</div>
@@ -17067,6 +17419,11 @@
                                 }
                             }
                         }
+                        return;
+                    }
+                    if (data.opcode === 129 && data.payload) {
+                        const p = data.payload;
+                        if (p.chatId != null && p.userId != null) markTypingActivity(p.chatId, p.userId, p.type);
                         return;
                     }
                     if (data.opcode === 132 && data.payload) {

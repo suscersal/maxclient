@@ -123,8 +123,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-            packages: 'platform-tools'
 
       - name: Install NDK + CMake
         # Версия NDK должна совпадать с android.ndkVersion в app/build.gradle —
@@ -166,6 +164,23 @@ jobs:
       - name: Decode signing keystore
         working-directory: .
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/maxclient-release.jks
+
+      # Push-уведомления через Firebase (FCM) — подключённому в
+      # android/build.gradle плагину com.google.gms.google-services нужен
+      # этот файл, иначе сборка упадёт прямо на этапе конфигурации Gradle,
+      # ещё до компиляции. Файл кладём тем же способом, что и keystore выше:
+      # один раз закодировать содержимое google-services.json из Firebase
+      # Console в base64 (`base64 -w0 google-services.json`) и сохранить как
+      # секрет GOOGLE_SERVICES_JSON_BASE64 в Settings → Secrets and
+      # variables → Actions этого репозитория.
+      - name: Decode Firebase google-services.json
+        working-directory: .
+        run: |
+          if [[ -z "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]]; then
+            echo "::error::Секрет GOOGLE_SERVICES_JSON_BASE64 не задан. Заведи проект в Firebase Console (Android-пакет com.suscersal.maxclient), скачай google-services.json, закодируй его (base64 -w0 google-services.json) и сохрани результат как секрет GOOGLE_SERVICES_JSON_BASE64 в Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/google-services.json
 
       - name: Build debug APK
         working-directory: android
@@ -285,6 +300,7 @@ jobs:
             --hidden-import=webview `
             --collect-all webview `
             --add-data "static/index.html;static" `
+            --add-data "static/avatars.json;static" `
             --add-data "static/manifest.json;static" `
             --add-data "static/assets/favorite.png;static" `
             --add-data "static/loading.gif;static" `

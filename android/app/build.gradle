@@ -2,6 +2,12 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'com.chaquo.python'
+    // ВНИМАНИЕ: требует app/google-services.json из своего проекта Firebase
+    // (Firebase Console → Project settings → твой Android-пакет
+    // com.suscersal.maxclient). Без этого файла сборка упадёт — если
+    // Firebase пока не нужен, закомментируй эту строку и аналогичную
+    // classpath-строку в корневом build.gradle.
+    id 'com.google.gms.google-services'
 }
 
 android {
@@ -140,6 +146,10 @@ chaquopy {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core-ktx:1.13.1'
+    // Push-уведомления (FCM). BOM сам подбирает совместимые версии —
+    // отдельно версию firebase-messaging указывать не нужно.
+    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+    implementation 'com.google.firebase:firebase-messaging-ktx'
     implementation 'com.google.mediapipe:tasks-genai:0.10.27'
     implementation 'com.google.mediapipe:tasks-text:0.10.29'
     implementation 'com.alphacephei:vosk-android:0.3.70'   // было 0.3.32 — древняя версия 2021 года
