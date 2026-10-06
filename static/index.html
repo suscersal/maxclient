@@ -7307,6 +7307,7 @@
                 Показывать лог ниже (тот же, что раньше торчал под чатом)
             </label>
         </div>
+        <button type="button" class="settings-menu-item" style="width:auto;padding:6px 12px;margin:6px 0;" onclick="fetchPyLogOnce()">Обновить логи сервера</button>
         <div id="debugDumpLogSlot"></div>
     `;
         }
@@ -7324,6 +7325,28 @@
                 slot.appendChild(section);
             }
             if (section) section.classList.toggle('hidden', !getLogPanelEnabled());
+            fetchPyLogOnce();
+            clearInterval(_pyLogPollTimer);
+            _pyLogPollTimer = setInterval(fetchPyLogOnce, 3000);
+        }
+        let _pyLogPollTimer = null;
+        function stopPyLogPoll() { clearInterval(_pyLogPollTimer); _pyLogPollTimer = null; }
+
+        // В APK нет терминала — без этого строки вида "[push] Отправлена
+        // регистрация..." из bridge.py физически негде увидеть. Подтягиваем
+        // последние записи с /api/debug/pylog прямо в ту же панель "Лог"
+        // (помечены префиксом [py], чтобы не путать с JS-логами).
+        let _pyLogShown = new Set();
+        async function fetchPyLogOnce() {
+            try {
+                const res = await fetch('/api/debug/pylog');
+                const data = await res.json();
+                (data.lines || []).forEach(line => {
+                    if (_pyLogShown.has(line)) return;
+                    _pyLogShown.add(line);
+                    log('[py] ' + line, line.includes(' ERROR') || line.includes(' WARNING') ? 'error' : 'info');
+                });
+            } catch (e) { /* bridge.py мог ещё не успеть поднять этот роут — не критично */ }
         }
 
         function renderScamCheckPage() {
@@ -9040,6 +9063,7 @@
             }
 
             showList() {
+                stopPyLogPoll();
                 const modal = document.querySelector('#settingsModal .settings-modal');
                 if (modal) modal.classList.remove('in-page');
                 document.querySelectorAll('.settings-content-page').forEach(el => el.classList.remove('active'));
@@ -17652,6 +17676,7 @@
             const modal = document.getElementById('settingsModal');
             modal.classList.remove('active');
             document.body.style.overflow = '';
+            stopPyLogPoll();
         }
 
         document.getElementById('settingsModal').addEventListener('click', (e) => {

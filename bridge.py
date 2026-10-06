@@ -1,3 +1,4 @@
+import collections
 import json
 import logging
 import os
@@ -32,6 +33,28 @@ import io
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+# В APK нет терминала — питоновские логи раньше были видны только тут,
+# в консоли (которой в APK не существует). Дублируем последние записи в
+# память, чтобы отдать их по HTTP и показать в той же JS-панели "Лог"
+# (см. /api/debug/pylog ниже и index.html, Настройки → Дебаг-дамп).
+_PY_LOG_BUFFER = collections.deque(maxlen=500)
+_PY_LOG_LOCK = threading.Lock()
+
+
+class _RingBufferLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            line = self.format(record)
+        except Exception:
+            line = record.getMessage()
+        with _PY_LOG_LOCK:
+            _PY_LOG_BUFFER.append(line)
+
+
+_ring_handler = _RingBufferLogHandler()
+_ring_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"))
+logging.getLogger().addHandler(_ring_handler)
 
 
 # --- Глобальная защита от падения приложения на необработанных ошибках ---
@@ -5472,6 +5495,16 @@ def _broadcast_push(data):
     if len(alive) != len(_push_subscriptions):
         _push_subscriptions = alive
         _save_push_subscriptions()
+
+
+@app.route("/api/debug/pylog")
+def debug_pylog():
+    """Последние строки лога bridge.py (включая [push]...) — чтобы их можно
+    было увидеть внутри APK, где нет терминала. Смотри в приложении:
+    Настройки → Дебаг-дамп."""
+    with _PY_LOG_LOCK:
+        lines = list(_PY_LOG_BUFFER)
+    return jsonify({"lines": lines})
 
 
 @app.route("/api/push/register-fcm-token", methods=["POST"])
