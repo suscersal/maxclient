@@ -14,4 +14,7 @@ device_catalog.json
 push_subscriptions.json
 .env
 google-services.json
+# Исключение: это НЕ секрет — значения взяты из публичного APK самого MAX
+# (см. android/app/build.gradle, flavor "fcm"), коммитится как есть.
+!android/app/src/fcm/google-services.json
 .patch-backup/
