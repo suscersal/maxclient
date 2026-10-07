@@ -1,6 +1,10 @@
 # MAX Client (Flask-версия)
 
-[![Скачать APK (последний релиз)](https://img.shields.io/github/v/release/suscersal/maxclient?label=Download%20APK&logo=android&logoColor=white)](https://github.com/suscersal/maxclient/releases/latest/download/app-debug.apk)
+[![Скачать APK (последний релиз)](https://img.shields.io/github/v/release/suscersal/maxclient?label=Download%20APK&logo=android&logoColor=white)](https://github.com/suscersal/maxclient/releases/latest/download/app-standard-debug.apk)
+
+Два варианта APK в каждом релизе:
+- **app-standard-debug.apk** — свой applicationId, ставится рядом с оригинальным MAX. Push-уведомления не работают в фоне (только пока открыто соединение).
+- **app-fcm-debug.apk** — тот же applicationId, что у оригинального MAX (как в Komet). Настоящий push через Firebase, но ставится **вместо** оригинального приложения, не рядом с ним.
 
 ## Кастомные боты
 

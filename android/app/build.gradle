@@ -68,6 +68,35 @@ android {
         }
     }
 
+    // Два варианта сборки из одной кодовой базы:
+    //   standard — свой applicationId (com.suscersal.maxclient), свой
+    //              Firebase-проект. Push-токен регистрируется на сервере
+    //              MAX без ошибки, но реальный push не доходит — у MAX
+    //              нет способа слать уведомления в чужой Firebase-проект.
+    //              Ставится РЯДОМ с оригинальным MAX без конфликта.
+    //   fcm      — applicationId и google-services.json — это оригинальные
+    //              значения МАХ (ru.oneme.app, project max-messenger-app,
+    //              см. app/src/fcm/google-services.json). Push реально
+    //              работает, но Android считает это ТЕМ ЖЕ приложением,
+    //              что официальный MAX — поставить можно только ВМЕСТО
+    //              него, не рядом (тот же подход, что в Komet).
+    // google-services.json у каждого флейвора свой — кладётся в
+    // app/src/<имя флейвора>/google-services.json, плагин сам подхватывает
+    // нужный при сборке конкретного варианта.
+    flavorDimensions "variant"
+    productFlavors {
+        standard {
+            dimension "variant"
+            applicationId "com.suscersal.maxclient"
+            resValue "string", "app_name", "MaxClient"
+        }
+        fcm {
+            dimension "variant"
+            applicationId "ru.oneme.app"
+            resValue "string", "app_name", "MaxClient FCM"
+        }
+    }
+
     // ВАЖНО: без этого блока CI (GitHub Actions) собирает debug-APK на
     // одноразовом раннере, где каждый раз генерируется НОВЫЙ случайный
     // debug.keystore — то есть каждая сборка подписана разным ключом.

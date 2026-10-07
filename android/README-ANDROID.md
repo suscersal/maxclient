@@ -67,7 +67,7 @@ adb shell rm /sdcard/session.json
   как `max-client-debug-apk`.
 
 Локально (если нужно): `gradle assembleDebug` — итоговый файл будет
-в `app/build/outputs/apk/debug/app-debug.apk`.
+в `app/build/outputs/apk/standard/debug/app-standard-debug.apk` (свой applicationId) либо `app/build/outputs/apk/fcm/debug/app-fcm-debug.apk` (applicationId оригинального MAX, для настоящего push — см. корневой README.md).
 
 ## Иконка
 

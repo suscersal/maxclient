@@ -171,43 +171,59 @@ jobs:
         working-directory: .
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/maxclient-release.jks
 
-      # Push-уведомления через Firebase (FCM) — подключённому в
-      # android/build.gradle плагину com.google.gms.google-services нужен
-      # этот файл, иначе сборка упадёт прямо на этапе конфигурации Gradle,
-      # ещё до компиляции. Файл кладём тем же способом, что и keystore выше:
-      # один раз закодировать содержимое google-services.json из Firebase
-      # Console в base64 (`base64 -w0 google-services.json`) и сохранить как
-      # секрет GOOGLE_SERVICES_JSON_BASE64 в Settings → Secrets and
-      # variables → Actions этого репозитория.
-      - name: Decode Firebase google-services.json
+      # Два флейвора (см. android/app/build.gradle productFlavors):
+      #   standard — свой applicationId (com.suscersal.maxclient), свой
+      #              приватный Firebase-проект. google-services.json — СЕКРЕТ
+      #              (как и раньше): один раз закодировать содержимое файла
+      #              из Firebase Console (`base64 -w0 google-services.json`)
+      #              и сохранить как GOOGLE_SERVICES_JSON_BASE64 в
+      #              Settings → Secrets and variables → Actions.
+      #   fcm      — applicationId и google-services.json — оригинальные
+      #              значения самого MAX (извлечены из публичного APK,
+      #              ничего секретного), уже лежат в репозитории по пути
+      #              android/app/src/fcm/google-services.json — для него
+      #              декодировать нечего.
+      - name: Decode Firebase google-services.json (standard flavor)
         working-directory: .
         run: |
           if [[ -z "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]]; then
             echo "::error::Секрет GOOGLE_SERVICES_JSON_BASE64 не задан. Заведи проект в Firebase Console (Android-пакет com.suscersal.maxclient), скачай google-services.json, закодируй его (base64 -w0 google-services.json) и сохрани результат как секрет GOOGLE_SERVICES_JSON_BASE64 в Settings → Secrets and variables → Actions."
             exit 1
           fi
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/google-services.json
+          mkdir -p android/app/src/standard
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/src/standard/google-services.json
 
-      - name: Build debug APK
+      - name: Build debug APKs (оба флейвора)
         working-directory: android
         env:
           ANDROID_KEYSTORE_PATH: maxclient-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        # assembleDebug с флейворами сам агрегирует assembleStandardDebug +
+        # assembleFcmDebug — отдельно вызывать каждый не нужно.
         run: gradle assembleDebug --stacktrace --build-cache
 
-      - name: Verify loading.gif ended up inside the built APK
+      - name: Verify loading.gif ended up inside both built APKs
         working-directory: .
         run: |
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -i "loading.gif" || \
-            (echo "::error::loading.gif is NOT present inside the built APK's assets!" && exit 1)
+          for apk in android/app/build/outputs/apk/standard/debug/app-standard-debug.apk \
+                     android/app/build/outputs/apk/fcm/debug/app-fcm-debug.apk; do
+            unzip -l "$apk" | grep -i "loading.gif" || \
+              (echo "::error::loading.gif is NOT present inside $apk assets!" && exit 1)
+          done
 
-      - name: Upload APK artifact
+      - name: Upload APK artifact (standard — свой applicationId, ставится рядом с оригиналом MAX)
         uses: actions/upload-artifact@v4
         with:
           name: max-client-android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/standard/debug/app-standard-debug.apk
+
+      - name: Upload APK artifact (fcm — настоящий push, ставится ТОЛЬКО вместо оригинала MAX)
+        uses: actions/upload-artifact@v4
+        with:
+          name: max-client-android-fcm
+          path: android/app/build/outputs/apk/fcm/debug/app-fcm-debug.apk
           if-no-files-found: error
 
   # ---------- Linux (единый бинарник через PyInstaller) ----------
@@ -348,7 +364,8 @@ jobs:
           # prerelease: true, чтобы не перехватывать этот статус "latest".
           prerelease: false
           files: |
-            dist-artifacts/max-client-android/app-debug.apk
+            dist-artifacts/max-client-android/app-standard-debug.apk
+            dist-artifacts/max-client-android-fcm/app-fcm-debug.apk
             dist-artifacts/max-client-linux/max-client-linux
             dist-artifacts/max-client-windows/max-client-windows.exe
 

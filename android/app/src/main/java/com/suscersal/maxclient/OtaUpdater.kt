@@ -31,7 +31,7 @@ import java.security.MessageDigest
  * /releases/latest. Причина — hot-update релизы (см. workflow,
  * publish-hot-update) специально помечены prerelease: true, чтобы не быть
  * "latest release" для README-бейджа "Скачать APK" и для ссылки вида
- * releases/latest/download/app-debug.apk (та ссылка обязана указывать на
+ * releases/latest/download/app-standard-debug.apk (та ссылка обязана указывать на
  * релиз, где есть APK). Но раз они prerelease — GitHub-эндпоинт
  * /releases/latest их не отдаст, и это приложение перестало бы видеть
  * hot-обновления.
