@@ -5497,6 +5497,36 @@ def _broadcast_push(data):
         _save_push_subscriptions()
 
 
+# Флаг "клиентом сейчас пользуются" (interactive). В протоколе MAX он идёт в
+# логине (опкод 19) и в пинге (опкод 1, payload {"interactive": bool} — формат
+# подтверждён по классу запроса в официальном APK и по Komet, где
+# interactive=false это "режим призрака": сессия жива, но присутствие оффлайн).
+# Предположение (не доказано): сервер не шлёт push, пока считает сессию
+# интерактивной/онлайн — а после закрытия UI процесс с bridge.py ещё долго
+# живёт с открытым соединением и interactive=true, так что push "не нужен".
+# Поэтому при уходе приложения в фон переключаем в false, при возврате — true.
+_client_interactive = {"value": True}
+
+
+@app.route("/api/session/interactive", methods=["POST"])
+def session_interactive():
+    data = request.get_json(force=True, silent=True) or {}
+    flag = bool(data.get("interactive", True))
+    _client_interactive["value"] = flag
+    client = _active_client_for_push.get("client")
+    sent = False
+    if client is not None:
+        try:
+            client.send(1, {"interactive": flag})
+            sent = True
+            logger.info(f"[push] ping interactive={flag} отправлен (opcode 1)")
+        except Exception as e:
+            logger.warning(f"[push] не удалось отправить ping interactive={flag}: {e}")
+    else:
+        logger.info(f"[push] interactive={flag} запомнен, активной сессии нет")
+    return jsonify({"ok": True, "interactive": flag, "sent": sent})
+
+
 @app.route("/api/debug/pylog")
 def debug_pylog():
     """Последние строки лога bridge.py (включая [push]...) — чтобы их можно

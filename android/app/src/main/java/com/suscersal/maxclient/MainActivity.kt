@@ -123,6 +123,21 @@ class MainActivity : AppCompatActivity() {
         handleModelScanResult(treeUri)
     }
 
+    // Приложение вернулось на экран — снова "интерактивная" сессия
+    // (присутствие онлайн). См. InteractiveSender / bridge.py
+    // /api/session/interactive.
+    override fun onStart() {
+        super.onStart()
+        InteractiveSender.send(true)
+    }
+
+    // Приложение ушло в фон: процесс и соединение с MAX могут жить ещё долго,
+    // но сервер не должен считать нас онлайн — иначе push не отправляется.
+    override fun onStop() {
+        super.onStop()
+        InteractiveSender.send(false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)

@@ -58,6 +58,36 @@ object FcmTokenSender {
     }
 }
 
+/** Сообщает локальному bridge.py, пользуются ли сейчас приложением. bridge.py
+ * в ответ шлёт серверу MAX ping {interactive: bool} (опкод 1) — тогда в
+ * фоне сессия перестаёт считаться "онлайн", и сервер, предположительно,
+ * начинает слать настоящие push (см. комментарий в bridge.py у
+ * /api/session/interactive). Делается из нативного кода, а не из JS:
+ * на паузе WebView скрипты могут не выполниться, а Python-поток живёт. */
+object InteractiveSender {
+    private const val LOCAL_PORT = 8080 // как в MainActivity: val port = 8080
+
+    fun send(interactive: Boolean) {
+        Thread {
+            try {
+                val url = URL("http://127.0.0.1:$LOCAL_PORT/api/session/interactive")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                val body = JSONObject().put("interactive", interactive).toString()
+                OutputStreamWriter(conn.outputStream).use { it.write(body) }
+                conn.responseCode
+                conn.disconnect()
+            } catch (_: Exception) {
+                // bridge.py ещё не поднят или уже остановлен — не критично
+            }
+        }.start()
+    }
+}
+
 class FcmService : FirebaseMessagingService() {
 
     companion object {

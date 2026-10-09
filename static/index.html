@@ -16047,6 +16047,18 @@
 
         window.addEventListener('resize', positionStickyDateBadge);
 
+        // Вкладка/окно скрыты -> сессия неинтерактивная (сервер MAX, судя по
+        // всему, шлёт push только тем, кого не считает онлайн). Для APK то же
+        // делает MainActivity (onStart/onStop) — надёжнее, т.к. на паузе
+        // WebView этот обработчик может не успеть выполниться.
+        document.addEventListener('visibilitychange', () => {
+            fetch('/api/session/interactive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interactive: document.visibilityState === 'visible' }),
+            }).catch(() => { /* bridge недоступен — не критично */ });
+        });
+
         // ========================================
         // Отметка сообщений прочитанными (CHAT_MARK, opcode 50)
         // ========================================
