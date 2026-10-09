@@ -11345,20 +11345,22 @@
         // функцией log(), что и остальной клиент — панель теперь живёт в
         // Настройки → Дебаг-дамп, значит и это туда же попадёт. Доп.
         // аргументы (объекты) сериализуем компактно, чтобы влезали в строку.
-        function scamLog(msg, ...args) {
+        // Длина "хвоста" (данных-объектов) в логе scam-check — не больше этого
+        // числа символов, остальное обрезается многоточием. Только для панели
+        // лога: сама проверка и её данные не меняются. Текст сообщения
+        // (msg) не режется, режутся именно аргументы — это они раздували строки
+        // (целые объекты настроек в JSON).
+        const SCAM_LOG_EXTRA_MAX = 20;
+        function scamLogFormat(msg, args) {
             let extra = '';
             try {
                 extra = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
             } catch (e) { extra = args.map(String).join(' '); }
-            log(escapeHtml(msg) + (extra ? ' ' + escapeHtml(extra) : ''), 'info');
+            if (extra.length > SCAM_LOG_EXTRA_MAX) extra = extra.slice(0, SCAM_LOG_EXTRA_MAX) + '…';
+            return escapeHtml(msg) + (extra ? ' ' + escapeHtml(extra) : '');
         }
-        function scamWarn(msg, ...args) {
-            let extra = '';
-            try {
-                extra = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            } catch (e) { extra = args.map(String).join(' '); }
-            log(escapeHtml(msg) + (extra ? ' ' + escapeHtml(extra) : ''), 'error');
-        }
+        function scamLog(msg, ...args) { log(scamLogFormat(msg, args), 'info'); }
+        function scamWarn(msg, ...args) { log(scamLogFormat(msg, args), 'error'); }
 
         function log(msg, type = 'info') {
             const el = document.getElementById('log');

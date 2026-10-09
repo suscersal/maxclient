@@ -128,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     // /api/session/interactive.
     override fun onStart() {
         super.onStart()
+        AppVisibility.foreground = true
         InteractiveSender.send(true)
     }
 
@@ -135,6 +136,7 @@ class MainActivity : AppCompatActivity() {
     // но сервер не должен считать нас онлайн — иначе push не отправляется.
     override fun onStop() {
         super.onStop()
+        AppVisibility.foreground = false
         InteractiveSender.send(false)
     }
 

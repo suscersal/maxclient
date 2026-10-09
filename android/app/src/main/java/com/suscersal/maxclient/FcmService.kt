@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONObject
@@ -88,6 +89,26 @@ object InteractiveSender {
     }
 }
 
+/** Видно ли приложение прямо сейчас (выставляется из MainActivity.onStart/onStop).
+ * Нужен, чтобы FCM-сервис не дублировал уведомления, которые при открытом
+ * приложении и так показывает JS-часть. */
+object AppVisibility {
+    @Volatile
+    var foreground: Boolean = false
+}
+
+/**
+ * Реальные push MAX приходят как data-only сообщения (без notification-блока),
+ * то есть Android сам НИЧЕГО не показывает — уведомление рисуем мы. Формат
+ * полей — из Komet (android/.../KometFcmService.kt, KometNotifier.showMessage):
+ *   type     — "InboundCall"/"CallFinished" (звонки, не поддерживаем) или сообщение
+ *   mc       — id чата (Long)          suid — id отправителя
+ *   userName — имя отправителя         title — название чата (в личке = имя)
+ *   msg      — текст сообщения         ctime/ttime — время, мс
+ *   msgid    — id сообщения
+ * Раньше тут читались только body/text, а настоящее поле текста — msg, поэтому
+ * даже доставленный пуш молча отбрасывался.
+ */
 class FcmService : FirebaseMessagingService() {
 
     companion object {
@@ -101,45 +122,85 @@ class FcmService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        // Если в пуше уже есть notification-блок — Android показал его
-        // автоматически ДО вызова этого метода, второй раз показывать не
-        // нужно (иначе будет дублирующееся уведомление).
+        // Если в пуше уже есть notification-блок — Android показал его сам
+        // (в фоне), второй раз показывать не нужно.
         if (message.notification != null) return
 
         val data = message.data
-        val title = data["title"] ?: "MAX"
-        val body = data["body"] ?: data["text"] ?: return // нечего показывать
-        showFallbackNotification(title, body)
+        if (data.isEmpty()) return
+        val type = data["type"]
+        // Звонки не поддерживаем — не выдаём за обычное сообщение.
+        if (type == "InboundCall" || type == "CallFinished") return
+        // Приложение открыто — JS-часть сама показывает уведомления для
+        // нужных чатов (и не показывает для открытого).
+        if (AppVisibility.foreground) return
+
+        showMessageNotification(data)
     }
 
-    private fun showFallbackNotification(title: String, body: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(NOTIF_CHANNEL_ID) == null) {
-                manager.createNotificationChannel(
-                    NotificationChannel(
-                        NOTIF_CHANNEL_ID,
-                        "Сообщения MAX Client",
-                        NotificationManager.IMPORTANCE_HIGH
-                    )
+    private fun ensureChannel(manager: NotificationManager) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (manager.getNotificationChannel(NOTIF_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    NOTIF_CHANNEL_ID,
+                    "Сообщения MAX Client",
+                    NotificationManager.IMPORTANCE_HIGH
                 )
+            )
+        }
+    }
+
+    private fun showMessageNotification(data: Map<String, String>) {
+        val chatId = data["mc"]?.toLongOrNull() ?: return
+        val senderName = data["userName"] ?: data["title"] ?: "MAX"
+        val chatTitle = data["title"] ?: senderName
+        val text = data["msg"] ?: data["body"] ?: data["text"] ?: "Новое сообщение"
+        val ts = data["ctime"]?.toLongOrNull()
+            ?: data["ttime"]?.toLongOrNull()
+            ?: System.currentTimeMillis()
+        val senderKey = data["suid"] ?: senderName
+        val isGroup = chatTitle != senderName
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(manager)
+        val notifId = (chatId and 0x7fffffff).toInt()
+
+        // Копим сообщения одного чата в одном уведомлении: берём MessagingStyle
+        // из уже висящего уведомления и дописываем новое сообщение.
+        val existing = try {
+            manager.activeNotifications.firstOrNull { it.id == notifId }?.notification
+        } catch (_: Exception) { null }
+        val style = (existing?.let {
+            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it)
+        }) ?: NotificationCompat.MessagingStyle(Person.Builder().setName("Вы").build()).also {
+            if (isGroup) {
+                it.conversationTitle = chatTitle
+                it.isGroupConversation = true
             }
         }
+        style.addMessage(
+            text,
+            ts,
+            Person.Builder().setName(senderName).setKey(senderKey).build()
+        )
+
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(
-            this, 0, openIntent,
+            this, notifId, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(body)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
+            .setWhen(ts)
+            .setShowWhen(true)
             .setContentIntent(pending)
+            .setStyle(style)
             .build()
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        manager.notify(notifId, notification)
     }
 }
