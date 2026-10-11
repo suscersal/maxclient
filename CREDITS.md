@@ -11,3 +11,4 @@
 * **[lz4](https://github.com/python-lz4/python-lz4)** — распаковка сжатых пакетов.
 * **[softprops/action-gh-release](https://github.com/softprops/action-gh-release)** — публикация GitHub Releases из CI.
 * **[shields.io](https://shields.io/)** — бейдж со ссылкой на скачивание APK.
+* **[Telegram Web K (tweb)](https://github.com/morethanwords/tweb)** — интерфейс `/tg/` (static/tg) — готовая сборка Web K под лицензией GPL-3.0; сетевой слой заменён адаптером на MAX (см. scripts/tg/).

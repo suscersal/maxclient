@@ -2999,6 +2999,12 @@ def serve_lottie_lib():
     return ("", 404)
 
 
+@app.route("/tg/")
+def tg_index():
+    """Интерфейс на базе Telegram Web K (static/tg), данные — из /relay."""
+    return send_from_directory(os.path.join(STATIC_DIR, "tg"), "index.html")
+
+
 @app.route("/<path:filename>")
 def static_files(filename):
     return send_from_directory(STATIC_DIR, filename)

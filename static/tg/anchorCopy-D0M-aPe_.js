@@ -1,0 +1,2 @@
+import{t as e}from"./cancelEvent-DOcVzRz1.js";import{n as t}from"./clickEvent-Dxyf_sAK.js";import{an as n,in as r,nn as i}from"./buttonMenu-3BZpTI_v.js";function a(a={}){let o=document.createElement(`a`);o.classList.add(`anchor-copy`);let s;return a.mePath&&(o.href=o.innerText=i+a.mePath,s=()=>r(a.mePath)),a.username&&(o.href=i+a.username,o.innerText=`@`+a.username,s=()=>n(a.username)),t(o,t=>{e(t),a.onClick?a.onClick(s):s()}),o}export{a as t};
+//# sourceMappingURL=anchorCopy-D0M-aPe_.js.map
