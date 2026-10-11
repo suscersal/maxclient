@@ -77,7 +77,7 @@ function __mxSync(){
       if(chat.lastMessage){__mxAddMsgs(key,[chat.lastMessage]);if(__FC__[key]&&__FC__[key].length){__GC__.push(key);if(chat.newMessages){__MC__[key]=chat.newMessages;__PC__[key]=0}}}});
     __mx.synced=1;
     var miss=[];(p.chats||[]).forEach(function(c){if(c.type==="DIALOG"){var o=__mxOther(c);if(o!=null&&!__mx.contacts[o])miss.push(Number(o))}});
-    if(miss.length)__mxCall(32,{contactIds:miss}).then(function(r){(r.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c;__mxUser(c.id)})}).catch(function(){});
+    if(miss.length)return __mxCall(32,{contactIds:miss}).then(function(r){(r.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c;__mxUser(c.id)})}).catch(function(){});
   }).catch(function(e){__mx.syncP=null;__mxLog("sync failed",e);throw{code:500,type:"MAX_OFFLINE",handled:!0}});
   return __mx.syncP}
 function __mxLoad(key,offsetId){

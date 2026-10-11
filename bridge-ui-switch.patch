@@ -1,0 +1,38 @@
+diff --git a/bridge.py b/bridge.py
+index d38bb68..3d0c856 100644
+--- a/bridge.py
++++ b/bridge.py
+@@ -20,7 +20,7 @@ import zipfile
+ import shutil
+ import msgpack
+ import concurrent.futures
+-from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
++from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context, redirect
+ from flask_sock import Sock
+ import lz4.block
+ import urllib.request
+@@ -2977,8 +2977,24 @@ def handle_uncaught_exception(e):
+     return jsonify({"error": f"Внутренняя ошибка сервера: {e}"}), 500
+ 
+ 
++def _tg_ui_available() -> bool:
++    return os.path.isfile(os.path.join(STATIC_DIR, "tg", "index.html"))
++
++
+ @app.route("/")
+ def index():
++    """Точка входа (её открывают Android WebView и десктоп-окно).
++
++    Новый интерфейс (Telegram Web K, /tg/) не умеет входить в аккаунт — у его
++    адаптера нет экрана авторизации, — поэтому:
++      * есть сохранённая сессия и интерфейс собран в сборку -> /tg/;
++      * иначе (первый вход, сессия слетела) -> старый интерфейс, где есть вход.
++    Принудительно: /?ui=classic — старый интерфейс (вход, настройки, боты),
++    /?ui=tg — новый. Если /tg/ в сборку не попал, всегда старый интерфейс.
++    """
++    ui = request.args.get("ui")
++    if ui != "classic" and _tg_ui_available() and (ui == "tg" or get_saved_auth_token()):
++        return redirect("/tg/")
+     return send_from_directory(STATIC_DIR, "index.html")
+ 
+ 

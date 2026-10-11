@@ -20,7 +20,7 @@ import zipfile
 import shutil
 import msgpack
 import concurrent.futures
-from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context
+from flask import Flask, send_from_directory, request, jsonify, Response, stream_with_context, redirect, has_request_context
 from flask_sock import Sock
 import lz4.block
 import urllib.request
@@ -134,6 +134,38 @@ PORT = int(os.getenv("MAX_PORT", "443"))
 SESSION_FILE = os.getenv("SESSION_FILE", os.path.join(
     os.path.dirname(__file__), "session.json"))
 SESSION_KEY_FILE = os.path.join(os.path.dirname(SESSION_FILE), "session.key")
+
+
+# --- Несколько аккаунтов MAX ---
+# Аккаунт выбирается параметром ?acc=N (или ?account=N / заголовком X-Account), N = 1..4.
+# Аккаунт 1 — как раньше (session.json, chats_cache.json, ...). Аккаунты 2..4 пишут в
+# session.acc2.json, chats_cache.acc2.json и т.д. Для WebSocket /relay и его потока приёма
+# номер хранится в thread-local, потому что у них нет request-контекста.
+_acct_tls = threading.local()
+
+
+def _cur_acct() -> int:
+    n = getattr(_acct_tls, "n", None)
+    if n is None:
+        try:
+            if has_request_context():
+                n = int(request.args.get("acc") or request.args.get("account")
+                        or request.headers.get("X-Account") or 1)
+        except Exception:
+            n = 1
+    return n if isinstance(n, int) and 1 <= n <= 4 else 1
+
+
+def _acct_path(path: str) -> str:
+    n = _cur_acct()
+    if n == 1:
+        return path
+    root, ext = os.path.splitext(path)
+    return f"{root}.acc{n}{ext}"
+
+
+def _sess_path() -> str:
+    return _acct_path(SESSION_FILE)
 # Локальный кэш списка чатов — показываем его офлайн, если сервер недоступен
 # и лимит попыток переподключения исчерпан.
 CHATS_CACHE_FILE = os.getenv("CHATS_CACHE_FILE", os.path.join(
@@ -2036,9 +2068,9 @@ def _decrypt_session_blob(blob: str) -> dict:
 
 # --- Работа с сессией ---
 def load_session():
-    if os.path.exists(SESSION_FILE):
+    if os.path.exists(_sess_path()):
         try:
-            with open(SESSION_FILE) as f:
+            with open(_sess_path()) as f:
                 content = f.read()
             # Поддержка старого формата (обычный plaintext JSON) для плавного
             # перехода — если файл ещё не зашифрован, читаем как есть и при
@@ -2054,10 +2086,10 @@ def load_session():
 
 def save_session(data: dict):
     encrypted = _encrypt_session_dict(data)
-    with open(SESSION_FILE, "w") as f:
+    with open(_sess_path(), "w") as f:
         f.write(encrypted)
     try:
-        os.chmod(SESSION_FILE, 0o600)
+        os.chmod(_sess_path(), 0o600)
     except Exception:
         pass
 
@@ -2067,9 +2099,9 @@ def load_chats_cache():
     Файл хранится зашифрованным тем же ключом, что и session.json (см.
     _encrypt_session_dict/_decrypt_session_blob) — старый формат (обычный
     plaintext JSON) тоже поддерживается для плавного перехода."""
-    if os.path.exists(CHATS_CACHE_FILE):
+    if os.path.exists(_acct_path(CHATS_CACHE_FILE)):
         try:
-            with open(CHATS_CACHE_FILE, "r", encoding="utf-8") as f:
+            with open(_acct_path(CHATS_CACHE_FILE), "r", encoding="utf-8") as f:
                 content = f.read()
             try:
                 return json.loads(content)
@@ -2085,12 +2117,12 @@ def save_chats_cache(data: dict):
     чтобы показать их офлайн при отсутствии сети."""
     try:
         encrypted = _encrypt_session_dict(data)
-        tmp_path = CHATS_CACHE_FILE + ".tmp"
+        tmp_path = _acct_path(CHATS_CACHE_FILE) + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(encrypted)
-        os.replace(tmp_path, CHATS_CACHE_FILE)
+        os.replace(tmp_path, _acct_path(CHATS_CACHE_FILE))
         try:
-            os.chmod(CHATS_CACHE_FILE, 0o600)
+            os.chmod(_acct_path(CHATS_CACHE_FILE), 0o600)
         except Exception:
             pass
     except Exception as e:
@@ -2317,9 +2349,9 @@ _ensure_device_catalog_cached_background()
 def load_messages_cache() -> dict:
     """Читает кэш последних сообщений по чатам (зашифрован так же, как
     session.json). Формат: {"<chatId>": {"messages": [...], "savedAt": ms}}."""
-    if os.path.exists(MESSAGES_CACHE_FILE):
+    if os.path.exists(_acct_path(MESSAGES_CACHE_FILE)):
         try:
-            with open(MESSAGES_CACHE_FILE, "r", encoding="utf-8") as f:
+            with open(_acct_path(MESSAGES_CACHE_FILE), "r", encoding="utf-8") as f:
                 content = f.read()
             try:
                 return json.loads(content)
@@ -2335,12 +2367,12 @@ def save_messages_cache(data: dict):
     тем же ключом, что и session.json."""
     try:
         encrypted = _encrypt_session_dict(data)
-        tmp_path = MESSAGES_CACHE_FILE + ".tmp"
+        tmp_path = _acct_path(MESSAGES_CACHE_FILE) + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(encrypted)
-        os.replace(tmp_path, MESSAGES_CACHE_FILE)
+        os.replace(tmp_path, _acct_path(MESSAGES_CACHE_FILE))
         try:
-            os.chmod(MESSAGES_CACHE_FILE, 0o600)
+            os.chmod(_acct_path(MESSAGES_CACHE_FILE), 0o600)
         except Exception:
             pass
     except Exception as e:
@@ -2977,9 +3009,33 @@ def handle_uncaught_exception(e):
     return jsonify({"error": f"Внутренняя ошибка сервера: {e}"}), 500
 
 
+def _tg_ui_available() -> bool:
+    return os.path.isfile(os.path.join(STATIC_DIR, "tg", "index.html"))
+
+
 @app.route("/")
 def index():
+    """Точка входа (её открывают Android WebView и десктоп-окно).
+
+    Новый интерфейс (Telegram Web K, /tg/) не умеет входить в аккаунт — у его
+    адаптера нет экрана авторизации, — поэтому:
+      * есть сохранённая сессия и интерфейс собран в сборку -> /tg/;
+      * иначе (первый вход, сессия слетела) -> старый интерфейс, где есть вход.
+    Принудительно: /?ui=classic — старый интерфейс (вход, настройки, боты),
+    /?ui=tg — новый. Если /tg/ в сборку не попал, всегда старый интерфейс.
+    Для аккаунтов 2..4 параметр ?account=N сохраняется.
+    """
+    ui = request.args.get("ui")
+    if ui != "classic" and _tg_ui_available() and (ui == "tg" or get_saved_auth_token()):
+        n = _cur_acct()
+        return redirect("/tg/" + (f"?account={n}" if n > 1 else ""))
     return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/api/account/status")
+def account_status():
+    """Есть ли сохранённая MAX-сессия у аккаунта ?acc=N (нужно /tg/ и автовозврату после входа)."""
+    return jsonify({"account": _cur_acct(), "authorized": bool(get_saved_auth_token())})
 
 
 @app.route("/lottie.min.js")
@@ -5188,8 +5244,20 @@ def _connect_with_timeout(client: "MaxClient", existing_token, timeout: float):
 
 @sock.route("/relay")
 def relay(ws):
+    try:
+        _acct_tls.n = int(request.args.get("acc") or request.args.get("account") or 1)
+    except Exception:
+        _acct_tls.n = 1
+    try:
+        return _relay_impl(ws)
+    finally:
+        _acct_tls.n = None
+
+
+def _relay_impl(ws):
     saved_token = get_saved_auth_token()
     client = MaxClient()
+    client._acct = _cur_acct()
     out_queue = queue.Queue()
     stop_event = threading.Event()
 
@@ -5322,6 +5390,7 @@ def relay(ws):
 
 
 def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.Event):
+    _acct_tls.n = getattr(client, "_acct", None)
     while not stop_event.is_set():
         try:
             packet = client.recv_packet()

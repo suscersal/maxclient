@@ -2,6 +2,49 @@
 <html>
 
 <head>
+    <script id="mx-account-shim">
+        /* Аккаунты MAX: при ?account=2..4 все запросы /api/* и сокет /relay уходят с acc=N.
+           ?back=tg — после успешного входа сам возвращает в новый интерфейс (/tg/). */
+        (function () {
+            var q = new URLSearchParams(location.search);
+            var n = parseInt(q.get('account') || '1', 10);
+            if (!(n >= 1 && n <= 4)) n = 1;
+            var f = window.fetch.bind(window);
+            if (n > 1) {
+                window.fetch = function (i, o) {
+                    try {
+                        if (typeof i === 'string' && /^\/(api|relay)/.test(i) && !/[?&]acc=/.test(i)) {
+                            i += (i.indexOf('?') < 0 ? '?' : '&') + 'acc=' + n;
+                        }
+                    } catch (e) {}
+                    return f(i, o);
+                };
+                var W = window.WebSocket;
+                var WS = function (u, p) {
+                    try {
+                        if (/\/relay(\?|$)/.test(u) && !/[?&]acc=/.test(u)) u += (u.indexOf('?') < 0 ? '?' : '&') + 'acc=' + n;
+                    } catch (e) {}
+                    return p === undefined ? new W(u) : new W(u, p);
+                };
+                WS.prototype = W.prototype;
+                ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (k) { WS[k] = W[k]; });
+                window.WebSocket = WS;
+                document.title = 'MAX Client · аккаунт ' + n;
+            }
+            if (q.get('back') === 'tg') {
+                var t = setInterval(function () {
+                    f('/api/account/status' + (n > 1 ? '?acc=' + n : ''), { cache: 'no-store' })
+                        .then(function (r) { return r.json(); })
+                        .then(function (s) {
+                            if (s && s.authorized) {
+                                clearInterval(t);
+                                location.replace('/tg/' + (n > 1 ? '?account=' + n : ''));
+                            }
+                        }).catch(function () {});
+                }, 2000);
+            }
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MAX Client</title>

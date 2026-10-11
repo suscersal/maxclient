@@ -2,14 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Telegram Web</title>
-    <meta name="description" content="Telegram is a cloud-based mobile and desktop messaging app with a focus on security and speed.">
+    <title>MAX Client</title>
+    <meta name="description" content="MAX Client — неофициальный клиент мессенджера MAX.">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,shrink-to-fit=no,viewport-fit=cover">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-title" content="Telegram Web">
+    <meta name="mobile-web-app-title" content="MAX Client">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Telegram Web">
-    <meta name="application-name" content="Telegram Web">
+    <meta name="apple-mobile-web-app-title" content="MAX Client">
+    <meta name="application-name" content="MAX Client">
     <meta name="msapplication-TileColor" content="#2d89ef">
     <meta name="msapplication-TileImage" content="assets/img/mstile-144x144.png?v=jw3mK7G9Ry">
     <meta name="msapplication-config" content="browserconfig.xml?v=jw3mK7G9Ry">
@@ -18,15 +18,13 @@
     <meta name="google" content="notranslate">
 
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://web.telegram.org/k/">
-    <meta property="og:title" content="Telegram Web">
-    <meta property="og:description" content="Telegram is a cloud-based mobile and desktop messaging app with a focus on security and speed.">
+    <meta property="og:title" content="MAX Client">
+    <meta property="og:description" content="MAX Client — неофициальный клиент мессенджера MAX.">
     <meta property="og:image" content="assets/img/android-chrome-192x192.png?v=jw3mK7G9Ry">
 
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://web.telegram.org/k/">
-    <meta property="twitter:title" content="Telegram Web">
-    <meta property="twitter:description" content="Telegram is a cloud-based mobile and desktop messaging app with a focus on security and speed.">
+    <meta property="twitter:title" content="MAX Client">
+    <meta property="twitter:description" content="MAX Client — неофициальный клиент мессенджера MAX.">
     <meta property="twitter:image" content="assets/img/android-chrome-192x192.png?v=jw3mK7G9Ry">
 
     <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png?v=jw3mK7G9Ry">
@@ -34,10 +32,30 @@
     <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32x32.png?v=jw3mK7G9Ry">
     <link rel="icon" type="image/png" sizes="192x192" href="assets/img/android-chrome-192x192.png?v=jw3mK7G9Ry">
     <link rel="alternate icon" href="assets/img/favicon.ico?v=jw3mK7G9Ry" type="image/x-icon">
-    <link rel="canonical" href="https://web.telegram.org/">
 
     <link rel="manifest" id="manifest">
-    <script type="module" crossorigin src="./index-CnT2cwDd.js"></script>
+        <script id="mx-account-boot">
+      /* Аккаунты MAX: проверяем сессию ДО запуска Web K. Нет сессии -> вход в классическом интерфейсе
+         (там есть телефон/код/пароль), после входа он сам вернёт сюда. */
+      (function () {
+        try {
+          var n = parseInt(new URLSearchParams(location.search).get('account') || '1', 10);
+          if (!(n >= 1 && n <= 4)) n = 1;
+          var x = new XMLHttpRequest();
+          x.open('GET', '/api/account/status' + (n > 1 ? '?acc=' + n : ''), false);
+          x.send();
+          var st = JSON.parse(x.responseText || '{}');
+          if (st.authorized === false) {
+            location.replace('/?ui=classic&back=tg' + (n > 1 ? '&account=' + n : ''));
+            return;
+          }
+          if (n > 1 && !localStorage.getItem('account' + n)) {
+            localStorage.setItem('account' + n, JSON.stringify({ userId: 100, dcId: 2, date: Math.floor(Date.now() / 1e3) }));
+          }
+        } catch (e) {}
+      })();
+    </script>
+<script type="module" crossorigin src="./index-CnT2cwDd.js"></script>
     <link rel="modulepreload" crossorigin href="./rolldown-runtime-hePW80VL.js">
     <link rel="modulepreload" crossorigin href="./userAgent-C9TEwyRe.js">
     <link rel="modulepreload" crossorigin href="./app-zGYwsr0O.js">
