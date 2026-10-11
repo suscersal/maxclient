@@ -18,3 +18,5 @@ google-services.json
 # (см. android/app/build.gradle, flavor "fcm"), коммитится как есть.
 !android/app/src/fcm/google-services.json
 .patch-backup/
+# Копия static/tg, которую раскладывает scripts/sync-android-python.sh (≈56 МБ)
+android/app/src/main/python/tg/

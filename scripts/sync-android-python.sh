@@ -24,6 +24,17 @@ cp static/manifest.json "$DEST/manifest.json"
 cp static/loading.gif "$DEST/loading.gif"
 cp -r static/assets/. "$DEST/assets"
 
+# Интерфейс /tg/ (Telegram Web K, ~3000 файлов). bridge.py раздаёт его из
+# <папка bridge.py>/tg, поэтому в Android-сборке он должен лежать в $DEST/tg.
+# Сначала чистим старую копию: имена файлов в сборке хэшированные
+# (index-CnT2cwDd.js и т.п.), и при обновлении tweb старые файлы
+# иначе остались бы в APK мусором.
+echo "[sync] Копирую static/tg -> $DEST/tg (интерфейс /tg/)"
+rm -rf "$DEST/tg"
+mkdir -p "$DEST/tg"
+cp -r static/tg/. "$DEST/tg"
+test -f "$DEST/tg/index.html" || { echo "[sync] ОШИБКА: $DEST/tg/index.html не найден после копирования" >&2; exit 1; }
+
 DEST_ASSETS="android/app/src/main/assets"
 echo "[sync] Копирую loading.gif -> $DEST_ASSETS/loading.gif (нативный Android assets, читает GifView.kt через context.assets)"
 mkdir -p "$DEST_ASSETS"

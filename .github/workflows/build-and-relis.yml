@@ -66,7 +66,14 @@ jobs:
 
           NON_HOT=$(echo "$NON_IGNORED" | grep -Ev "$HOT_REGEX" || true)
 
-          if [[ -z "$NON_HOT" ]]; then
+          # static/tg (интерфейс Telegram Web K, ~3000 файлов) под HOT_REGEX
+          # формально подпадает (static/.*), но через OTA его не доставить:
+          # generate-ota-manifest.sh его не включает, а у GitHub Release лимит
+          # на число ассетов. Поэтому любое изменение static/tg — это полная
+          # пересборка, иначе в APK/exe новый интерфейс просто не попадёт.
+          TG_CHANGED=$(echo "$NON_IGNORED" | grep -E '^static/tg/' || true)
+
+          if [[ -z "$NON_HOT" && -z "$TG_CHANGED" ]]; then
             echo "hot_only=true" >> "$GITHUB_OUTPUT"
           else
             echo "hot_only=false" >> "$GITHUB_OUTPUT"
@@ -330,6 +337,7 @@ jobs:
             --add-data "static/manifest.json;static" `
             --add-data "static/assets/favorite.png;static" `
             --add-data "static/loading.gif;static" `
+            --add-data "static/tg;static/tg" `
             desktop_launcher.py
 
       - name: Upload Windows artifact
