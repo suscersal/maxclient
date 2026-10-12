@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
     <title>MAX Client</title>
@@ -108,7 +108,64 @@
     <link rel="modulepreload" crossorigin href="./iconButtonLabel-Dppic2Kp.js">
     <link rel="modulepreload" crossorigin href="./objectUrl-Wt_3GYdE.js">
     <link rel="stylesheet" crossorigin href="./index-CHLzmVEh.css">
-  </head>
+  <script id="mx-menu">
+(function () {
+  var ITEMS = [
+    ['createGroup', 'Создать группу'], ['joinLink', 'Вступить по ссылке'], '-',
+    ['account', 'Аккаунт'], ['inviteFriends', 'Пригласить друзей'], ['folders', 'Папки'],
+    ['security', 'Безопасность'], ['sessions', 'Устройства'], ['notifications', 'Уведомления (MAX)'],
+    ['storage', 'Использование памяти'], ['theme', 'Оформление (MAX)'], ['language', 'Язык приложения'], '-',
+    ['vars', 'Переменные'], ['debugDump', 'Дебаг-дамп'], ['device', 'Устройство (протокол)'],
+    ['gifPreview', 'Просмотреть GIF'], ['bots', 'Кастомные боты'], ['scamCheck', 'Скам-проверка (ИИ)'],
+    ['about', 'О приложении']
+  ];
+  var css = document.createElement('style');
+  css.textContent = '.btn-menu[data-mx]{max-height:calc(100vh - 72px);overflow-y:auto}'
+    + '#mx-old{position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column}'
+    + '#mx-old header{height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#2f8fe6;color:#fff;font:500 16px sans-serif}'
+    + '#mx-old header button{background:none;border:0;color:#fff;font:inherit;cursor:pointer;padding:8px}'
+    + '#mx-old iframe{flex:1;border:0;width:100%;background:#fff}';
+  document.head.appendChild(css);
+  function openOld(id, title) {
+    var acc = new URLSearchParams(location.search).get('account');
+    var src = '/?ui=classic&open=' + encodeURIComponent(id) + (acc ? '&account=' + encodeURIComponent(acc) : '');
+    var box = document.createElement('div'); box.id = 'mx-old';
+    box.innerHTML = '<header><button type="button">‹ Назад</button><span></span></header><iframe></iframe>';
+    box.querySelector('span').textContent = title; box.querySelector('iframe').src = src;
+    function close() { box.remove(); window.removeEventListener('message', onMsg); }
+    function onMsg(e) { if (e.data && e.data.mxClose) close(); }
+    box.querySelector('button').onclick = close; window.addEventListener('message', onMsg);
+    document.body.appendChild(box);
+  }
+  function patch(menu) {
+    if (menu.hasAttribute('data-mx')) return;
+    var items = [].slice.call(menu.querySelectorAll('.btn-menu-item'));
+    var txt = function (el) { var t = el.querySelector('.btn-menu-item-text'); return ((t || el).textContent || '').replace(/[\ue000-\uf8ff]/g, '').trim(); };
+    var fav = items.filter(function (el) { return /^(Избранное|Saved Messages)$/.test(txt(el)); })[0];
+    if (!fav) return;
+    menu.setAttribute('data-mx', '1');
+    items.forEach(function (el) { if (/^(Мои истории|My Stories)$/.test(txt(el))) el.remove(); });
+    var tpl = items.filter(function (el) { return /^(Настройки|Settings)$/.test(txt(el)); })[0] || fav;
+    menu.appendChild(document.createElement('hr')).setAttribute('role', 'separator');
+    ITEMS.forEach(function (it) {
+      if (it === '-') { menu.appendChild(document.createElement('hr')).setAttribute('role', 'separator'); return; }
+      var el = tpl.cloneNode(true);
+      el.classList.remove('submenu-trigger'); el.removeAttribute('aria-haspopup'); el.removeAttribute('aria-expanded');
+      var t = el.querySelector('.btn-menu-item-text'); if (t) t.textContent = it[1];
+      
+      el.addEventListener('click', function (ev) {
+        ev.stopPropagation(); ev.preventDefault();
+        document.body.click(); openOld(it[0], it[1]);
+      }, true);
+      menu.appendChild(el);
+    });
+  }
+  new MutationObserver(function () {
+    document.querySelectorAll('.btn-menu').forEach(patch);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
+</script>
+</head>
   <body class="animation-level-2 has-auth-pages rounded-sections">
     <!--[if IE]>
       <p class="browserupgrade">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience and security.</p>

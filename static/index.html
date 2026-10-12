@@ -18483,6 +18483,42 @@
 
     </script>
     <script src="lottie.min.js"></script>
+<script id="mx-embed-open">
+/* Встраивание в новый интерфейс (/tg/): /?ui=classic&open=<id> открывает страницу настроек
+   (account, folders, security, ...) либо форму createGroup / joinLink; закрытие сообщает родителю. */
+(function () {
+    var q = new URLSearchParams(location.search), o = q.get('open');
+    if (!o) return;
+    document.documentElement.classList.add('mx-embedded');
+    var st = document.createElement('style');
+    st.textContent = '.mx-embedded #settingsModal .settings-modal{max-width:none!important;width:100vw!important;height:100vh!important;border-radius:0!important}';
+    document.head.appendChild(st);
+    function bye() { try { parent.postMessage({ mxClose: 1 }, '*'); } catch (e) {} }
+    function go() {
+        if (typeof settingsMenu === 'undefined' || typeof openSettingsModal !== 'function') return false;
+        var cs = window.closeSettingsModal, cn = window.closeNewChatModal;
+        window.closeSettingsModal = function () { cs.apply(this, arguments); bye(); };
+        if (cn) window.closeNewChatModal = function () { cn.apply(this, arguments); bye(); };
+        if (o === 'createGroup') { openNewChatModal(); openCreateGroupForm(); }
+        else if (o === 'joinLink') { openNewChatModal(); openJoinByLinkForm(); }
+        else { openSettingsModal(); settingsMenu.showPage(o); }
+        setTimeout(function () {
+            ['#settingsModal', '#newChatModal'].forEach(function (sel) {
+                var ov = document.querySelector(sel), box = ov && ov.firstElementChild;
+                if (ov && box) ov.style.background = getComputedStyle(box).backgroundColor;
+            });
+        }, 50);
+        return true;
+    }
+    var n = 0;
+    setTimeout(function () {
+        var t = setInterval(function () {
+            if (++n > 40) return clearInterval(t);
+            try { if (go()) clearInterval(t); } catch (e) {}
+        }, 400);
+    }, 1200);
+})();
+</script>
 </body>
 
 </html>
