@@ -2982,6 +2982,30 @@ STATIC_DIR = _STATIC_CANDIDATE if os.path.isdir(
     _STATIC_CANDIDATE) else _BASE_DIR
 logger.info(f"[static] Serving frontend files from: {STATIC_DIR}")
 
+
+def _find_tg_dir() -> str:
+    """Папка интерфейса /tg/ (Telegram Web K).
+
+    На Android bridge.py после OTA-обновления импортируется из hotpatch-папки
+    (files/hotpatch), а туда кладутся только bridge.py/index.html/assets — static/tg
+    через OTA не доставляется (~3000 файлов). Сам tg/ лежит рядом с исходниками,
+    запечёнными в APK (папка Chaquopy, она есть в sys.path). Поэтому ищем tg/ не
+    только рядом с bridge.py, но и по всем путям из sys.path.
+    """
+    cands = [os.environ.get("MAX_TG_DIR", ""),
+             os.path.join(STATIC_DIR, "tg"),
+             os.path.join(_BASE_DIR, "tg"),
+             os.path.join(_STATIC_CANDIDATE, "tg")]
+    cands += [os.path.join(p, "tg") for p in sys.path if p]
+    for c in cands:
+        if c and os.path.isfile(os.path.join(c, "index.html")):
+            return c
+    return os.path.join(STATIC_DIR, "tg")
+
+
+TG_DIR = _find_tg_dir()
+logger.info(f"[static] /tg/ interface dir: {TG_DIR}")
+
 app = Flask(__name__, static_folder=STATIC_DIR)
 sock = Sock(app)
 app.before_request(_classloader_fix_before_request)
@@ -3010,7 +3034,7 @@ def handle_uncaught_exception(e):
 
 
 def _tg_ui_available() -> bool:
-    return os.path.isfile(os.path.join(STATIC_DIR, "tg", "index.html"))
+    return os.path.isfile(os.path.join(TG_DIR, "index.html"))
 
 
 @app.route("/")
@@ -3058,11 +3082,14 @@ def serve_lottie_lib():
 @app.route("/tg/")
 def tg_index():
     """Интерфейс на базе Telegram Web K (static/tg), данные — из /relay."""
-    return send_from_directory(os.path.join(STATIC_DIR, "tg"), "index.html")
+    return send_from_directory(TG_DIR, "index.html")
 
 
 @app.route("/<path:filename>")
 def static_files(filename):
+    # Файлы /tg/* берём из TG_DIR (на Android после OTA они не в STATIC_DIR).
+    if filename.startswith("tg/") and len(filename) > 3:
+        return send_from_directory(TG_DIR, filename[3:])
     return send_from_directory(STATIC_DIR, filename)
 
 
