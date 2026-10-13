@@ -20,3 +20,5 @@ google-services.json
 .patch-backup/
 # Копия static/tg, которую раскладывает scripts/sync-android-python.sh (≈56 МБ)
 android/app/src/main/python/tg/
+*.patch
+*.zip
