@@ -22,7 +22,7 @@ function __mxMedia(key,o,m){
   for(i=0;i<at.length;i++){var t=at[i]&&at[i]._type;
     if(t==="PHOTO"||t==="FILE"||t==="VIDEO"||t==="AUDIO"||t==="STICKER"){if(!pick){pick=at[i];idx=i}else if(t==="PHOTO"&&pick._type==="PHOTO")extra++}}
   if(!pick)return;
-  var type=pick._type,id=__mxH(cid+":"+m.id+":"+idx),date=o.date,rec={kind:type,chatId:cid,msgId:String(m.id),msgTime:m.time||0,idx:idx,attach:pick,url:null,size:0},media;
+  var type=pick._type,id=__mxH(cid+":"+m.id+":"+idx),date=o.date,rec={kind:type,chatId:cid,msgId:String(m._o?m._o.id:m.id),msgTime:m.time||0,idx:m._o?m._o.idx:idx,attach:pick,url:null,size:0},media;
   __mx.media[id]=rec;
   if(type==="PHOTO"){
     rec.url=pick.baseUrl||pick.url||null;
@@ -44,11 +44,36 @@ function __mxMedia(key,o,m){
   o.media=media;
   if(!m.text||/^📎 /.test(o.message))o.message=m.text||"";
   if(extra)o.message=(o.message?o.message+"\n":"")+"(+"+extra+" фото)"}
+/* Пересылки и ответы (payload.link): FORWARD -> fwd_from.from_name, REPLY -> reply_to */
+function __mxLinks(key,o,m){
+  var L=m&&m.link;if(!L||typeof L!=="object")return;
+  var t=String(L.type||"").toUpperCase(),fm=L.message||{};
+  if(t==="FORWARD"){
+    var name=null;
+    if(String(fm.type||"").toUpperCase()==="CHANNEL"&&L.chatName)name=L.chatName;
+    else if(fm.sender!=null){name=String(fm.sender)===String(__mx.self)?"Вы":__mxName(__mx.contacts[fm.sender])}
+    o.fwd_from={_:"messageFwdHeader",pFlags:{},from_name:name||L.chatName||"Неизвестно",date:Math.floor((fm.time||m.time||Date.now())/1e3)}}
+  else if(t==="REPLY"){
+    var rid=L.messageId!=null?L.messageId:fm.id,tg=rid!=null?__mx.tgIdOf[String(rid)]:null;
+    if(tg!=null)o.reply_to={_:"messageReplyHeader",pFlags:{},reply_to_msg_id:tg}}}
 var __mxAddMsgs0=__mxAddMsgs;
 __mxAddMsgs=function(key,msgs){
-  var byId={};(msgs||[]).forEach(function(m){if(m&&m.id!=null)byId[String(m.id)]=m});
-  var fresh=__mxAddMsgs0(key,msgs);
-  fresh.forEach(function(o){try{var mid=__mx.maxIdOf[o.id],m=mid!=null&&byId[mid];if(m)__mxMedia(key,o,m)}catch(e){__mxLog("media failed",e)}});
+  var ex=[],byId={};
+  (msgs||[]).forEach(function(m){
+    if(!m||m.id==null){return}
+    var at=m.attaches||[],mi=[];
+    at.forEach(function(a,i){if(a&&(a._type==="PHOTO"||a._type==="VIDEO"))mi.push(i)});
+    if(mi.length<2){ex.push(m);return}
+    var gid=__mxH("alb:"+key+":"+m.id),base=Object.assign({},m);
+    base.attaches=at.filter(function(a,i){return mi.indexOf(i)<0||i===mi[0]});
+    base._o={id:m.id,idx:mi[0]};base._g=gid;ex.push(base);
+    mi.slice(1).forEach(function(ai,n){ex.push({id:m.id+"#"+(n+1),time:(m.time||0)+n+1,sender:m.sender,text:"",attaches:[at[ai]],_o:{id:m.id,idx:ai},_g:gid,_syn:1})})});
+  ex.forEach(function(m){byId[String(m.id)]=m});
+  var fresh=__mxAddMsgs0(key,ex);
+  fresh.forEach(function(o){try{
+    var mid=__mx.maxIdOf[o.id],m=mid!=null&&byId[mid];
+    if(m){__mxMedia(key,o,m);__mxLinks(key,o,m);if(m._g)o.grouped_id=m._g;if(m._syn)__mx.maxIdOf[o.id]=String(m._o.id)}
+  }catch(e){__mxLog("media failed",e)}});
   return fresh};
 /* Свежая ссылка на вложение: сообщение перечитываем (ссылки MAX протухают). */
 async function __mxRefresh(rec){
@@ -144,6 +169,7 @@ async function __mxSendMedia(e){
   await __mxSync();
   var key=__UC__(e.peer),cid=__mx.keyChat[key],im=e.media||{};
   if(cid==null)throw{code:400,type:"PEER_ID_INVALID",handled:!0};
+  if(im._==="inputMediaDocument")return __mxSendSticker(e,key,cid,im);
   var isPhoto=im._==="inputMediaUploadedPhoto",isDoc=im._==="inputMediaUploadedDocument";
   if(!isPhoto&&!isDoc)throw{code:400,type:"MEDIA_INVALID",handled:!0};
   var f=im.file,bytes=__mxJoin(f);
@@ -172,6 +198,12 @@ async function __mxSendMedia(e){
 /* Локальные вложения (только что отправленные): отдаём из памяти. */
 var __mxGetMedia0=__mxGetMedia;
 __mxGetMedia=async function(a){
+  var l0=a&&a.location;
+  if(l0&&l0._==="inputStickerSetThumb"){
+    var s0=__mx.st.sets[String(l0.stickerset&&l0.stickerset.id)],u0=s0&&s0.iconUrl;
+    if(u0){var r0=await fetch("/img?url="+encodeURIComponent(u0));if(!r0.ok)r0=await fetch("/video?url="+encodeURIComponent(u0));
+      if(r0.ok)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:new Uint8Array(await r0.arrayBuffer())}}
+    throw{code:400,type:"LOCATION_INVALID",handled:!0}}
   var loc=a&&a.location,id=loc&&loc.id!=null?String(loc.id):null,rec=id&&__mx.media[id];
   if(rec&&rec.kind==="LOCAL"&&rec.blob){
     var buf=new Uint8Array(await rec.blob.arrayBuffer()),off=a.offset||0;
@@ -232,6 +264,72 @@ async function __mxGetFullChat(e){
   var key="c"+e.chat_id,raw=__mx.keyChat[key],r=__TBL__["messages.getFullChat"](e),n=raw!=null?await __mxCountFor(raw,key):null;
   if(n!=null){r.full_chat.participants_count=n;var ch=__mxSetCount(key,n);if(ch)__mxPublish([],[ch])}
   return r}
+/* ---- стикеры MAX: opcode 27 (секции), 26 (страницы), 28 (паки и стикеры); отправка — attach STICKER в opcode 64 ---- */
+__mx.st={p:null,setIds:[],sets:{},items:{},recent:[]};
+function __mxChunk(a,n){var r=[];for(var i=0;i<a.length;i+=n)r.push(a.slice(i,i+n));return r}
+function __mxStickersLoad(){
+  if(__mx.st.p)return __mx.st.p;
+  __mx.st.p=(async function(){
+    var st=__mx.st,ids=[],marker=0,p=await __mxCall(27,{type:"STICKER",sync:0});
+    ((p&&p.sections)||[]).forEach(function(s){
+      if(!s||typeof s!=="object")return;
+      if(s.id==="NEW_STICKER_SETS"&&Array.isArray(s.stickerSets)){ids.push.apply(ids,s.stickerSets);if(typeof s.marker==="number")marker=s.marker}
+      else if(s.type==="RECENTS"&&Array.isArray(s.recentsList))st.recent=s.recentsList.filter(function(e){return e&&e.type==="STICKER"&&(typeof e.stickerId==="number"||typeof e.id==="number")}).map(function(e){return e.stickerId!=null?e.stickerId:e.id})});
+    for(var pg=0;marker&&pg<10;pg++){
+      var q=await __mxCall(26,{sectionId:"NEW_STICKER_SETS",from:marker,count:100}),l=(q&&q.stickerSets)||[];
+      if(!l.length)break;ids.push.apply(ids,l);marker=q&&typeof q.marker==="number"?q.marker:0}
+    var uniq=[];ids.forEach(function(i){if(uniq.indexOf(i)<0)uniq.push(i)});
+    var ch=__mxChunk(uniq,30);
+    for(var c=0;c<ch.length;c++){
+      var r=await __mxCall(28,{type:"STICKER_SET",ids:ch[c]});
+      ((r&&r.stickerSets)||[]).forEach(function(s){if(s&&typeof s.id==="number")st.sets[s.id]={id:s.id,name:s.name||"",iconUrl:s.iconUrl||"",stickers:Array.isArray(s.stickers)?s.stickers:[]}})}
+    st.setIds=uniq.filter(function(i){return st.sets[i]});
+    __mxLog("stickers: паков",st.setIds.length,"недавних",st.recent.length)})().catch(function(e){__mxLog("stickers load failed",e);__mx.st.p=null;throw e});
+  return __mx.st.p}
+async function __mxStickerItems(ids){
+  var st=__mx.st,need=ids.filter(function(i){return!st.items[i]}),ch=__mxChunk(need,50);
+  for(var c=0;c<ch.length;c++){
+    var r=await __mxCall(28,{type:"STICKER",ids:ch[c]});
+    ((r&&r.stickers)||[]).forEach(function(s){if(s&&typeof s.id==="number")st.items[s.id]={id:s.id,url:s.url||"",lottieUrl:s.lottieUrl||null,width:s.width||170,height:s.height||170,tags:Array.isArray(s.tags)?s.tags:[]}})}}
+function __mxStickerDoc(it,setId){
+  var id=String(it.id),alt="🙂",i;
+  for(i=0;i<(it.tags||[]).length;i++){if(/\p{Extended_Pictographic}/u.test(it.tags[i])){alt=it.tags[i];break}}
+  var ss=setId!=null?{_:"inputStickerSetID",id:String(setId),access_hash:"1"}:{_:"inputStickerSetEmpty"};
+  __mx.media[id]={kind:"STICKER",chatId:0,msgId:"",msgTime:0,idx:0,attach:{url:it.url},url:it.url,size:0,stickerId:it.id};
+  return{_:"document",pFlags:{},id:id,access_hash:"1",file_reference:[],date:1,mime_type:"image/webp",size:0,dc_id:2,attributes:[{_:"documentAttributeImageSize",w:it.width||170,h:it.height||170},{_:"documentAttributeSticker",pFlags:{},alt:alt,stickerset:ss},{_:"documentAttributeFilename",file_name:"sticker.webp"}]}}
+function __mxSetObj(s){
+  var o={_:"stickerSet",pFlags:{},id:String(s.id),access_hash:"1",title:s.name||("Стикеры "+s.id),short_name:"mx"+s.id,count:s.stickers.length,hash:1,installed_date:1};
+  if(s.iconUrl){o.thumbs=[{_:"photoSize",type:"s",w:100,h:100,size:0}];o.thumb_dc_id=2;o.thumb_version=1}
+  return o}
+async function __mxGetAllStickers(){
+  try{await __mxSync();await __mxStickersLoad()}catch(e){return{_:"messages.allStickers",hash:"1",sets:[]}}
+  var st=__mx.st;return{_:"messages.allStickers",hash:"1",sets:st.setIds.map(function(i){return __mxSetObj(st.sets[i])})}}
+async function __mxGetStickerSet(e){
+  var ss=e&&e.stickerset,bad={code:400,type:"STICKERSET_INVALID",handled:!0};
+  if(!ss||ss._!=="inputStickerSetID")throw bad;
+  try{await __mxStickersLoad()}catch(er){throw bad}
+  var s=__mx.st.sets[ss.id];if(!s)throw bad;
+  try{await __mxStickerItems(s.stickers)}catch(er){throw bad}
+  var docs=[],packs={};
+  s.stickers.forEach(function(i){var it=__mx.st.items[i];if(!it)return;var d=__mxStickerDoc(it,s.id),em=d.attributes[1].alt;docs.push(d);(packs[em]||(packs[em]=[])).push(d.id)});
+  return{_:"messages.stickerSet",set:__mxSetObj(s),packs:Object.keys(packs).map(function(em){return{_:"stickerPack",emoticon:em,documents:packs[em]}}),keywords:[],documents:docs}}
+async function __mxGetRecentStickers(){
+  var empty={_:"messages.recentStickers",hash:"1",packs:[],stickers:[],dates:[]};
+  try{await __mxSync();await __mxStickersLoad();var ids=__mx.st.recent.slice(0,40);await __mxStickerItems(ids);
+    var docs=ids.map(function(i){var it=__mx.st.items[i];return it?__mxStickerDoc(it,null):null}).filter(Boolean);
+    return{_:"messages.recentStickers",hash:"1",packs:[],stickers:docs,dates:docs.map(function(){return 1})}}catch(e){return empty}}
+async function __mxSendSticker(e,key,cid,im){
+  var did=String(im.id&&im.id.id),rec=__mx.media[did];
+  if(!rec||rec.stickerId==null)throw{code:400,type:"MEDIA_INVALID",handled:!0};
+  var it=__mx.st.items[rec.stickerId]||{id:rec.stickerId,url:rec.url,width:170,height:170,tags:[]},date=Math.floor(Date.now()/1e3),
+    o=__Q__(key,!0,"",0,__TC__,{media:{_:"messageMediaDocument",pFlags:{},document:__mxStickerDoc(it,null)}});
+  (__mx.sentOut[key]||(__mx.sentOut[key]=[])).push({text:"",o:o});
+  (async function(){
+    try{var p=await __mxCall(64,{chatId:cid,message:{text:"",cid:Date.now(),attaches:[{_type:"STICKER",stickerId:Number(rec.stickerId)}]},notify:!0}),mm=p&&(p.message||p),mid=mm&&mm.id;
+      if(mid!=null){(__mx.seen[key]||(__mx.seen[key]={}))[String(mid)]=1;__mx.tgIdOf[String(mid)]=o.id;__mx.maxIdOf[o.id]=String(mid)}
+    }catch(er){__mxLog("send sticker failed",er)}
+    var l=__mx.sentOut[key],i=l?l.findIndex(function(x){return x.o===o}):-1;if(i>=0)l.splice(i,1)})();
+  return{_:"updates",updates:[{_:"updateMessageID",id:o.id,random_id:e.random_id},{_:"updateNewMessage",message:o,pts:++__NC__,pts_count:1}],users:[],chats:[],date:date,seq:0}}
 /* Таблица методов с приоритетом над заглушкой Web K */
 var __mxM={
   "upload.getFile":__mxGetFile3,
@@ -243,6 +341,12 @@ var __mxM={
   "messages.reorderPinnedDialogs":function(){return!0},
   "messages.transcribeAudio":__mxTranscribe,
   "messages.getFullChat":__mxGetFullChat,
+  "messages.getAllStickers":__mxGetAllStickers,
+  "messages.getStickerSet":__mxGetStickerSet,
+  "messages.getRecentStickers":__mxGetRecentStickers,
+  "messages.saveRecentSticker":function(){return!0},
+  "messages.installStickerSet":function(){return{_:"messages.stickerSetInstallResultSuccess"}},
+  "messages.uninstallStickerSet":function(){return!0},
   "help.getAppConfig":__mxAppConfig,
   "help.getPremiumPromo":function(){throw{code:400,type:"PREMIUM_PROMO_UNAVAILABLE",handled:!0}}
 };
