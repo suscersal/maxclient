@@ -52,14 +52,3 @@ for p in sorted(glob.glob(os.path.join(ROOT, 'static', 'tg', 'index.worker-*.js'
         s = s.replace(old, '`inputPeerChat`?`c`+e.chat_id:e._===`inputPeerChannel`?`c`+e.channel_id:`u100`', 1)
     open(p, 'w', encoding='utf8').write(s)
     print('patched', os.path.basename(p), dict(tc=tc, uc=uc, pin=hc, peer=ad, nc=nc, Q=Q))
-
-# штамп версии для сброса кэша в static/tg/index.html: меняется при каждом изменении ext3.js
-import hashlib
-stamp = hashlib.sha1(EXT.encode('utf8')).hexdigest()[:10]
-ip = os.path.join(ROOT, 'static', 'tg', 'index.html')
-if os.path.exists(ip):
-    h = open(ip, encoding='utf8').read()
-    h2 = re.sub(r'(<script id="mx-cache-reset">.*?var V = ")[^"]*(")', lambda m: m.group(1) + stamp + m.group(2), h, count=1, flags=re.S)
-    if h2 != h:
-        open(ip, 'w', encoding='utf8').write(h2)
-    print('cache stamp', stamp)

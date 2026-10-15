@@ -45,7 +45,7 @@ jobs:
           echo "$CHANGED"
 
           # Файлы, которые НИКОГДА не требуют полной сборки (документация, README и т.п.)
-          IGNORE_REGEX='^(README\.md|\.github/.*\.md|docs/.*|\.gitignore|LICENSE|test_bots\.py)$'
+          IGNORE_REGEX='^(README\.md|\.github/.*\.md|docs/.*|\.gitignore|LICENSE|test_bots\.py|scripts/tg/.*)$'
 
 
           # "Горячие" пути — то, что попадает в scripts/sync-android-python.sh
@@ -71,7 +71,12 @@ jobs:
           # generate-ota-manifest.sh его не включает, а у GitHub Release лимит
           # на число ассетов. Поэтому любое изменение static/tg — это полная
           # пересборка, иначе в APK/exe новый интерфейс просто не попадёт.
-          TG_CHANGED=$(echo "$NON_IGNORED" | grep -E '^static/tg/' || true)
+          # Исключение: воркеры tg (static/tg/index.worker-*.js — сюда попадает весь
+          # адаптер MAX<->Web K, scripts/tg/ext3.js) ДОСТАВЛЯЮТСЯ через OTA как
+          # tg/index.worker-*.js (см. generate-ota-manifest.sh, bridge.py: оверлей
+          # /tg/). Их изменение — тоже hot-update, без сборки APK.
+          TG_HOT_REGEX='^static/tg/index\.worker-[A-Za-z0-9_-]+\.js$'
+          TG_CHANGED=$(echo "$NON_IGNORED" | grep -E '^static/tg/' | grep -Ev "$TG_HOT_REGEX" || true)
 
           if [[ -z "$NON_HOT" && -z "$TG_CHANGED" ]]; then
             echo "hot_only=true" >> "$GITHUB_OUTPUT"
@@ -453,3 +458,4 @@ jobs:
             ota/*.json
             ota/*.gif
             ota/assets/*
+            ota/tg/*

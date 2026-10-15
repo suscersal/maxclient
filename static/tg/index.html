@@ -1,23 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
   <head>
-    <script id="mx-cache-reset">
-      (function () {
-        var V = "6a939124a0";
-        try {
-          if (localStorage.getItem("mx_tg_ver") === V) return;
-          localStorage.setItem("mx_tg_ver", V);
-          var jobs = [];
-          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
-            jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
-          if (window.caches && caches.keys)
-            jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
-          if (window.indexedDB && indexedDB.databases)
-            jobs.push(indexedDB.databases().then(function (ds) { return Promise.all(ds.filter(function (d) { return /tweb/i.test(d.name || ""); }).map(function (d) { return new Promise(function (ok) { var r = indexedDB.deleteDatabase(d.name); r.onsuccess = r.onerror = r.onblocked = function () { ok(); }; }); })); }));
-          Promise.all(jobs).catch(function () { }).then(function () { location.reload(); });
-        } catch (e) { }
-      })();
-    </script>
     <meta charset="utf-8" />
     <title>MAX Client</title>
     <meta name="description" content="MAX Client — неофициальный клиент мессенджера MAX.">

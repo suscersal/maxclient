@@ -15,3 +15,7 @@
 
 - ext3 также: Premium бесплатно (self.pFlags.premium, `premium_purchase_blocked`), расшифровка голосовых/кружков через `/api/transcribe/max-native` (opcode 202).
 - ext3: реальное число участников (opcode 48) в списке чатов и в `messages.getFullChat` (раньше жёстко «3»).
+
+- Воркеры в `static/tg/` коммитятся уже пропатченными (готовые воркеры): `patch_ext3.py` нужен только разработчику при правке `ext3.js`.
+
+- Доставка на Android: воркеры `static/tg/index.worker-*.js` едут через OTA/hotpatch (`generate-ota-manifest.sh`, оверлей `tg/` в `bridge.py`), поэтому их изменение НЕ запускает сборку APK. Любой другой файл в `static/tg/` (index.html, чанки) по-прежнему требует полной сборки.

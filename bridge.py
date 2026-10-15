@@ -2987,7 +2987,7 @@ def _find_tg_dir() -> str:
     """Папка интерфейса /tg/ (Telegram Web K).
 
     На Android bridge.py после OTA-обновления импортируется из hotpatch-папки
-    (files/hotpatch), а туда кладутся только bridge.py/index.html/assets — static/tg
+    (files/hotpatch), а туда кладутся только bridge.py/index.html/assets и воркеры tg (static/tg
     через OTA не доставляется (~3000 файлов). Сам tg/ лежит рядом с исходниками,
     запечёнными в APK (папка Chaquopy, она есть в sys.path). Поэтому ищем tg/ не
     только рядом с bridge.py, но и по всем путям из sys.path.
@@ -3004,6 +3004,7 @@ def _find_tg_dir() -> str:
 
 
 TG_DIR = _find_tg_dir()
+TG_OVERLAY_DIR = os.path.join(_BASE_DIR, "tg")  # hotpatch: только изменившиеся файлы tg
 logger.info(f"[static] /tg/ interface dir: {TG_DIR}")
 
 app = Flask(__name__, static_folder=STATIC_DIR)
@@ -3089,7 +3090,15 @@ def tg_index():
 def static_files(filename):
     # Файлы /tg/* берём из TG_DIR (на Android после OTA они не в STATIC_DIR).
     if filename.startswith("tg/") and len(filename) > 3:
-        return send_from_directory(TG_DIR, filename[3:])
+        rel = filename[3:]
+        # OTA-оверлей: после hot-update в <hotpatch>/tg лежат только обновлённые
+        # воркеры (index.worker-*.js), остальное берём из APK (TG_DIR).
+        if TG_OVERLAY_DIR != TG_DIR:
+            from werkzeug.security import safe_join
+            ov = safe_join(TG_OVERLAY_DIR, rel)
+            if ov and os.path.isfile(ov):
+                return send_from_directory(TG_OVERLAY_DIR, rel)
+        return send_from_directory(TG_DIR, rel)
     return send_from_directory(STATIC_DIR, filename)
 
 
