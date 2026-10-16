@@ -3042,19 +3042,32 @@ def _tg_ui_available() -> bool:
 def index():
     """Точка входа (её открывают Android WebView и десктоп-окно).
 
-    Новый интерфейс (Telegram Web K, /tg/) не умеет входить в аккаунт — у его
-    адаптера нет экрана авторизации, — поэтому:
-      * есть сохранённая сессия и интерфейс собран в сборку -> /tg/;
-      * иначе (первый вход, сессия слетела) -> старый интерфейс, где есть вход.
-    Принудительно: /?ui=classic — старый интерфейс (вход, настройки, боты),
-    /?ui=tg — новый. Если /tg/ в сборку не попал, всегда старый интерфейс.
+    ПО УМОЛЧАНИЮ — классический интерфейс (static/index.html): он стабильный,
+    в нём вход, настройки, боты. Новый интерфейс (Telegram Web K, /tg/) пока
+    бета: включается в Настройки -> Интерфейс и запоминается в cookie mx_ui.
+
+      * cookie mx_ui=tg + есть сохранённая сессия + /tg/ есть в сборке -> /tg/;
+      * иначе -> классический интерфейс;
+      * ?ui=classic — принудительно классический (встраивание настроек в /tg/,
+        вход с ?back=tg), настройку НЕ меняет; ?ui=tg — принудительно новый;
+      * ?setui=tg|classic — запомнить выбор (cookie на год) и открыть выбранный.
     Для аккаунтов 2..4 параметр ?account=N сохраняется.
     """
     ui = request.args.get("ui")
-    if ui != "classic" and _tg_ui_available() and (ui == "tg" or get_saved_auth_token()):
+    setui = request.args.get("setui")
+    if setui not in ("tg", "classic"):
+        setui = None
+    pref = setui or request.cookies.get("mx_ui") or "classic"
+    want_tg = ui != "classic" and (
+        ui == "tg" or setui == "tg" or (pref == "tg" and get_saved_auth_token()))
+    if want_tg and _tg_ui_available():
         n = _cur_acct()
-        return redirect("/tg/" + (f"?account={n}" if n > 1 else ""))
-    return send_from_directory(STATIC_DIR, "index.html")
+        resp = redirect("/tg/" + (f"?account={n}" if n > 1 else ""))
+    else:
+        resp = send_from_directory(STATIC_DIR, "index.html")
+    if setui:
+        resp.set_cookie("mx_ui", setui, max_age=365 * 24 * 3600, samesite="Lax", path="/")
+    return resp
 
 
 @app.route("/api/account/status")

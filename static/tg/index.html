@@ -111,6 +111,7 @@
   <script id="mx-menu">
 (function () {
   var ITEMS = [
+    ['switchClassic', 'Классический интерфейс'], '-',
     ['createGroup', 'Создать группу'], ['joinLink', 'Вступить по ссылке'], '-',
     ['account', 'Аккаунт'], ['inviteFriends', 'Пригласить друзей'], ['folders', 'Папки'],
     ['security', 'Безопасность'], ['sessions', 'Устройства'], ['notifications', 'Уведомления (MAX)'],
@@ -155,7 +156,13 @@
       
       el.addEventListener('click', function (ev) {
         ev.stopPropagation(); ev.preventDefault();
-        document.body.click(); openOld(it[0], it[1]);
+        document.body.click();
+        if (it[0] === 'switchClassic') {
+          var a = new URLSearchParams(location.search).get('account');
+          location.href = '/?setui=classic' + (a ? '&account=' + encodeURIComponent(a) : '');
+          return;
+        }
+        openOld(it[0], it[1]);
       }, true);
       menu.appendChild(el);
     });
@@ -298,7 +305,7 @@
             box.id = 'debugConsole';
             box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);' +
                 'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
-                'touch-action:pan-y;overscroll-behavior:contain;z-index:999999;padding:18px 8px 6px 8px;' +
+                'touch-action:pan-y;overscroll-behavior:contain;z-index:2147483646;padding:18px 8px 6px 8px;' +
                 'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
                 'display:none;height:' + consoleHeight + 'px;';
 
@@ -315,12 +322,12 @@
 
             var toggle = document.createElement('button');
             toggle.textContent = '🐞';
-            toggle.style.cssText = 'position:fixed;right:8px;z-index:1000000;width:36px;' +
+            toggle.style.cssText = 'position:fixed;right:8px;z-index:2147483647;width:36px;' +
                 'height:36px;border-radius:50%;background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;' +
                 'touch-action:none;';
 
             // Кнопки быстрой прокрутки лога вверх/вниз — видны только пока консоль открыта.
-            var btnStyle = 'position:fixed;right:8px;z-index:1000001;width:36px;height:36px;border-radius:50%;' +
+            var btnStyle = 'position:fixed;right:8px;z-index:2147483647;width:36px;height:36px;border-radius:50%;' +
                 'background:#222;color:#0f0;border:1px solid #0f0;font-size:16px;display:none;';
             var btnTop = document.createElement('button');
             btnTop.textContent = '⬆';
@@ -342,9 +349,10 @@
                 btnBottom.style.bottom = (consoleHeight + 8) + 'px';
                 btnBottom.style.right = '96px';
                 if (!toggleHasCustomPos) {
+                    // по умолчанию жук — в правом верхнем углу, поверх всего
                     toggle.style.left = 'auto';
-                    toggle.style.top = 'auto';
-                    toggle.style.bottom = (consoleHeight + 8) + 'px';
+                    toggle.style.bottom = 'auto';
+                    toggle.style.top = 'calc(env(safe-area-inset-top, 0px) + 8px)';
                 }
             }
 

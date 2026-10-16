@@ -9827,6 +9827,7 @@
             .addItem({ id: 'storage', icon: 'save', color: '#5A9CE8', label: 'Использование памяти', sub: 'Кэш и медиафайлы', page: renderStoragePage })
             .addItem({ id: 'theme', icon: 'palette', color: '#D6549E', label: 'Оформление', sub: 'Тема и цвета', page: renderThemePage })
             .addItem({ id: 'language', icon: 'globe', color: '#9B59D0', label: 'Язык приложения', sub: 'Язык интерфейса', page: renderLanguagePage })
+            .addItem({ id: 'uiMode', icon: 'laptop', color: '#4E9DE0', label: 'Интерфейс', sub: 'Классический или новый (бета)', page: renderUiModePage })
             .addDivider()
             .addItem({ id: 'vars', icon: 'gear', color: '#8E8E93', label: 'Переменные', page: renderVarsPage })
             .addItem({ id: 'debugDump', icon: 'bug', color: '#8E8E93', label: 'Дебаг-дамп', page: renderDebugDumpPage })
@@ -13162,6 +13163,33 @@
                     </div>
                 </div>
             `;
+        }
+
+        // ── Выбор интерфейса: классический (по умолчанию) / новый на базе Telegram Web K (бета) ──
+        // Выбор хранит сервер в cookie mx_ui через /?setui=tg|classic (см. bridge.py index()).
+        function switchUiMode(mode) {
+            const top = window.top || window;
+            const acc = new URLSearchParams(top.location.search).get('account');
+            top.location.href = '/?setui=' + encodeURIComponent(mode) + (acc ? '&account=' + encodeURIComponent(acc) : '');
+        }
+
+        function renderUiModePage() {
+            const cur = ((document.cookie.match(/(?:^|;\s*)mx_ui=(tg|classic)/) || [])[1]) || 'classic';
+            const row = (mode, title, sub) => `
+                <button type="button" class="settings-menu-item" style="width:100%;margin:6px 0;${cur === mode ? 'outline:2px solid #4E9DE0;' : ''}"
+                    onclick="switchUiMode('${mode}')">
+                    <span class="label">${title}${cur === mode ? ' ✓' : ''}<small>${sub}</small></span>
+                </button>`;
+            return `
+                <div style="padding:12px 0;">
+                    <div class="settings-empty" style="text-align:left;line-height:1.5;margin-bottom:12px;">
+                        Новый интерфейс на базе Telegram Web K пока в разработке и может работать
+                        нестабильно. Пока он не стабилизируется, основной — классический.
+                        Выбор запоминается на этом устройстве.
+                    </div>
+                    ${row('classic', 'Классический', 'Стабильный, всё работает')}
+                    ${row('tg', 'Новый (Telegram, бета)', 'Может быть неполным; вернуться можно из меню ☰')}
+                </div>`;
         }
 
         function renderChats(payload) {

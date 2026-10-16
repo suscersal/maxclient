@@ -233,6 +233,7 @@ async function __mxResolveName(e){
   return{_:"contacts.resolvedPeer",peer:p,chats:Od,users:Dd}}
 /* ==== конец ext2 ==== */
 /* ==== MAX adapter ext3: вложения (фото/файлы/видео/голосовые/стикеры), закрепление, отправка медиа ==== */
+try{__mxLog("ext3 build 2026-10-16-b")}catch(e){}
 /* Лог воркера -> debug-консоль страницы (BroadcastChannel "mxlog") */
 try{if(!self.__mxBC){self.__mxBC=new BroadcastChannel("mxlog");
   var __mxTx=function(x){try{return typeof x==="string"?x:(x&&x.stack)||JSON.stringify(x)}catch(e){return String(x)}};
@@ -258,6 +259,7 @@ function __mxMedia(key,o,m){
   if(!pick)return;
   var type=pick._type,id=(type==="STICKER"&&pick.stickerId!=null)?String(pick.stickerId):__mxH(cid+":"+m.id+":"+idx),date=o.date,rec={kind:type,chatId:cid,msgId:String(m._o?m._o.id:m.id),msgTime:m.time||0,idx:m._o?m._o.idx:idx,attach:pick,url:null,size:0},media;
   __mx.media[id]=rec;
+  if(type==="VIDEO"||type==="FILE"||type==="AUDIO")__mxLog("attach",type,id.slice(-6),"msg",rec.msgId);
   if(type==="PHOTO"){
     rec.url=pick.baseUrl||pick.url||null;
     media={_:"messageMediaPhoto",pFlags:{},photo:{_:"photo",pFlags:{},id:id,access_hash:"1",file_reference:[],date:date,sizes:[{_:"photoSize",type:"x",w:pick.width||1024,h:pick.height||768,size:0}],dc_id:2}}}
@@ -265,7 +267,7 @@ function __mxMedia(key,o,m){
     var nm=pick.name||"file";rec.size=pick.size||0;
     media=__mxDocMedia(id,date,__mxMime(nm),rec.size,[{_:"documentAttributeFilename",file_name:nm}])}
   else if(type==="VIDEO"){
-    var w=pick.width||640,h=pick.height||360,th=pick.thumbnail?[{_:"photoSize",type:"m",w:w,h:h,size:0}]:null;
+    var w=pick.width||640,h=pick.height||360,th=(pick.previewData||(pick.thumbnail&&pick.videoType!==1))?[{_:"photoSize",type:"m",w:w,h:h,size:0}]:null;
     media=__mxDocMedia(id,date,"video/mp4",0,[{_:"documentAttributeVideo",pFlags:pick.videoType===1?{round_message:!0}:{},duration:Math.round((pick.duration||0)/1e3),w:w,h:h},{_:"documentAttributeFilename",file_name:"video.mp4"}],th)}
   else if(type==="AUDIO"){
     rec.url=pick.baseUrl||pick.fileUrl||pick.url||null;
@@ -273,7 +275,7 @@ function __mxMedia(key,o,m){
   else{/* STICKER */
     rec.url=pick.url||null;if(pick.stickerId!=null)rec.stickerId=pick.stickerId;var sw=pick.width||512,sh=pick.height||512,lot=pick.lottieUrl&&(!pick.stickerType||pick.stickerType==="LOTTIE")?pick.lottieUrl:null;
     if(lot)rec.lottie=lot;
-    media=__mxDocMedia(id,date,lot?"application/x-tgsticker":"image/webp",0,[{_:"documentAttributeImageSize",w:sw,h:sh},{_:"documentAttributeSticker",pFlags:{},alt:(pick.tags&&pick.tags[0])||"🙂",stickerset:{_:"inputStickerSetEmpty"}},{_:"documentAttributeFilename",file_name:lot?"sticker.tgs":"sticker.webp"}])}
+    media=__mxDocMedia(id,date,lot?"application/x-tgsticker":"image/webp",0,[{_:"documentAttributeImageSize",w:sw,h:sh},{_:"documentAttributeSticker",pFlags:{},alt:(pick.tags&&pick.tags[0])||"🙂",stickerset:pick.setId!=null?{_:"inputStickerSetID",id:String(pick.setId),access_hash:"1"}:{_:"inputStickerSetEmpty"}},{_:"documentAttributeFilename",file_name:lot?"sticker.tgs":"sticker.webp"}])}
   var tmid=type==="AUDIO"?(pick.audioId!=null?pick.audioId:pick.mediaId):(type==="VIDEO"?pick.videoId:null);
   if(tmid!=null&&tmid!==undefined)__mx.trans[o.id]={chatId:cid,msgId:String(m.id),mediaId:tmid};
   o.media=media;
@@ -292,9 +294,16 @@ function __mxLinks(key,o,m){
     var rid=L.messageId!=null?L.messageId:fm.id,tg=rid!=null?__mx.tgIdOf[String(rid)]:null;
     if(tg!=null)o.reply_to={_:"messageReplyHeader",pFlags:{},reply_to_msg_id:tg}}}
 var __mxAddMsgs0=__mxAddMsgs;
+function __mxUnwrapFwd(m){
+  var L=m&&m.link;
+  if(!L||String(L.type||"").toUpperCase()!=="FORWARD"||!L.message)return m;
+  var fm=L.message,at=(m.attaches||[]).filter(function(a){return a&&a._type!=="CONTROL"}),c=Object.assign({},m);
+  if(!c.text&&fm.text){c.text=fm.text;if(fm.elements&&!c.elements)c.elements=fm.elements}
+  if(!at.length&&Array.isArray(fm.attaches)&&fm.attaches.length)c.attaches=(m.attaches||[]).concat(fm.attaches);
+  return c}
 __mxAddMsgs=function(key,msgs){
   var ex=[],byId={};
-  (msgs||[]).forEach(function(m){
+  (msgs||[]).map(__mxUnwrapFwd).forEach(function(m){
     if(!m||m.id==null){return}
     var at=m.attaches||[],mi=[];
     at.forEach(function(a,i){if(a&&(a._type==="PHOTO"||a._type==="VIDEO"))mi.push(i)});
@@ -324,18 +333,23 @@ async function __mxMediaUrl(rec,fresh){
   if(rec.kind==="VIDEO"){
     if(!fresh&&rec.url)return rec.url;
     var a=rec.attach,r2=await fetch("/api/video-sources"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messageId:rec.msgId,chatId:rec.chatId,token:a.token||a.videoToken||"",videoId:a.videoId||0})});
-    var j2=await r2.json().catch(function(){return{}}),src=j2.sources||{},best=src["480p"]||src["720p"]||src["360p"]||src["1080p"]||src["240p"]||src["144p"]||null,ks=Object.keys(src);
-    if(!best&&ks.length)best=src[ks[0]];
-    if(best&&/\.m3u8(\?|$)/.test(best)){__mxLog("video: только HLS, скачать нельзя",ks.join(","));best=null}
+    var j2=await r2.json().catch(function(){return{}}),src=j2.sources||{},ks=Object.keys(src),best=null,lab=null,order=["720p","480p","360p","1080p","240p","144p"],oi;
+    for(oi=0;oi<order.length;oi++){if(src[order[oi]]){best=src[order[oi]];lab=order[oi];break}}
+    if(!best&&ks.length){lab=ks[0];best=src[lab]}
+    rec.vlabel=lab;
+    if(best&&(/HLS/i.test(lab||"")||/\.m3u8(\?|$)/.test(best)||lab==="Источник")){__mxLog("video: нет mp4 (",lab,"), скачать нельзя");best=null}
     if(!best)__mxLog("video: нет источников",JSON.stringify(j2).slice(0,200));
     return rec.url=best}
   if(fresh){var u=await __mxRefresh(rec);if(u)rec.url=u}
   return rec.url}
+function __mxHead(b,n){var s="",i,m=Math.min(n,b.length);for(i=0;i<m;i++){var c=b[i];s+=(c>=32&&c<127)?String.fromCharCode(c):"."}return s}
+function __mxIsVideoBytes(b){return b.length>12&&(__mxHead(b.subarray(4,8),4)==="ftyp"||(b[0]===26&&b[1]===69&&b[2]===223&&b[3]===163)||b[0]===71)}
+function __mxHex(h){var n=h.length>>1,u=new Uint8Array(n),i;for(i=0;i<n;i++)u[i]=parseInt(h.substr(i*2,2),16);return u}
 async function __mxGzip(buf){var cs=new CompressionStream("gzip"),w=cs.writable.getWriter();w.write(buf);w.close();return new Uint8Array(await new Response(cs.readable).arrayBuffer())}
 async function __mxGetMedia(a){
   var loc=a&&a.location,id=loc&&loc.id!=null?String(loc.id):null,rec=id&&__mx.media[id];
   if(!rec)return null;
-  var off=a.offset||0,lim=a.limit||524288,thumb=!!(loc.thumb_size&&loc._==="inputDocumentFileLocation"&&rec.attach.thumbnail),
+  var off=a.offset||0,lim=a.limit||524288,thumb=!!(loc.thumb_size&&loc._==="inputDocumentFileLocation"&&(rec.attach.previewData||rec.attach.thumbnail)),thumbImg=!!(rec.attach.thumbnail&&rec.attach.videoType!==1),
     ranged=!thumb&&rec.size>0&&(rec.kind==="FILE"),img=thumb||rec.kind==="PHOTO"||rec.kind==="STICKER",err=null;
   if(!ranged&&off>0)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:new Uint8Array(0)};
   if(rec.lottie&&!thumb){
@@ -345,18 +359,30 @@ async function __mxGetMedia(a){
     __mxLog("lottie failed",err);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
   for(var n=0;n<2;n++){
     try{
-      var url=thumb?rec.attach.thumbnail:await __mxMediaUrl(rec,n>0);
+      if(thumb&&!thumbImg&&rec.attach.previewData)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:__mxHex(rec.attach.previewData)};
+      var url=thumb?(thumbImg?rec.attach.thumbnail:null):await __mxMediaUrl(rec,n>0);
       if(!url){err="no url";continue}
       var ep=img?"/img":"/video",opt={};
       if(ep==="/video"&&ranged)opt.headers={Range:"bytes="+off+"-"+(off+lim-1)};
       var res=await fetch(ep+"?url="+encodeURIComponent(url),opt);
-      if(!res.ok&&img&&res.status===400){res=await fetch("/video?url="+encodeURIComponent(url))}
+      if(!res.ok&&img&&!thumb&&res.status===400){res=await fetch("/video?url="+encodeURIComponent(url))}
       if(res.ok){var buf=new Uint8Array(await res.arrayBuffer());if(ranged&&res.status===200)buf=buf.subarray(off,off+lim);
+        if(rec.kind==="VIDEO"&&!thumb){
+          var ct=res.headers&&res.headers.get?res.headers.get("content-type"):"";
+          __mxLog("video bytes",buf.length,"ct",ct,"src",rec.vlabel||"?","head",__mxHead(buf,16));
+          if(!__mxIsVideoBytes(buf)){__mxLog("video: ответ НЕ видео:",__mxHead(buf,160));err="not video";continue}}
         return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:buf}}
       err="http "+res.status;if(thumb)break
     }catch(e){err=String(e&&e.message||e)}}
+  if(thumb&&rec.attach.previewData)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:__mxHex(rec.attach.previewData)};
   __mxLog("media http failed",rec.kind,err);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
-async function __mxGetFile3(a){var r=await __mxGetMedia(a);return r||__mxGetFile(a)}
+var __mxMn=0;
+async function __mxGetFile3(a){
+  var loc=a&&a.location,id=loc&&loc.id!=null?String(loc.id):null,rec=id&&__mx.media[id],n=rec?++__mxMn:0,tg=id?id.slice(-6):"";
+  if(n&&n<=80)__mxLog("media req",rec.kind,tg,"off",a.offset||0,"lim",a.limit||0,loc.thumb_size?"thumb:"+loc.thumb_size:"");
+  try{var r=await __mxGetMedia(a);if(r){if(n&&n<=80)__mxLog("media ok",rec&&rec.kind,tg,"bytes",r.bytes&&r.bytes.length);return r}}
+  catch(e){if(n)__mxLog("media FAIL",rec&&rec.kind,tg,e&&e.type||e);throw e}
+  return __mxGetFile(a)}
 /* Диагностика аватарок: первые запросы upload.getFile по photo_id пишем в консоль */
 var __mxGetFile0=__mxGetFile,__mxAvN=0;
 __mxGetFile=async function(a){
@@ -457,7 +483,10 @@ __mxGetMedia=async function(a){
 /* ---- Premium бесплатно: свой пользователь всегда premium, покупка скрыта ---- */
 function __mxFreePremium(arr){try{(arr||[]).forEach(function(u){if(u&&u._==="user"&&u.pFlags&&u.pFlags.self)u.pFlags.premium=!0})}catch(e){}}
 /* Каналы MAX помечаем pFlags.broadcast: Web K по нему пишет «подписчиков» вместо «участников» */
-function __mxMarkChannels(arr){try{(arr||[]).forEach(function(c){if(c&&c._==="chat"&&__mx.chType["c"+c.id]==="CHANNEL"){c.pFlags=c.pFlags||{};c.pFlags.broadcast=!0}})}catch(e){}}
+function __mxMarkChannels(arr){try{(arr||[]).forEach(function(c){
+  if(!c||c._!=="chat")return;
+  if(!c.default_banned_rights)c.default_banned_rights={_:"chatBannedRights",pFlags:{},until_date:0};
+  if(__mx.chType["c"+c.id]==="CHANNEL"){c.pFlags=c.pFlags||{};c.pFlags.broadcast=!0;if(!__mx.chLog){__mx.chLog=1;__mxLog("channel flags",c.id,JSON.stringify(c.pFlags),"rights",JSON.stringify(c.default_banned_rights&&c.default_banned_rights.pFlags))}}})}catch(e){}}
 var __mxDec0=__mxDecorate;
 __mxDecorate=function(r){r=__mxDec0(r);if(r&&typeof r==="object"){__mxFreePremium(r.users);if(r.user)__mxFreePremium([r.user]);__mxMarkChannels(r.chats)}return r};
 var __mxSyncP0=__mxSync;
@@ -511,6 +540,7 @@ async function __mxGetFullChat(e){
   return r}
 /* ---- стикеры MAX: opcode 27 (секции), 26 (страницы), 28 (паки и стикеры); отправка — attach STICKER в opcode 64 ---- */
 __mx.st={p:null,setIds:[],sets:{},items:{},recent:[]};
+function __mxAddSetMeta(s){if(s&&typeof s.id==="number")__mx.st.sets[s.id]={id:s.id,name:s.name||"",iconUrl:s.iconUrl||"",stickers:Array.isArray(s.stickers)?s.stickers:[]}}
 function __mxChunk(a,n){var r=[];for(var i=0;i<a.length;i+=n)r.push(a.slice(i,i+n));return r}
 function __mxStickersLoad(){
   if(__mx.st.p)return __mx.st.p;
@@ -520,42 +550,66 @@ function __mxStickersLoad(){
       if(!s||typeof s!=="object")return;
       if(s.id==="NEW_STICKER_SETS"&&Array.isArray(s.stickerSets)){ids.push.apply(ids,s.stickerSets);if(typeof s.marker==="number")marker=s.marker}
       else if(s.type==="RECENTS"&&Array.isArray(s.recentsList))st.recent=s.recentsList.filter(function(e){return e&&e.type==="STICKER"&&(typeof e.stickerId==="number"||typeof e.id==="number")}).map(function(e){return e.stickerId!=null?e.stickerId:e.id})});
-    for(var pg=0;marker&&pg<10;pg++){
+    var fav=[];
+    try{var fp=await __mxCall(27,{type:"FAVORITE_STICKER",sync:0});
+      ((fp&&fp.sections)||[]).forEach(function(s){if(s&&s.id==="FAVORITE_STICKER_SETS"&&Array.isArray(s.stickerSets))fav.push.apply(fav,s.stickerSets)})}catch(e){}
+    for(var pg=0;marker&&pg<50;pg++){
       var q=await __mxCall(26,{sectionId:"NEW_STICKER_SETS",from:marker,count:100}),l=(q&&q.stickerSets)||[];
       if(!l.length)break;ids.push.apply(ids,l);marker=q&&typeof q.marker==="number"?q.marker:0}
-    var uniq=[];ids.forEach(function(i){if(uniq.indexOf(i)<0)uniq.push(i)});
-    var ch=__mxChunk(uniq,30);
+    var uniq=[];fav.concat(ids).forEach(function(i){if(uniq.indexOf(i)<0)uniq.push(i)});
+    var ch=__mxChunk(uniq,100);
     for(var c=0;c<ch.length;c++){
       var r=await __mxCall(28,{type:"STICKER_SET",ids:ch[c]});
-      ((r&&r.stickerSets)||[]).forEach(function(s){if(s&&typeof s.id==="number")st.sets[s.id]={id:s.id,name:s.name||"",iconUrl:s.iconUrl||"",stickers:Array.isArray(s.stickers)?s.stickers:[]}})}
+      ((r&&r.stickerSets)||[]).forEach(__mxAddSetMeta)}
     st.setIds=uniq.filter(function(i){return st.sets[i]});
-    __mxLog("stickers: паков",st.setIds.length,"недавних",st.recent.length);
+    __mxLog("stickers: паков",st.setIds.length,"избранных",fav.length,"недавних",st.recent.length);
     if(!st.setIds.length)__mxLog("stickers: пустой ответ opcode 27:",JSON.stringify(p).slice(0,400))})().catch(function(e){__mxLog("stickers load failed",e);__mx.st.p=null;throw e});
   return __mx.st.p}
 async function __mxStickerItems(ids){
   var st=__mx.st,need=ids.filter(function(i){return!st.items[i]}),ch=__mxChunk(need,50);
   for(var c=0;c<ch.length;c++){
     var r=await __mxCall(28,{type:"STICKER",ids:ch[c]});
-    ((r&&r.stickers)||[]).forEach(function(s){if(s&&typeof s.id==="number")st.items[s.id]={id:s.id,url:s.url||"",lottieUrl:s.lottieUrl||null,stickerType:s.stickerType||null,width:s.width||170,height:s.height||170,tags:Array.isArray(s.tags)?s.tags:[]}})}}
+    ((r&&r.stickers)||[]).forEach(function(s){if(s&&typeof s.id==="number")st.items[s.id]={id:s.id,url:s.url||"",lottieUrl:s.lottieUrl||null,stickerType:s.stickerType||null,setId:typeof s.setId==="number"?s.setId:null,width:s.width||170,height:s.height||170,tags:Array.isArray(s.tags)?s.tags:[]}})}}
 function __mxStickerDoc(it,setId){
   var id=String(it.id),alt="🙂",i;
+  if(setId==null&&it.setId!=null)setId=it.setId;
   for(i=0;i<(it.tags||[]).length;i++){if(/\p{Extended_Pictographic}/u.test(it.tags[i])){alt=it.tags[i];break}}
   var ss=setId!=null?{_:"inputStickerSetID",id:String(setId),access_hash:"1"}:{_:"inputStickerSetEmpty"};
   var lot=it.lottieUrl&&(!it.stickerType||it.stickerType==="LOTTIE")?it.lottieUrl:null;
   __mx.media[id]={kind:"STICKER",chatId:0,msgId:"",msgTime:0,idx:0,attach:{url:it.url},url:it.url,size:0,stickerId:it.id,lottie:lot};
   return{_:"document",pFlags:{},id:id,access_hash:"1",file_reference:[],date:1,mime_type:lot?"application/x-tgsticker":"image/webp",size:0,dc_id:2,attributes:[{_:"documentAttributeImageSize",w:it.width||170,h:it.height||170},{_:"documentAttributeSticker",pFlags:{},alt:alt,stickerset:ss},{_:"documentAttributeFilename",file_name:lot?"sticker.tgs":"sticker.webp"}]}}
 function __mxSetObj(s){
-  var o={_:"stickerSet",pFlags:{},id:String(s.id),access_hash:"1",title:s.name||("Стикеры "+s.id),short_name:"mx"+s.id,count:s.stickers.length,hash:1,installed_date:1};
+  var o={_:"stickerSet",pFlags:{},id:String(s.id),access_hash:"1",title:s.name||("Стикеры "+s.id),short_name:"mx"+s.id,count:s.stickers.length,hash:1};
+  if(__mx.st.setIds.indexOf(s.id)>=0)o.installed_date=1;
   if(s.iconUrl){o.thumbs=[{_:"photoSize",type:"s",w:100,h:100,size:0}];o.thumb_dc_id=2;o.thumb_version=1}
   return o}
+async function __mxInstallSet(e){
+  var ss=e&&e.stickerset,bad={code:400,type:"STICKERSET_INVALID",handled:!0};
+  if(!ss||ss._!=="inputStickerSetID")throw bad;
+  var id=Number(ss.id),r=null;
+  try{r=await __mxCall(29,{type:"FAVORITE_STICKER_SET",id:id})}catch(er){__mxLog("install set failed",er)}
+  if(!(r&&r.success===true))throw bad;
+  var st=__mx.st;if(st.setIds.indexOf(id)<0)st.setIds.unshift(id);
+  __mxLog("stickers: набор добавлен",id);
+  return{_:"messages.stickerSetInstallResultSuccess"}}
+async function __mxUninstallSet(e){
+  var ss=e&&e.stickerset;if(!ss||ss._!=="inputStickerSetID")return!0;
+  var id=Number(ss.id),r=null;
+  try{r=await __mxCall(259,{type:"FAVORITE_STICKER_SET",ids:[id]})}catch(er){__mxLog("uninstall set failed",er)}
+  if(r&&r.success===true){var st=__mx.st;st.setIds=st.setIds.filter(function(i){return i!==id});__mxLog("stickers: набор удалён",id)}
+  return!0}
 async function __mxGetAllStickers(){
   try{await __mxSync();await __mxStickersLoad()}catch(e){return{_:"messages.allStickers",hash:"1",sets:[]}}
   var st=__mx.st;__mxLog("getAllStickers: наборов",st.setIds.length);return{_:"messages.allStickers",hash:"1",sets:st.setIds.map(function(i){return __mxSetObj(st.sets[i])})}}
 async function __mxGetStickerSet(e){
   var ss=e&&e.stickerset,bad={code:400,type:"STICKERSET_INVALID",handled:!0};
+  if(ss&&ss._&&ss._!=="inputStickerSetID"&&ss._!=="inputStickerSetShortName"&&ss._!=="inputStickerSetEmpty"){
+    return{_:"messages.stickerSet",set:{_:"stickerSet",pFlags:{},id:__mxH("special:"+ss._),access_hash:"1",title:"",short_name:"mx_"+ss._,count:0,hash:1},packs:[],keywords:[],documents:[]}}
   if(!ss||ss._!=="inputStickerSetID")throw bad;
   try{await __mxStickersLoad()}catch(er){throw bad}
-  var s=__mx.st.sets[ss.id];if(!s)throw bad;
+  var s=__mx.st.sets[ss.id];
+  if(!s){try{var rr=await __mxCall(28,{type:"STICKER_SET",ids:[Number(ss.id)]});((rr&&rr.stickerSets)||[]).forEach(__mxAddSetMeta)}catch(er){}s=__mx.st.sets[ss.id]}
+  if(!s)throw bad;
   try{await __mxStickerItems(s.stickers)}catch(er){throw bad}
   var docs=[],packs={};
   s.stickers.forEach(function(i){var it=__mx.st.items[i];if(!it)return;var d=__mxStickerDoc(it,s.id),em=d.attributes[1].alt;docs.push(d);(packs[em]||(packs[em]=[])).push(d.id)});
@@ -608,8 +662,8 @@ var __mxM={
   "messages.getStickerSet":__mxGetStickerSet,
   "messages.getRecentStickers":__mxGetRecentStickers,
   "messages.saveRecentSticker":function(){return!0},
-  "messages.installStickerSet":function(){return{_:"messages.stickerSetInstallResultSuccess"}},
-  "messages.uninstallStickerSet":function(){return!0},
+  "messages.installStickerSet":__mxInstallSet,
+  "messages.uninstallStickerSet":__mxUninstallSet,
   "help.getAppConfig":__mxAppConfig,
   "help.getPremiumPromo":function(){throw{code:400,type:"PREMIUM_PROMO_UNAVAILABLE",handled:!0}}
 };
