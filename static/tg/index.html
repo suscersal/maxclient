@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ru">
   <head>
+    <script>
+        (function () {
+            // Имена воркеров/чанков не меняются при правках (хэш прежний), и Chrome держит старую копию.
+            // bridge подставляет build; при его смене один раз перекачиваем воркеры с cache:'reload' и перезагружаем.
+            var boot = /*TG_BOOT*/null;
+            if (!boot || !boot.build) return;
+            var K = 'mx_tg_build';
+            try {
+                if (localStorage.getItem(K) === boot.build) return;
+                localStorage.setItem(K, boot.build);
+            } catch (e) { return; }
+            var q = '?__tweb_threaded_worker_protocol=4';
+            var jobs = [];
+            (boot.files || []).forEach(function (f) {
+                jobs.push(fetch('./' + f + q, { cache: 'reload' }).catch(function () { }));
+                jobs.push(fetch('./' + f, { cache: 'reload' }).catch(function () { }));
+            });
+            Promise.all(jobs).then(function () { location.reload(); });
+        })();
+    </script>
     <meta charset="utf-8" />
     <title>MAX Client</title>
     <meta name="description" content="MAX Client — неофициальный клиент мессенджера MAX.">
@@ -292,7 +312,7 @@
 <!-- ==== ВРЕМЕННАЯ DEBUG-КОНСОЛЬ (убрать после диагностики офлайн-запуска) ==== -->
     <script>
         (function () {
-            var maxLines = 300;
+            var maxLines = 1000;
             var MIN_HEIGHT = 120;
             var MAX_HEIGHT_RATIO = 0.85;
             var consoleHeight = Math.round(window.innerHeight * 0.32);
@@ -307,7 +327,11 @@
                 'color:#0f0;font:11px/1.4 monospace;overflow-y:scroll;-webkit-overflow-scrolling:touch;' +
                 'touch-action:pan-y;overscroll-behavior:contain;z-index:2147483646;padding:18px 8px 6px 8px;' +
                 'box-sizing:border-box;white-space:pre-wrap;word-break:break-all;border-top:2px solid #0f0;' +
-                'display:none;height:' + consoleHeight + 'px;';
+                'display:none;height:' + consoleHeight + 'px;user-select:text;-webkit-user-select:text;';
+            // Web K глобально запрещает выделение текста — разрешаем его внутри консоли.
+            var selStyle = document.createElement('style');
+            selStyle.textContent = '#debugConsole,#debugConsole *{user-select:text !important;-webkit-user-select:text !important;-webkit-touch-callout:default !important;}';
+            document.head.appendChild(selStyle);
 
             // Полоска-хваталка сверху консоли — перетаскиванием вверх/вниз
             // можно менять её высоту (как перетаскиваемый bottom sheet).
@@ -338,6 +362,47 @@
             btnBottom.style.cssText = btnStyle;
             btnBottom.onclick = function () { box.scrollTop = box.scrollHeight; };
 
+            // 📋 — копирует весь лог в буфер обмена, 🗑 — очищает. Выделять текст пальцем тоже можно.
+            var btnCopy = document.createElement('button');
+            btnCopy.textContent = '📋';
+            btnCopy.style.cssText = btnStyle;
+            var btnClear = document.createElement('button');
+            btnClear.textContent = '🗑';
+            btnClear.style.cssText = btnStyle;
+            function logText() {
+                return Array.prototype.filter.call(box.children, function (c) { return c !== handle; })
+                    .map(function (c) { return c.textContent; }).join('\n');
+            }
+            function copyLog() {
+                var t = logText();
+                function done(ok) {
+                    addLine(ok ? ('📋 Скопировано: ' + t.length + ' симв.') : '📋 Не удалось скопировать — выдели текст пальцем', ok ? '#6cf' : '#f66');
+                }
+                function fallback() {
+                    var ta = document.createElement('textarea');
+                    ta.value = t;
+                    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+                    document.body.appendChild(ta);
+                    ta.focus();
+                    ta.select();
+                    var ok = false;
+                    try { ok = document.execCommand('copy'); } catch (e) { }
+                    ta.remove();
+                    done(ok);
+                }
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(t).then(function () { done(true); }, fallback);
+                        return;
+                    }
+                } catch (e) { }
+                fallback();
+            }
+            btnCopy.onclick = copyLog;
+            btnClear.onclick = function () {
+                Array.prototype.slice.call(box.children).forEach(function (c) { if (c !== handle) box.removeChild(c); });
+            };
+
             // Высота консоли определяет, где над ней висит кнопка-переключатель
             // и кнопки прокрутки — пересчитываем при каждом изменении высоты.
             // Все три кнопки размещаются НАД консолью (bottom = consoleHeight + 8),
@@ -348,6 +413,10 @@
                 btnTop.style.right = '52px';
                 btnBottom.style.bottom = (consoleHeight + 8) + 'px';
                 btnBottom.style.right = '96px';
+                btnCopy.style.bottom = (consoleHeight + 8) + 'px';
+                btnCopy.style.right = '140px';
+                btnClear.style.bottom = (consoleHeight + 8) + 'px';
+                btnClear.style.right = '184px';
                 if (!toggleHasCustomPos) {
                     // по умолчанию жук — в правом верхнем углу, поверх всего
                     toggle.style.left = 'auto';
@@ -463,6 +532,8 @@
                 box.style.display = show ? 'block' : 'none';
                 btnTop.style.display = show ? 'block' : 'none';
                 btnBottom.style.display = show ? 'block' : 'none';
+                btnCopy.style.display = show ? 'block' : 'none';
+                btnClear.style.display = show ? 'block' : 'none';
                 if (show) box.scrollTop = box.scrollHeight;
             };
 
@@ -483,7 +554,17 @@
                 try {
                     if (typeof a === 'string') return a;
                     if (a instanceof Error) return a.stack || a.message;
-                    return JSON.stringify(a);
+                    // Event (напр. «video load error») сериализуется в {} — разворачиваем сами.
+                    if (typeof Event !== 'undefined' && a instanceof Event) {
+                        var tg = a.target || a.currentTarget;
+                        var d = a.type + (tg && tg.tagName ? ' <' + tg.tagName.toLowerCase() + '>' : '');
+                        if (tg && tg.error) d += ' MediaError ' + tg.error.code + (tg.error.message ? ' ' + tg.error.message : '');
+                        if (tg && tg.tagName === 'VIDEO') d += ' net=' + tg.networkState + ' ready=' + tg.readyState;
+                        if (tg && (tg.currentSrc || tg.src)) d += ' src=' + (tg.currentSrc || tg.src);
+                        return d;
+                    }
+                    var j = JSON.stringify(a);
+                    return j === undefined ? String(a) : j;
                 } catch (e) { return String(a); }
             }
 
@@ -500,6 +581,7 @@
 
             // Ловим в т.ч. ошибки загрузки ресурсов (сорванные <script src>/<link>/<img>) —
             // именно это нужно для диагностики офлайн-запуска.
+            window.__mxVidDiag = {};
             window.addEventListener('error', function (e) {
                 var t = e.target;
                 if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK' || t.tagName === 'IMG')) {
@@ -515,6 +597,28 @@
                     var mediaErrNames = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' };
                     var code = mediaErr ? (mediaErr.code + ' ' + (mediaErrNames[mediaErr.code] || '')) : '?';
                     addLine('❌ Ошибка загрузки медиа (' + t.tagName.toLowerCase() + ', код ' + code + '): ' + (t.currentSrc || t.src || ''), '#f66');
+                    // Для blob-видео: что реально лежит в blob (размер, контейнер, кодек) — по этому видно,
+                    // обрезан ли файл, не тот ли mime и поддерживается ли кодек браузером.
+                    var vsrc = t.currentSrc || t.src || '';
+                    if (t.tagName === 'VIDEO' && vsrc.indexOf('blob:') === 0 && !window.__mxVidDiag[vsrc]) {
+                        window.__mxVidDiag[vsrc] = 1;
+                        fetch(vsrc).then(function (r) { return r.blob(); }).then(function (bl) {
+                            return bl.arrayBuffer().then(function (ab) {
+                                var u8 = new Uint8Array(ab), n = u8.length;
+                                function s4(i) { return String.fromCharCode(u8[i], u8[i + 1], u8[i + 2], u8[i + 3]); }
+                                function find(tag) {
+                                    for (var i = 0; i + 4 <= n; i++) { if (u8[i] === tag.charCodeAt(0) && s4(i) === tag) return i; }
+                                    return -1;
+                                }
+                                var codecs = ['avc1', 'hvc1', 'hev1', 'av01', 'vp09', 'mp4v'].filter(function (c) { return find(c) >= 0; });
+                                var moov = find('moov'), mdat = find('mdat');
+                                var hex = Array.prototype.slice.call(u8.subarray(0, 12)).map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join(' ');
+                                var ok = ['video/mp4; codecs="avc1.640028"', 'video/mp4; codecs="hvc1.1.6.L93.B0"', 'video/mp4'].map(function (m) { return m.split(';')[0] + (m.indexOf('hvc1') > 0 ? '[hevc]' : m.indexOf('avc1') > 0 ? '[avc]' : '') + '=' + (document.createElement('video').canPlayType(m) || 'no'); }).join(' ');
+                                var holder = t.closest ? t.closest('[data-doc-id]') : null, bub = t.closest ? t.closest('.bubble') : null;
+                                addLine('🔬 blob видео: doc=' + (holder ? holder.dataset.docId : '?') + ' mid=' + (bub ? bub.dataset.mid : '?') + ' size=' + bl.size + ' type=' + (bl.type || '(пусто)') + ' head=' + hex + ' brand=' + (n > 12 ? s4(8) : '?') + ' moov@' + moov + ' mdat@' + mdat + ' (размер ' + n + ') codec=' + (codecs.join(',') || '?') + ' canPlay: ' + ok, '#6cf');
+                            });
+                        }).catch(function (e2) { addLine('🔬 blob видео не прочитан: ' + e2, '#fa0'); });
+                    }
                 } else {
                     addLine('❌ ' + (e.message || 'JS error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), '#f66');
                 }
@@ -536,6 +640,8 @@
             document.body.appendChild(toggle);
             document.body.appendChild(btnTop);
             document.body.appendChild(btnBottom);
+            document.body.appendChild(btnCopy);
+            document.body.appendChild(btnClear);
             box.addEventListener('touchmove', function (e) { e.stopPropagation(); }, { passive: true });
             layoutForHeight();
             addLine('Debug-консоль /tg/ запущена (логи воркера: [worker])');

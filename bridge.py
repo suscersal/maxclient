@@ -3096,7 +3096,46 @@ def serve_lottie_lib():
 @app.route("/tg/")
 def tg_index():
     """Интерфейс на базе Telegram Web K (static/tg), данные — из /relay."""
-    return send_from_directory(TG_DIR, "index.html")
+    try:
+        with open(os.path.join(TG_DIR, "index.html"), "r", encoding="utf-8") as fh:
+            html = fh.read()
+        html = html.replace("/*TG_BOOT*/null", json.dumps(_tg_boot_info()), 1)
+        resp = Response(html, mimetype="text/html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    except Exception as e:
+        logger.warning(f"[tg] index inject failed: {e}")
+        return _tg_nocache(send_from_directory(TG_DIR, "index.html"), "index.html")
+
+
+def _tg_boot_info():
+    """build = отпечаток воркеров (имя+размер+mtime). Меняется при любой правке воркера, даже если
+    имя файла прежнее — страница по нему принудительно перекачивает воркеры (см. static/tg/index.html)."""
+    import hashlib
+    dirs = [TG_OVERLAY_DIR, TG_DIR] if TG_OVERLAY_DIR != TG_DIR else [TG_DIR]
+    names = set()
+    for d in dirs:
+        try:
+            names.update(n for n in os.listdir(d) if (n.startswith("index.worker-") or n.startswith("buttonMenu-")) and n.endswith(".js"))
+        except OSError:
+            pass
+    h = hashlib.md5()
+    for n in sorted(names):
+        for d in dirs:
+            p = os.path.join(d, n)
+            if os.path.isfile(p):
+                st = os.stat(p)
+                h.update(f"{n}:{st.st_size}:{int(st.st_mtime)};".encode())
+                break
+    return {"build": h.hexdigest()[:10], "files": sorted(names)}
+
+
+def _tg_nocache(resp, rel):
+    """У index.html и index.worker-*.js имя файла не меняется при правках (хэш прежний),
+    поэтому браузер держал устаревшую копию. no-cache = всегда сверять по ETag (304, если не менялось)."""
+    if rel.endswith(".html") or rel.startswith("index.worker-"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/<path:filename>")
@@ -3110,8 +3149,8 @@ def static_files(filename):
             from werkzeug.security import safe_join
             ov = safe_join(TG_OVERLAY_DIR, rel)
             if ov and os.path.isfile(ov):
-                return send_from_directory(TG_OVERLAY_DIR, rel)
-        return send_from_directory(TG_DIR, rel)
+                return _tg_nocache(send_from_directory(TG_OVERLAY_DIR, rel), rel)
+        return _tg_nocache(send_from_directory(TG_DIR, rel), rel)
     return send_from_directory(STATIC_DIR, filename)
 
 
@@ -3120,13 +3159,16 @@ def proxy_lottie():
     """Прокси для Lottie-JSON анимированных стикеров (fd.oneme.ru/getfile?rq=...).
     Нужен отдельно от /img, т.к. отдаёт JSON, а не картинку, и хост другой."""
     url = request.args.get("url", "")
-    allowed_hosts = ("fd.oneme.ru",)
+    # Раньше пускали только fd.oneme.ru — стикеры с других CDN-поддоменов MAX получали 400 и не грузились.
+    # Проверяем базовый домен, как в /img.
+    allowed_hosts = ("oneme.ru", "okcdn.ru", "max.ru", "selcdn.net")
 
     if not url.startswith("https://"):
         return "", 400
 
     host = urllib.parse.urlparse(url).hostname or ""
     if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
+        logger.warning(f"[lottie proxy] host not allowed: {host}")
         return "", 400
 
     try:
@@ -3135,8 +3177,22 @@ def proxy_lottie():
             headers={
                 "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S911B)", "Referer": "https://web.max.ru/"},
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = resp.read()
+        data = None
+        last_err = None
+        for _attempt in range(2):  # один повтор при обрыве/таймауте/5xx
+            try:
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    data = resp.read()
+                break
+            except urllib.error.HTTPError as he:
+                last_err = f"HTTP {he.code}"
+                if he.code < 500:
+                    break
+            except Exception as ex:
+                last_err = str(ex)
+        if data is None:
+            logger.warning(f"[lottie proxy] upstream failed for {url}: {last_err}")
+            return "", 502
 
         # Lottie-стикеры (как и Telegram .tgs) часто приходят gzip-сжатым JSON,
         # а не просто с Content-Encoding: gzip — распаковываем по магическим байтам.
@@ -3245,6 +3301,13 @@ def proxy_video():
         logger.info(f"[video proxy] Success, status: {upstream.status}")
     except urllib.error.HTTPError as e:
         logger.warning(f"[video proxy] HTTPError: {e}")
+        if e.code == 416:
+            # Range за пределами файла: отдаём 416 как есть (плеер/воркер tg
+            # по нему понимает конец файла), а не 502
+            h = {}
+            if e.headers and e.headers.get("Content-Range"):
+                h["Content-Range"] = e.headers.get("Content-Range")
+            return Response("", status=416, headers=h)
         return "", 502
     except Exception as e:
         logger.warning(f"[video proxy] failed: {e}")
