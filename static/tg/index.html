@@ -130,21 +130,12 @@
     <link rel="stylesheet" crossorigin href="./index-CHLzmVEh.css">
   <script id="mx-menu">
 (function () {
-  var ITEMS = [
-    ['switchClassic', 'Классический интерфейс'], '-',
-    ['createGroup', 'Создать группу'], ['joinLink', 'Вступить по ссылке'], '-',
-    ['account', 'Аккаунт'], ['inviteFriends', 'Пригласить друзей'], ['folders', 'Папки'],
-    ['security', 'Безопасность'], ['sessions', 'Устройства'], ['notifications', 'Уведомления (MAX)'],
-    ['storage', 'Использование памяти'], ['theme', 'Оформление (MAX)'], ['language', 'Язык приложения'], '-',
-    ['vars', 'Переменные'], ['debugDump', 'Дебаг-дамп'], ['device', 'Устройство (протокол)'],
-    ['gifPreview', 'Просмотреть GIF'], ['bots', 'Кастомные боты'], ['scamCheck', 'Скам-проверка (ИИ)'],
-    ['about', 'О приложении']
-  ];
+  // Пункты MAX теперь живут в «Настройках» (см. settings-*.js), а не в боковом меню.
+  // Здесь остаётся только открытие экрана: пока он берётся из классического интерфейса во фрейме.
   var css = document.createElement('style');
-  css.textContent = '.btn-menu[data-mx]{max-height:calc(100vh - 72px);overflow-y:auto}'
-    + '#mx-old{position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column}'
-    + '#mx-old header{height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#2f8fe6;color:#fff;font:500 16px sans-serif}'
-    + '#mx-old header button{background:none;border:0;color:#fff;font:inherit;cursor:pointer;padding:8px}'
+  css.textContent = '#mx-old{position:fixed;inset:0;z-index:2147483000;background:var(--surface-color,#fff);display:flex;flex-direction:column}'
+    + '#mx-old header{height:56px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);font:500 18px sans-serif;border-bottom:1px solid var(--border-color,rgba(128,128,128,.3))}'
+    + '#mx-old header button{background:none;border:0;color:var(--primary-color,#8774e1);font:inherit;cursor:pointer;padding:8px}'
     + '#mx-old iframe{flex:1;border:0;width:100%;background:#fff}';
   document.head.appendChild(css);
   function openOld(id, title) {
@@ -158,6 +149,15 @@
     box.querySelector('button').onclick = close; window.addEventListener('message', onMsg);
     document.body.appendChild(box);
   }
+  window.__mxOpen = function (id, title) {
+    if (id === 'switchClassic') {
+      var a = new URLSearchParams(location.search).get('account');
+      location.href = '/?setui=classic' + (a ? '&account=' + encodeURIComponent(a) : '');
+      return;
+    }
+    openOld(id, title);
+  };
+  // «Мои истории» в боковом меню не нужны — убираем, как и раньше.
   function patch(menu) {
     if (menu.hasAttribute('data-mx')) return;
     var items = [].slice.call(menu.querySelectorAll('.btn-menu-item'));
@@ -166,26 +166,6 @@
     if (!fav) return;
     menu.setAttribute('data-mx', '1');
     items.forEach(function (el) { if (/^(Мои истории|My Stories)$/.test(txt(el))) el.remove(); });
-    var tpl = items.filter(function (el) { return /^(Настройки|Settings)$/.test(txt(el)); })[0] || fav;
-    menu.appendChild(document.createElement('hr')).setAttribute('role', 'separator');
-    ITEMS.forEach(function (it) {
-      if (it === '-') { menu.appendChild(document.createElement('hr')).setAttribute('role', 'separator'); return; }
-      var el = tpl.cloneNode(true);
-      el.classList.remove('submenu-trigger'); el.removeAttribute('aria-haspopup'); el.removeAttribute('aria-expanded');
-      var t = el.querySelector('.btn-menu-item-text'); if (t) t.textContent = it[1];
-      
-      el.addEventListener('click', function (ev) {
-        ev.stopPropagation(); ev.preventDefault();
-        document.body.click();
-        if (it[0] === 'switchClassic') {
-          var a = new URLSearchParams(location.search).get('account');
-          location.href = '/?setui=classic' + (a ? '&account=' + encodeURIComponent(a) : '');
-          return;
-        }
-        openOld(it[0], it[1]);
-      }, true);
-      menu.appendChild(el);
-    });
   }
   new MutationObserver(function () {
     document.querySelectorAll('.btn-menu').forEach(patch);
