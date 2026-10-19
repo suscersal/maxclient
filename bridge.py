@@ -3116,7 +3116,7 @@ def _tg_boot_info():
     names = set()
     for d in dirs:
         try:
-            names.update(n for n in os.listdir(d) if (n.startswith("index.worker-") or n.startswith("buttonMenu-")) and n.endswith(".js"))
+            names.update(n for n in os.listdir(d) if (n.startswith(("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-"))) and n.endswith(".js"))
         except OSError:
             pass
     h = hashlib.md5()
@@ -3133,7 +3133,7 @@ def _tg_boot_info():
 def _tg_nocache(resp, rel):
     """У index.html и index.worker-*.js имя файла не меняется при правках (хэш прежний),
     поэтому браузер держал устаревшую копию. no-cache = всегда сверять по ETag (304, если не менялось)."""
-    if rel.endswith(".html") or rel.startswith("index.worker-"):
+    if rel.endswith((".html", ".js", ".css")) or rel.startswith("index.worker-"):
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 

@@ -278,7 +278,7 @@ function __mxMedia(key,o,m){
     var nm=pick.name||"file";rec.size=pick.size||0;
     media=__mxDocMedia(id,date,__mxMime(nm),rec.size,[{_:"documentAttributeFilename",file_name:nm}])}
   else if(type==="VIDEO"){
-    var w=pick.width||640,h=pick.height||360,th=(pick.previewData||(pick.thumbnail&&pick.videoType!==1))?[{_:"photoSize",type:"m",w:w,h:h,size:0}]:null;
+    var w=pick.width||640,h=pick.height||360,th=(pick.previewData||(pick.thumbnail&&pick.videoType!==1))?(function(){var k=Math.min(1,320/Math.max(w,h,1));return[{_:"photoSize",type:"m",w:Math.max(1,Math.round(w*k)),h:Math.max(1,Math.round(h*k)),size:0}]})():null;
     media=__mxDocMedia(id,date,"video/mp4",0,[{_:"documentAttributeVideo",pFlags:pick.videoType===1?{round_message:!0}:{},duration:Math.round((pick.duration||0)/1e3),w:w,h:h},{_:"documentAttributeFilename",file_name:"video.mp4"}],th)}
   else if(type==="AUDIO"){
     rec.url=pick.baseUrl||pick.fileUrl||pick.url||null;
@@ -346,7 +346,7 @@ async function __mxMediaUrl(rec,fresh){
     var r=await fetch("/api/file-url"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fileId:rec.attach.fileId,chatId:rec.chatId,messageId:rec.msgId})});
     var j=await r.json().catch(function(){return{}});return rec.url=j.url||null}
   if(rec.kind==="VIDEO"){
-    if(!fresh&&rec.url)return rec.url;
+    if((!fresh||rec.direct)&&rec.url)return rec.url;
     var a=rec.attach,r2=await fetch("/api/video-sources"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messageId:rec.msgId,chatId:rec.chatId,token:a.token||a.videoToken||"",videoId:a.videoId||0})});
     var j2=await r2.json().catch(function(){return{}}),src=j2.sources||{},ks=Object.keys(src),best=null,lab=null,order=["720p","480p","360p","1080p","240p","144p"],oi;
     for(oi=0;oi<order.length;oi++){if(src[order[oi]]){best=src[order[oi]];lab=order[oi];break}}
@@ -756,16 +756,22 @@ function __mxRxDoc(emoji,url){
   return __mx.rxDocs[id]}
 function __mxAvailReactions(){
   return{_:"messages.availableReactions",hash:1,reactions:__mxRX.map(function(p){var d=__mxRxDoc(p[0],p[1]);
-    return{_:"availableReaction",pFlags:{},reaction:p[0],title:p[0],static_icon:d,appear_animation:d,select_animation:d,activate_animation:d,effect_animation:d,around_animation:d,center_icon:d}})}}
+    return{_:"availableReaction",pFlags:{},reaction:p[0],title:p[0],static_icon:d,appear_animation:d,select_animation:d,activate_animation:d,effect_animation:d}})}}
 function __mxRxTop(){return{_:"messages.reactions",hash:1,reactions:__mxRX.slice(0,8).map(function(p){return{_:"reactionEmoji",emoticon:p[0]}})}}
+__mx.rxCanon={};__mxRX.forEach(function(p){__mx.rxCanon[p[0].replace(/\uFE0F/g,"")]=p[0]});
+function __mxRxCanon(e){return e?(__mx.rxCanon[String(e).replace(/\uFE0F/g,"")]||null):null}
 function __mxBuildReactions(counters,mine){
-  return{_:"messageReactions",pFlags:{},recent_reactions:[],results:(counters||[]).filter(function(c){return c&&c.reaction&&c.count>0}).map(function(c){
-    var r={_:"reactionCount",pFlags:{},reaction:{_:"reactionEmoji",emoticon:c.reaction},count:c.count};if(mine&&mine===c.reaction)r.chosen_order=0;return r})}}
+  var cm=__mxRxCanon(mine),seen={},res=[];
+  (counters||[]).forEach(function(c){var k=c&&c.count>0?__mxRxCanon(c.reaction):null;
+    if(!k){if(c&&c.reaction&&(__mx.rxU=(__mx.rxU||0)+1)<=5)__mxLog("reaction unknown",c.reaction);return}
+    if(seen[k]){seen[k].count+=c.count;return}
+    var r={_:"reactionCount",pFlags:{},reaction:{_:"reactionEmoji",emoticon:k},count:c.count};if(cm&&cm===k)r.chosen_order=0;seen[k]=r;res.push(r)});
+  return{_:"messageReactions",pFlags:{},recent_reactions:[],results:res}}
 function __mxReactions(key,o,m){
   if(m._syn)return;
   var ri=m.reactionInfo,cs=ri&&Array.isArray(ri.counters)?ri.counters.map(function(c){return{reaction:c.reaction,count:c.count||0}}):[];
   __mx.rx[o.id]={counters:cs,mine:(ri&&ri.yourReaction)||null};
-  if(cs.length)o.reactions=__mxBuildReactions(cs,ri.yourReaction)}
+  var br=__mxBuildReactions(cs,ri&&ri.yourReaction);if(br.results.length)o.reactions=br}
 function __mxPeerOfKey(key){return key[0]==="u"?{_:"peerUser",user_id:Number(key.slice(1))}:{_:"peerChat",chat_id:Number(key.slice(1))}}
 function __mxRxUpdate(key,tgId){var s=__mx.rx[tgId]||{counters:[],mine:null};
   return{_:"updateMessageReactions",peer:__mxPeerOfKey(key),msg_id:tgId,reactions:__mxBuildReactions(s.counters,s.mine)}}
@@ -774,7 +780,7 @@ __mxM["messages.sendReaction"]=async function(e){
       cid=key&&__mx.keyChat[key],mid=__mx.maxIdOf[e.msg_id];
   if(cid==null||mid==null)throw{code:400,type:"MESSAGE_ID_INVALID",handled:!0,method:"messages.sendReaction"};
   var em=e.reaction&&e.reaction[0]&&e.reaction[0].emoticon||null,s=__mx.rx[e.msg_id]||(__mx.rx[e.msg_id]={counters:[],mine:null});
-  function bump(x,d){var i=s.counters.findIndex(function(c){return c.reaction===x});
+  function bump(x,d){var i=s.counters.findIndex(function(c){return __mxRxCanon(c.reaction)===__mxRxCanon(x)});
     if(i>=0){s.counters[i].count=Math.max(0,(s.counters[i].count||0)+d);if(s.counters[i].count<=0)s.counters.splice(i,1)}else if(d>0)s.counters.push({reaction:x,count:1})}
   if(s.mine)bump(s.mine,-1);
   if(em){bump(em,1);s.mine=em}else s.mine=null;
@@ -795,6 +801,59 @@ __mxM["messages.getAvailableReactions"]=__mxAvailReactions;
  ["messages.getMessagesReactions",function(){return{_:"updates",updates:[],users:[],chats:[],date:0,seq:0}}],
  ["messages.getUnreadReactions",function(){return{_:"messages.messages",messages:[],chats:[],users:[]}}],
  ["messages.readReactions",function(){return{_:"messages.affectedHistory",pts:0,pts_count:0,offset:0}}]
+].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});
+
+/* ==== истории MAX: 208 (лента), 210 (содержимое авторов), 214 (прочитано) ==== */
+__mx.stories={owners:{},p:null,t:0};
+function __mxStoryMedia(ownerId,s){
+  var m=s.media||{},date=Math.floor((s.time||Date.now())/1e3),id=__mxH("story:"+ownerId+":"+s.id);
+  if(m._type==="VIDEO"){
+    var vu=m.mp4Url||m.videoUrl||m.baseUrl||m.url;if(!vu)return null;
+    __mx.media[id]={kind:"VIDEO",chatId:0,msgId:"0",msgTime:0,idx:0,attach:{},url:vu,direct:vu,size:0};
+    return __mxDocMedia(id,date,"video/mp4",0,[{_:"documentAttributeVideo",pFlags:{},duration:Math.round((m.duration||0)/1e3)||5,w:m.width||720,h:m.height||1280},{_:"documentAttributeFilename",file_name:"story.mp4"}])}
+  var u=m.photoUrl||m.baseUrl||m.url;if(!u)return null;
+  __mx.media[id]={kind:"PHOTO",chatId:0,msgId:"0",msgTime:0,idx:0,attach:{},url:u,size:0};
+  return{_:"messageMediaPhoto",pFlags:{},photo:{_:"photo",pFlags:{},id:id,access_hash:"1",file_reference:[],date:date,sizes:[{_:"photoSize",type:"x",w:m.width||720,h:m.height||1280,size:0}],dc_id:2}}}
+function __mxStoryItems(oid){var o=__mx.stories.owners[oid];
+  return(o?o.list:[]).map(function(s){return{_:"storyItem",pFlags:{},id:s.tg,date:s.date,expire_date:s.date+86400,media:s.media,entities:[],privacy:[]}})}
+function __mxStoriesLoad(force){
+  var S=__mx.stories;if(S.p&&!force&&Date.now()-S.t<12e4)return S.p;
+  S.p=(async function(){
+    await __mxSync();
+    var feed=await __mxCall(208,{cursor:"",count:30}),pv=(feed&&feed.storiesPreviews)||[],owners=[];
+    pv.forEach(function(p){var o=p&&p.owner;if(o&&o.ownerId&&(o.type==null||o.type===0))owners.push({ownerId:o.ownerId,read:p.readCount||0})});
+    var next={};
+    if(owners.length){
+      var r=await __mxCall(210,{owners:owners.map(function(o){return{ownerId:o.ownerId,type:0}})});
+      ((r&&r.peerStories)||[]).forEach(function(ps){var oid=ps&&ps.owner&&ps.owner.ownerId;if(!oid)return;
+        var meta=owners.find(function(x){return String(x.ownerId)===String(oid)})||{read:0},list=[];
+        (ps.stories||[]).forEach(function(s,i){var md=__mxStoryMedia(oid,s);if(md)list.push({tg:list.length+1,mid:s.id,date:Math.floor((s.time||0)/1e3)||Math.floor(Date.now()/1e3),media:md})});
+        next[oid]={list:list,read:meta.read||0,owner:ps.owner}})}
+    S.owners=next;S.t=Date.now();__mxLog("stories: авторов",Object.keys(next).length);return S})();
+  S.p.catch(function(){S.p=null});return S.p}
+function __mxStoryOwner(tg){return tg===100?__mx.self:tg}
+__mxM["stories.getAllStories"]=async function(){
+  var S;try{S=await __mxStoriesLoad(false)}catch(er){__mxLog("stories feed failed",er);S={owners:{}}}
+  var ps=[],us=[];
+  Object.keys(S.owners).forEach(function(oid){var o=S.owners[oid];if(!o.list.length)return;var u=__mxUser(oid);us.push(u);
+    ps.push({_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:u.id},max_read_id:o.read,stories:__mxStoryItems(oid)})});
+  return{_:"stories.allStories",pFlags:{},count:ps.length,state:String(S.t||1),peer_stories:ps,chats:[],users:us,stealth_mode:{_:"storiesStealthMode",pFlags:{}}}};
+__mxM["stories.getPeerStories"]=async function(e){
+  var oid=__mxStoryOwner(e.peer&&e.peer.user_id);
+  try{await __mxStoriesLoad(false)}catch(er){}
+  var o=__mx.stories.owners[oid],u=__mxUser(oid);
+  return{_:"stories.peerStories",stories:{_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:u.id},max_read_id:o?o.read:0,stories:o?__mxStoryItems(oid):[]},chats:[],users:[u]}};
+__mxM["stories.getStoriesByID"]=async function(e){
+  var oid=__mxStoryOwner(e.peer&&e.peer.user_id);try{await __mxStoriesLoad(false)}catch(er){}
+  var ids=e.id||[],it=__mxStoryItems(oid).filter(function(s){return ids.indexOf(s.id)>=0});
+  return{_:"stories.stories",pFlags:{},count:it.length,stories:it,chats:[],users:[__mxUser(oid)]}};
+__mxM["stories.readStories"]=async function(e){
+  var oid=__mxStoryOwner(e.peer&&e.peer.user_id),o=__mx.stories.owners[oid];
+  if(o){o.list.forEach(function(s,i){if(s.tg<=e.max_id&&s.tg>o.read)__mxCall(214,{owner:{ownerId:oid,type:0},storyId:s.mid}).catch(function(er){__mxLog("story read failed",er)})});
+    o.read=Math.max(o.read,e.max_id||0)}
+  return[e.max_id]};
+[["stories.incrementStoryViews",function(){return!0}],
+ ["stories.getStoriesViews",function(){return{_:"stories.storyViews",views:[],users:[]}}]
 ].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});
 /* ==== конец ext3 ==== */
 

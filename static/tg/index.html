@@ -18,6 +18,7 @@
                 jobs.push(fetch('./' + f + q, { cache: 'reload' }).catch(function () { }));
                 jobs.push(fetch('./' + f, { cache: 'reload' }).catch(function () { }));
             });
+            try { if (navigator.serviceWorker) navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); }); } catch (e) { }
             Promise.all(jobs).then(function () { location.reload(); });
         })();
     </script>

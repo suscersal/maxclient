@@ -594,6 +594,21 @@ class MainActivity : AppCompatActivity() {
                 // молча смотреть на спиннер вечно, а показываем сообщение.
                 if (up) {
                     findViewById<TextView>(R.id.loadingStatus).visibility = View.VISIBLE
+                    // Имена файлов tg-интерфейса не меняются при правках (хэш прежний), и WebView держал старые копии
+                    // воркеров/чанков. Один раз на каждую новую версию APK или содержимого hotpatch сбрасываем HTTP-кеш.
+                    try {
+                        @Suppress("DEPRECATION")
+                        val vc = packageManager.getPackageInfo(packageName, 0).versionCode
+                        val hp = OtaUpdater.hotpatchDir(this)
+                        var stamp = 0L
+                        if (hp.exists()) hp.walkTopDown().filter { it.isFile }.forEach { stamp += it.length() + it.lastModified() / 1000 }
+                        val cacheKey = "$vc:$stamp"
+                        val cachePrefs = getSharedPreferences("mx_webcache", MODE_PRIVATE)
+                        if (cachePrefs.getString("key", "") != cacheKey) {
+                            webView.clearCache(true)
+                            cachePrefs.edit().putString("key", cacheKey).apply()
+                        }
+                    } catch (e: Exception) { /* кеш — не критично */ }
                     webView.loadUrl("http://127.0.0.1:$port/")
                 } else {
                     findViewById<TextView>(R.id.loadingStatus).text =
