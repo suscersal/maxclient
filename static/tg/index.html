@@ -12,14 +12,17 @@
                 if (localStorage.getItem(K) === boot.build) return;
                 localStorage.setItem(K, boot.build);
             } catch (e) { return; }
-            var q = '?__tweb_threaded_worker_protocol=4';
+            // Service worker Web K отдаёт .js/.css/.json из кеша «cachedAssets» первым делом (cache-first) и сбрасывает его
+            // только при смене собственного файла — поэтому правки чанков не доходили ни в браузере, ни в APK.
+            // Чистим этот кеш напрямую и просим SW обновиться, затем перезагружаем страницу.
             var jobs = [];
-            (boot.files || []).forEach(function (f) {
-                jobs.push(fetch('./' + f + q, { cache: 'reload' }).catch(function () { }));
-                jobs.push(fetch('./' + f, { cache: 'reload' }).catch(function () { }));
-            });
-            try { if (navigator.serviceWorker) navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); }); } catch (e) { }
-            Promise.all(jobs).then(function () { location.reload(); });
+            try { if (window.caches) jobs.push(caches.delete('cachedAssets')); } catch (e) { }
+            try {
+                if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                    return Promise.all(rs.map(function (r) { return r.update().catch(function () { }); }));
+                }));
+            } catch (e) { }
+            Promise.all(jobs.map(function (p) { return Promise.resolve(p).catch(function () { }); })).then(function () { location.reload(); });
         })();
     </script>
     <meta charset="utf-8" />

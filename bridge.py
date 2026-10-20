@@ -3116,7 +3116,7 @@ def _tg_boot_info():
     names = set()
     for d in dirs:
         try:
-            names.update(n for n in os.listdir(d) if (n.startswith(("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-"))) and n.endswith(".js"))
+            names.update(n for n in os.listdir(d) if (n.startswith(("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-", "sw-"))) and n.endswith(".js"))
         except OSError:
             pass
     h = hashlib.md5()
