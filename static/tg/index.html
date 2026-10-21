@@ -153,7 +153,16 @@
     box.querySelector('button').onclick = close; window.addEventListener('message', onMsg);
     document.body.appendChild(box);
   }
+  function b64u(x) { return btoa(unescape(encodeURIComponent(x))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function joinByLink() {
+    var l = window.prompt('Ссылка-приглашение MAX (группа или канал)', '');
+    l = l && l.trim();
+    if (!l) return;
+    // родной попап приглашения Web K: messages.checkChatInvite → «Вступить»
+    location.hash = '#?tgaddr=' + encodeURIComponent('tg://join?invite=' + b64u(l));
+  }
   window.__mxOpen = function (id, title) {
+    if (id === 'joinLink') { joinByLink(); return; }
     if (id === 'switchClassic') {
       var a = new URLSearchParams(location.search).get('account');
       location.href = '/?setui=classic' + (a ? '&account=' + encodeURIComponent(a) : '');
@@ -161,6 +170,20 @@
     }
     openOld(id, title);
   };
+  // Разово чистим в кеше файлов пустые аватарки: раньше шим отдавал пустой «успех», и Web K сохранял его навсегда.
+  (function () {
+    try {
+      if (localStorage.getItem('mx_avfix') === '1' || !window.caches) return;
+      caches.open('cachedFiles').then(function (c) {
+        return c.keys().then(function (rs) {
+          return Promise.all(rs.filter(function (r) { return /peerPhoto_/.test(r.url); }).map(function (r) {
+            return c.match(r).then(function (res) { return res ? res.clone().blob() : null; })
+              .then(function (b) { if (b && b.size < 64) return c.delete(r); });
+          }));
+        });
+      }).then(function () { localStorage.setItem('mx_avfix', '1'); }).catch(function () { });
+    } catch (e) { }
+  })();
   // «Мои истории» в боковом меню не нужны — убираем, как и раньше.
   function patch(menu) {
     if (menu.hasAttribute('data-mx')) return;

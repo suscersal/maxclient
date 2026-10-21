@@ -160,10 +160,14 @@ function __mxDecorate(r){
 async function __mxGetFile(a){
   var loc=a&&a.location,pid=loc&&loc.photo_id!=null?String(loc.photo_id):null,url=pid&&__mx.photoUrl[pid];
   var empty={_:"upload.file",type:{_:"storage.fileJpeg"},mtime:0,bytes:new Uint8Array(0)};
-  if(!url||(a.offset||0)>0)return empty;
+  if((a.offset||0)>0||!pid)return empty;
+  if(!url){try{await __mxSync()}catch(e){}url=__mx.photoUrl[pid]}
+  if(!url){__mxLog("avatar: нет URL, не кешируем",pid);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
   var res=await fetch("/img?url="+encodeURIComponent(url));
   if(!res.ok){__mxLog("avatar http",res.status);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
-  return{_:"upload.file",type:{_:"storage.fileJpeg"},mtime:0,bytes:new Uint8Array(await res.arrayBuffer())}}
+  var buf=new Uint8Array(await res.arrayBuffer());
+  if(!buf.length){__mxLog("avatar: пустой ответ",pid);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
+  return{_:"upload.file",type:{_:"storage.fileJpeg"},mtime:0,bytes:buf}}
 /* «Выйти» в Web K выходит и из MAX-аккаунта (иначе при перезагрузке заглушка залогинила бы заново). */
 async function __mxLogout(){
   try{await fetch("/api/logout"+__mxAccQ,{method:"POST"})}catch(e){}
