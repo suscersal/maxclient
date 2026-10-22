@@ -5490,8 +5490,22 @@ def _relay_impl(ws):
 
             if opcode is not None:
                 if _fetch_once_active.is_set():
-                    logger.debug(f"[relay] Skipped opcode={opcode} (fetch_once active)")
-                    continue
+                    # Раньше опкод молча выбрасывался (без _seqAck) — фронт ловил
+                    # "no ack"/timeout, например на sync (opcode 19) при старте.
+                    # Теперь ждём окончания fetch_once (до 10 с), продолжая
+                    # отдавать накопившиеся пакеты, и только потом шлём.
+                    _w0 = time.time()
+                    while _fetch_once_active.is_set() and time.time() - _w0 < 10:
+                        try:
+                            while True:
+                                ws.send(json.dumps(stringify_big_ints(out_queue.get_nowait())))
+                        except queue.Empty:
+                            pass
+                        time.sleep(0.05)
+                    if _fetch_once_active.is_set():
+                        logger.warning(f"[relay] Skipped opcode={opcode} (fetch_once active >10s)")
+                        continue
+                    logger.info(f"[relay] opcode={opcode} задержан на {time.time() - _w0:.1f}с (fetch_once)")
                 client.send(opcode, payload)
                 # Подтверждаем фронту, каким seq ушёл именно ЭТОТ запрос —
                 # у ответа сервера (chatHistory/opcode 49 и т.п.) в payload

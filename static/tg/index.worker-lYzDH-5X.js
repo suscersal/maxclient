@@ -59,16 +59,19 @@ function __mxCall(op,payload){
     /* приоритеты: 0 — отправка (op 64), 1 — обычные (история, истории-сторис, счётчики), 2 — фоновые (стикеры 26/27/28/29/259).
        Раньше пачка последовательных запросов стикеров стояла в FIFO перед загрузкой истории чата и лент историй. */
     var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259?2:1);
-    var job={op:op,payload:payload,res:res,rej:rej,p:pr},q=__mx.qs||(__mx.qs=[]),i=0;
+    var job={op:op,payload:payload,res:res,rej:rej,p:pr,t:Date.now()},q=__mx.qs||(__mx.qs=[]),i=0;if(pr<2)__mx.lastNormal=Date.now();
     while(i<q.length&&q[i].p<=pr)i++;q.splice(i,0,job);
     __mxPump()})}
 function __mxPump(){
-  if(__mx.busy)return;var job=(__mx.qs||[]).shift();if(!job)return;__mx.busy=true;
-  var done=function(){__mx.busy=false;__mxPump()};
+  if(__mx.busy)return;var q0=__mx.qs||[];if(!q0.length)return;
+  /* фоновые (стикеры) стартуют только когда обычные запросы не шли последние 2 с: нельзя прервать уже идущий большой ответ */
+  if(q0[0].p===2&&Date.now()-(__mx.lastNormal||0)<2000){if(!__mx.defer){__mx.defer=setTimeout(function(){__mx.defer=0;__mxPump()},300)}return}
+  var job=q0.shift();__mx.busy=true;var t1=Date.now();
+  var done=function(){__mx.busy=false;if(job.p<2)__mx.lastNormal=Date.now();var tw=t1-job.t,tt=Date.now()-t1;if(tw>1000||tt>2000)__mxLog("call op",job.op,"ждал",tw,"мс, выполнялся",tt,"мс, в очереди",(__mx.qs||[]).length);__mxPump()};
   __mxConnect().then(function(){return new Promise(function(res,rej){
-    var w={op:job.op,seq:null,go:function(seq){__mx.pend.set(seq,{res:res,rej:rej});setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},20000)}};
+    var w={op:job.op,seq:null,go:function(seq){__mx.pend.set(seq,{res:res,rej:rej});setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},job.op===19?60000:20000)}};
     __mx.waitAck=w;__mx.ws.send(JSON.stringify({opcode:job.op,payload:job.payload}));
-    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},8000)})}).then(function(v){job.res(v);done()},function(e){job.rej(e);done()})}
+    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?30000:8000)})}).then(function(v){job.res(v);done()},function(e){job.rej(e);done()})}
 function __mxAddMsgs(key,msgs){
   var list=msgs.slice().sort(function(a,b){return(a.time||0)-(b.time||0)}),made=[];
   var seen=__mx.seen[key]||(__mx.seen[key]={}),lim=__mx.lim[key];
@@ -579,7 +582,7 @@ function __mxStickersLoad(){
       var q=await __mxCall(26,{sectionId:"NEW_STICKER_SETS",from:marker,count:100}),l=(q&&q.stickerSets)||[];
       if(!l.length)break;ids.push.apply(ids,l);marker=q&&typeof q.marker==="number"?q.marker:0}
     var uniq=[];fav.concat(ids).forEach(function(i){if(uniq.indexOf(i)<0)uniq.push(i)});
-    var ch=__mxChunk(uniq,100);
+    var ch=__mxChunk(uniq,20);
     for(var c=0;c<ch.length;c++){
       var r=await __mxCall(28,{type:"STICKER_SET",ids:ch[c]});
       ((r&&r.stickerSets)||[]).forEach(__mxAddSetMeta)}
@@ -750,7 +753,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-16-r3")}catch(e){}
+try{__mxLog("worker build 2026-10-22-r4")}catch(e){}
 
 /* ==== реакции MAX: список (st.max.ru), счётчики на сообщениях, отправка 178/179, пуш 155 ==== */
 var __mxRX=[["👍","https://st.max.ru/emojis/1F44D_48.webp"],["🇷🇺","https://st.max.ru/emojis/1F1F7-1F1FA_48.webp"],["❤️","https://st.max.ru/emojis/2764_48.webp"],["😂","https://st.max.ru/emojis/1F602_48.webp"],["😮","https://st.max.ru/emojis/1F62E_48.webp"],["😢","https://st.max.ru/emojis/1F622_48.webp"],["🙏","https://st.max.ru/emojis/1F64F_48.webp"],["🔥","https://st.max.ru/emojis/1F525_48.webp"],["👏","https://st.max.ru/emojis/1F44F_48.webp"],["👎","https://st.max.ru/emojis/1F44E_48.webp"],["😱","https://st.max.ru/emojis/1F631_48.webp"],["🤢","https://st.max.ru/emojis/1F922_48.webp"],["💔","https://st.max.ru/emojis/1F494_48.webp"],["🤩","https://st.max.ru/emojis/1F929_48.webp"],["💀","https://st.max.ru/emojis/1F480_48.webp"],["🤟","https://st.max.ru/emojis/1F91F_48.webp"],["🤡","https://st.max.ru/emojis/1F921_48.webp"],["😎","https://st.max.ru/emojis/1F60E_48.webp"],["🤨","https://st.max.ru/emojis/1F928_48.webp"],["😐","https://st.max.ru/emojis/1F610_48.webp"],["🤪","https://st.max.ru/emojis/1F92A_48.webp"],["😀","https://st.max.ru/emojis/1F600_48.webp"],["🤤","https://st.max.ru/emojis/1F924_48.webp"],["😇","https://st.max.ru/emojis/1F607_48.webp"],["😘","https://st.max.ru/emojis/1F618_48.webp"],["🥰","https://st.max.ru/emojis/1F970_48.webp"],["🥳","https://st.max.ru/emojis/1F973_48.webp"],["🌚","https://st.max.ru/emojis/1F31A_48.webp"],["🌝","https://st.max.ru/emojis/1F31D_48.webp"],["😴","https://st.max.ru/emojis/1F634_48.webp"],["😈","https://st.max.ru/emojis/1F608_48.webp"],["🤬","https://st.max.ru/emojis/1F92C_48.webp"],["😏","https://st.max.ru/emojis/1F60F_48.webp"],["🤔","https://st.max.ru/emojis/1F914_48.webp"],["🫣","https://st.max.ru/emojis/1FAE3_48.webp"],["😳","https://st.max.ru/emojis/1F633_48.webp"],["😔","https://st.max.ru/emojis/1F614_48.webp"],["🥲","https://st.max.ru/emojis/1F972_48.webp"],["🐱","https://st.max.ru/emojis/1F431_48.webp"],["🐶","https://st.max.ru/emojis/1F436_48.webp"],["💪","https://st.max.ru/emojis/1F4AA_48.webp"],["🤞","https://st.max.ru/emojis/1F91E_48.webp"],["👋","https://st.max.ru/emojis/1F44B_48.webp"],["🤝","https://st.max.ru/emojis/1F91D_48.webp"],["💋","https://st.max.ru/emojis/1F48B_48.webp"],["👑","https://st.max.ru/emojis/1F451_48.webp"],["🍷","https://st.max.ru/emojis/1F377_48.webp"],["🍑","https://st.max.ru/emojis/1F351_48.webp"],["✨","https://st.max.ru/emojis/2728_48.webp"]];
@@ -840,7 +843,10 @@ function __mxStoriesLoad(force){
   S.p.catch(function(){S.p=null});return S.p}
 function __mxStoryOwner(tg){return tg===100?__mx.self:tg}
 __mxM["stories.getAllStories"]=async function(){
-  var S;try{S=await __mxStoriesLoad(false)}catch(er){__mxLog("stories feed failed",er);S={owners:{}}}
+  var S=null,att=0;
+  /* sync мог упасть по таймауту (холодный старт) — Web K запрашивает ленту один раз, поэтому повторяем сами */
+  while(!S&&att<5){try{S=await __mxStoriesLoad(att>0)}catch(er){__mxLog("stories feed failed",att,er);att++;if(att<5)await new Promise(function(r){setTimeout(r,2000)})}}
+  if(!S)S={owners:{}};
   var ps=[],us=[];
   Object.keys(S.owners).forEach(function(oid){var o=S.owners[oid];if(!o.list.length)return;var u=__mxUser(oid);us.push(u);
     ps.push({_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:u.id},max_read_id:o.read,stories:__mxStoryItems(oid)})});
