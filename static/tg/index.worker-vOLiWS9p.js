@@ -40,8 +40,11 @@ function __mxCall(op,payload){
   /* Очередь вызовов в MAX строго последовательная (ответ ждём по порядку), но отправка сообщения (op 64) идёт вне очереди:
      раньше она стояла позади загрузки истории/аватарок/счётчиков, а зависший вызов блокировал очередь до 8 с. */
   return new Promise(function(res,rej){
-    var job={op:op,payload:payload,res:res,rej:rej,p:op===64},q=__mx.qs||(__mx.qs=[]),i=0;
-    if(job.p){while(i<q.length&&q[i].p)i++;q.splice(i,0,job)}else q.push(job);
+    /* приоритеты: 0 — отправка (op 64), 1 — обычные (история, истории-сторис, счётчики), 2 — фоновые (стикеры 26/27/28/29/259).
+       Раньше пачка последовательных запросов стикеров стояла в FIFO перед загрузкой истории чата и лент историй. */
+    var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259?2:1);
+    var job={op:op,payload:payload,res:res,rej:rej,p:pr},q=__mx.qs||(__mx.qs=[]),i=0;
+    while(i<q.length&&q[i].p<=pr)i++;q.splice(i,0,job);
     __mxPump()})}
 function __mxPump(){
   if(__mx.busy)return;var job=(__mx.qs||[]).shift();if(!job)return;__mx.busy=true;
