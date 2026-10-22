@@ -3130,6 +3130,12 @@ def _tg_boot_info():
     return {"build": h.hexdigest()[:10], "files": sorted(names)}
 
 
+_EMPTY_TGS = ('{"tgs":1,"v":"5.5.2","fr":60,"ip":0,"op":2,"w":512,"h":512,"nm":"empty","ddd":0,"assets":[],'
+              '"layers":[{"ddd":0,"ind":1,"ty":4,"nm":"s","sr":1,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},'
+              '"p":{"a":0,"k":[256,256,0]},"a":{"a":0,"k":[0,0,0]},"s":{"a":0,"k":[100,100,100]}},"ao":0,'
+              '"shapes":[],"ip":0,"op":2,"st":0,"bm":0}]}')
+
+
 def _tg_nocache(resp, rel):
     """У index.html и index.worker-*.js имя файла не меняется при правках (хэш прежний),
     поэтому браузер держал устаревшую копию. no-cache = всегда сверять по ETag (304, если не менялось)."""
@@ -3150,6 +3156,10 @@ def static_files(filename):
             ov = safe_join(TG_OVERLAY_DIR, rel)
             if ov and os.path.isfile(ov):
                 return _tg_nocache(send_from_directory(TG_OVERLAY_DIR, rel), rel)
+        if rel.startswith("assets/tgs/") and rel.endswith(".json") and not os.path.isfile(os.path.join(TG_DIR, rel)):
+            # В репозитории нет части анимаций Web K (напр. Folders_1.json): HTML-404 ломал tlottie и открытие вкладки.
+            # Отдаём пустую, но валидную Lottie-анимацию.
+            return Response(_EMPTY_TGS, mimetype="application/json")
         return _tg_nocache(send_from_directory(TG_DIR, rel), rel)
     return send_from_directory(STATIC_DIR, filename)
 

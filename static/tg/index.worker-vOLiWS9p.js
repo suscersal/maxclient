@@ -683,9 +683,9 @@ function __mxKeyboard(key,o,m){
     bs.forEach(function(b,bi){
       var t=String(b.type||"callback").toUpperCase(),text=String(b.text||b.label||"…");
       sr.push(b);
-      if(t==="LINK"&&b.url)out.push({_:"keyboardButtonUrl",text:text,url:String(b.url)});
-      else out.push({_:"keyboardButtonCallback",pFlags:{},text:text,data:new Uint8Array([ri,bi])})});
-    tgRows.push({_:"keyboardButtonRow",buttons:out});store.push(sr)});
+      if(t==="LINK"&&b.url)out.push({_:"keyboardInlineButton",pFlags:{},text:text,type:{_:"inlineButtonTypeUrl",url:String(b.url)}});
+      else out.push({_:"keyboardInlineButton",pFlags:{},text:text,type:{_:"inlineButtonTypeCallback",pFlags:{},data:new Uint8Array([ri,bi])}})});
+    tgRows.push({_:"keyboardInlineButtonRow",buttons:out});store.push(sr)});
   o.reply_markup={_:"replyInlineMarkup",pFlags:{},rows:tgRows};
   __mx.kb[o.id]={rows:store,callbackId:a.callbackId||a.callback_id||null,chatId:__mx.keyChat[key]}}
 async function __mxBotCallback(e){
@@ -842,6 +842,10 @@ __mxM["stories.readStories"]=async function(e){
   return[e.max_id]};
 [["stories.incrementStoryViews",function(){return!0}],
  ["stories.getStoriesViews",function(){return{_:"stories.storyViews",views:[],users:[]}}]
+].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});
+
+[["account.getWebAuthorizations",function(){return{_:"account.webAuthorizations",authorizations:[],users:[]}}],
+ ["account.getConnectedBots",function(){return{_:"account.connectedBots",connected_bots:[],users:[]}}]
 ].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});
 /* ==== конец ext3 ==== */
 

@@ -3,6 +3,25 @@
   <head>
     <script>
         (function () {
+            // Источник правды — шим: id сообщений в нём назначаются заново в каждом сеансе, поэтому сохранённые Web K
+            // диалоги/сообщения/чаты/пользователи после перезапуска указывают не на те сообщения. Чистим их до старта Web K
+            // (запрос в очереди раньше, чем open() самого Web K, поэтому гонки нет). Настройки и сеанс (session) не трогаем.
+            try {
+                var rq = indexedDB.open('tweb-account-1');
+                rq.onupgradeneeded = function (e) { try { e.target.transaction.abort(); } catch (x) { } }; // базы нет — не создаём
+                rq.onsuccess = function () {
+                    var db = rq.result;
+                    var names = [].slice.call(db.objectStoreNames).filter(function (n) { return /^(users|chats|dialogs|messages|stickerSets)(__encrypted)?$/.test(n); });
+                    if (!names.length) { db.close(); return; }
+                    var tx = db.transaction(names, 'readwrite');
+                    names.forEach(function (n) { tx.objectStore(n).clear(); });
+                    tx.oncomplete = tx.onerror = tx.onabort = function () { db.close(); };
+                };
+            } catch (e) { }
+        })();
+    </script>
+    <script>
+        (function () {
             // Имена воркеров/чанков не меняются при правках (хэш прежний), и Chrome держит старую копию.
             // bridge подставляет build; при его смене один раз перекачиваем воркеры с cache:'reload' и перезагружаем.
             var boot = /*TG_BOOT*/null;
@@ -153,6 +172,29 @@
     box.querySelector('button').onclick = close; window.addEventListener('message', onMsg);
     document.body.appendChild(box);
   }
+  var MORE = [['bots', 'Кастомные боты'], ['scamCheck', 'Скам-проверка (ИИ)'], ['gifPreview', 'Просмотреть GIF'], ['vars', 'Переменные'],
+              ['debugDump', 'Дебаг-дамп'], ['device', 'Устройство (протокол)'], ['about', 'О приложении'], ['switchClassic', 'Классический интерфейс']];
+  function showMore() {
+    var box = document.createElement('div');
+    box.id = 'mx-more';
+    box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
+    var card = document.createElement('div');
+    card.style.cssText = 'width:100%;max-width:480px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);border-radius:16px 16px 0 0;padding:8px 0 16px;max-height:80vh;overflow:auto;font:16px sans-serif';
+    var head = document.createElement('div');
+    head.textContent = 'Дополнительно';
+    head.style.cssText = 'padding:12px 20px;font-weight:500;font-size:18px';
+    card.appendChild(head);
+    MORE.forEach(function (it) {
+      var r = document.createElement('div');
+      r.textContent = it[1];
+      r.style.cssText = 'padding:14px 20px;cursor:pointer';
+      r.onclick = function () { box.remove(); window.__mxOpen(it[0], it[1]); };
+      card.appendChild(r);
+    });
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    box.appendChild(card);
+    document.body.appendChild(box);
+  }
   function b64u(x) { return btoa(unescape(encodeURIComponent(x))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
   function joinByLink() {
     var l = window.prompt('Ссылка-приглашение MAX (группа или канал)', '');
@@ -163,6 +205,7 @@
   }
   window.__mxOpen = function (id, title) {
     if (id === 'joinLink') { joinByLink(); return; }
+    if (id === 'more') { showMore(); return; }
     if (id === 'switchClassic') {
       var a = new URLSearchParams(location.search).get('account');
       location.href = '/?setui=classic' + (a ? '&account=' + encodeURIComponent(a) : '');
