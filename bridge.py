@@ -2737,10 +2737,15 @@ class MaxClient:
         return header + body
 
     def send(self, opcode: int, payload: dict):
-        pkt = self.pack(opcode, payload)
+        # seq увеличивается в pack(); раньше это шло ВНЕ лока, а relay читал client.seq
+        # уже после send — при параллельной отправке (ping/push) в _seqAck мог уйти
+        # чужой seq, и фронт ждал ответ с неверным seq до таймаута.
         with self._lock:
+            pkt = self.pack(opcode, payload)
+            seq = self.seq
             self.sock.sendall(pkt)
-        logger.debug(f"Sent: opcode={opcode}, seq={self.seq}")
+        logger.debug(f"Sent: opcode={opcode}, seq={seq}")
+        return seq
 
     def _recv_exact_more(self):
         chunk = self.sock.recv(4096)
@@ -3164,6 +3169,39 @@ def static_files(filename):
     return send_from_directory(STATIC_DIR, filename)
 
 
+# --- Серверный LRU-кэш медиа-прокси (/lottie, /img) ---------------------------------
+# Браузер в инкогнито ничего не кэширует, а Web K ждёт загрузки стикеров (по одному)
+# перед показом сообщений. Повторные запросы того же URL отдаём из памяти.
+_MEDIA_CACHE = collections.OrderedDict()
+_MEDIA_CACHE_BYTES = 0
+_MEDIA_CACHE_MAX = 64 * 1024 * 1024
+_MEDIA_CACHE_ITEM_MAX = 2 * 1024 * 1024
+_media_cache_lock = threading.Lock()
+
+
+def _media_cache_get(kind, url):
+    with _media_cache_lock:
+        hit = _MEDIA_CACHE.get((kind, url))
+        if hit is not None:
+            _MEDIA_CACHE.move_to_end((kind, url))
+        return hit
+
+
+def _media_cache_put(kind, url, content_type, data):
+    global _MEDIA_CACHE_BYTES
+    if not data or len(data) > _MEDIA_CACHE_ITEM_MAX:
+        return
+    with _media_cache_lock:
+        old = _MEDIA_CACHE.pop((kind, url), None)
+        if old is not None:
+            _MEDIA_CACHE_BYTES -= len(old[1])
+        _MEDIA_CACHE[(kind, url)] = (content_type, data)
+        _MEDIA_CACHE_BYTES += len(data)
+        while _MEDIA_CACHE_BYTES > _MEDIA_CACHE_MAX and _MEDIA_CACHE:
+            _, (_, d) = _MEDIA_CACHE.popitem(last=False)
+            _MEDIA_CACHE_BYTES -= len(d)
+
+
 @app.route("/lottie")
 def proxy_lottie():
     """Прокси для Lottie-JSON анимированных стикеров (fd.oneme.ru/getfile?rq=...).
@@ -3180,6 +3218,10 @@ def proxy_lottie():
     if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
         logger.warning(f"[lottie proxy] host not allowed: {host}")
         return "", 400
+
+    _hit = _media_cache_get("lottie", url)
+    if _hit:
+        return Response(_hit[1], content_type=_hit[0], headers={"Cache-Control": "public, max-age=86400"})
 
     try:
         req = urllib.request.Request(
@@ -3214,6 +3256,7 @@ def proxy_lottie():
                     f"[lottie proxy] gzip decompress failed for {url}: {e}")
                 return "", 502
 
+        _media_cache_put("lottie", url, "application/json", data)
         return Response(data, content_type="application/json", headers={"Cache-Control": "public, max-age=86400"})
     except Exception as e:
         logger.warning(f"[lottie proxy] failed for {url}: {e}")
@@ -3236,6 +3279,10 @@ def proxy_image():
     host = urllib.parse.urlparse(url).hostname or ""
     if not any(host == h or host.endswith(f".{h}") for h in allowed_base_domains):
         return "", 400
+
+    _hit = _media_cache_get("img", url)
+    if _hit:
+        return Response(_hit[1], content_type=_hit[0], headers={"Cache-Control": "public, max-age=3600"})
 
     try:
         data = None
@@ -3282,6 +3329,7 @@ def proxy_image():
                 time.sleep(0.4 * (attempt + 1))
         if data is None:
             raise last_err or Exception("unknown error")
+        _media_cache_put("img", url, content_type, data)
         return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=3600"})
     except Exception as e:
         logger.warning(f"[img proxy] failed for {url}: {e}")
@@ -5506,7 +5554,9 @@ def _relay_impl(ws):
                         logger.warning(f"[relay] Skipped opcode={opcode} (fetch_once active >10s)")
                         continue
                     logger.info(f"[relay] opcode={opcode} задержан на {time.time() - _w0:.1f}с (fetch_once)")
-                client.send(opcode, payload)
+                _sent_seq = client.send(opcode, payload)
+                if opcode in (19, 272):
+                    logger.info(f"[relay] -> opcode={opcode} seq={_sent_seq}")
                 # Подтверждаем фронту, каким seq ушёл именно ЭТОТ запрос —
                 # у ответа сервера (chatHistory/opcode 49 и т.п.) в payload
                 # НЕТ chatId, сопоставить с запросом можно только по seq
@@ -5514,7 +5564,7 @@ def _relay_impl(ws):
                 # при быстром переключении между чатами опоздавший ответ на
                 # ПРЕДЫДУЩИЙ чат рендерился в уже открытый следующий — или
                 # наоборот, ответ для нового чата терялся в этой путанице.
-                ws.send(json.dumps({"_seqAck": True, "opcode": opcode, "seq": client.seq}))
+                ws.send(json.dumps({"_seqAck": True, "opcode": opcode, "seq": _sent_seq}))
 
     except Exception as e:
         logger.info(f"Connection closed: {e}")
