@@ -5798,6 +5798,31 @@ def debug_pylog():
     return jsonify({"lines": lines})
 
 
+@app.route("/api/notif-reply", methods=["POST"])
+def notif_reply():
+    """Быстрый ответ из системного уведомления (RemoteInput в FcmService/ReplyReceiver):
+    {chatId, text} -> opcode 64 (отправка сообщения) через одноразовое соединение."""
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text") or "").strip()
+    try:
+        chat_id = int(data.get("chatId"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "bad_chat_id"}), 400
+    if not text:
+        return jsonify({"ok": False, "error": "empty_text"}), 400
+    payload = {"chatId": chat_id,
+               "message": {"text": text, "cid": int(time.time() * 1000)},
+               "notify": True}
+    try:
+        packet = fetch_once(64, payload, 64, timeout=20.0)
+    except Exception as e:
+        logger.warning(f"[notif-reply] failed: {e}")
+        return jsonify({"ok": False, "error": "send_failed"}), 502
+    ok = bool(packet) and packet.get("cmd") != 768
+    logger.info(f"[notif-reply] chat={chat_id} ok={ok}")
+    return jsonify({"ok": ok}), (200 if ok else 502)
+
+
 @app.route("/api/push/register-fcm-token", methods=["POST"])
 def push_register_fcm_token():
     """Принимает настоящий FCM device-токен от Android-приложения

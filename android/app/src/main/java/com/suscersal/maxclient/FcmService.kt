@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONObject
@@ -113,6 +114,60 @@ class FcmService : FirebaseMessagingService() {
 
     companion object {
         private const val NOTIF_CHANNEL_ID = "max_client_messages"
+
+        // Быстрый ответ прямо из уведомления (как в Telegram): RemoteInput -> ReplyReceiver.
+        const val ACTION_REPLY = "com.suscersal.maxclient.ACTION_REPLY"
+        const val KEY_REPLY = "key_text_reply"
+        const val EXTRA_CHAT_ID = "extra_chat_id"
+        const val EXTRA_NOTIF_ID = "extra_notif_id"
+
+        /** Единое место сборки уведомления с сообщениями — им же пользуется ReplyReceiver,
+         * когда после ответа обновляет уже висящее уведомление. */
+        fun buildNotification(
+            context: Context,
+            notifId: Int,
+            chatId: Long,
+            style: NotificationCompat.MessagingStyle,
+            ts: Long,
+            alertOnce: Boolean
+        ): android.app.Notification {
+            val openIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pending = PendingIntent.getActivity(
+                context, notifId, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val remoteInput = RemoteInput.Builder(KEY_REPLY).setLabel("Ответить").build()
+            val replyIntent = Intent(context, ReplyReceiver::class.java).apply {
+                action = ACTION_REPLY
+                putExtra(EXTRA_CHAT_ID, chatId)
+                putExtra(EXTRA_NOTIF_ID, notifId)
+            }
+            // RemoteInput дописывает ответ в Intent — PendingIntent обязан быть MUTABLE (API 31+).
+            val replyFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            val replyPending = PendingIntent.getBroadcast(context, notifId, replyIntent, replyFlags)
+            val replyAction = NotificationCompat.Action.Builder(
+                R.mipmap.ic_launcher, "Ответить", replyPending
+            )
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+                .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                .setShowsUserInterface(false)
+                .build()
+            return NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setAutoCancel(true)
+                .setWhen(ts)
+                .setShowWhen(true)
+                .setContentIntent(pending)
+                .setStyle(style)
+                .addAction(replyAction)
+                .setOnlyAlertOnce(alertOnce)
+                .build()
+        }
     }
 
     override fun onNewToken(token: String) {
@@ -185,22 +240,7 @@ class FcmService : FirebaseMessagingService() {
             Person.Builder().setName(senderName).setKey(senderKey).build()
         )
 
-        val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pending = PendingIntent.getActivity(
-            this, notifId, openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setAutoCancel(true)
-            .setWhen(ts)
-            .setShowWhen(true)
-            .setContentIntent(pending)
-            .setStyle(style)
-            .build()
+        val notification = buildNotification(this, notifId, chatId, style, ts, false)
         manager.notify(notifId, notification)
     }
 }
