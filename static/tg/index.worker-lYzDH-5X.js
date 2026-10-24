@@ -97,7 +97,7 @@ function __mxAddMsgs(key,msgs){
   jd[key]=(jd[key]||[]).concat(fresh).sort(function(a,b){return a.id-b.id});
   return fresh}
 /* первый op 19 иногда остаётся без ответа, а повтор проходит сразу — повторяем сами (до 3 попыток) */
-function __mxRetry19(n){__mx.t19=[8000,15000,40000][n]||40000;__mx.a19=[6000,8000,10000][n]||10000;
+function __mxRetry19(n){__mx.t19=[3000,15000,40000][n]||40000;__mx.a19=[3000,8000,10000][n]||10000;
   return __mxCall(19,{chatsSync:0,contactsSync:0,interactive:true}).catch(function(e){if(n>=2)throw e;__mxLog("sync retry",n+1,e&&e.message,"— новое WS");
     /* зависшее соединение с relay не оживает, а свежее отвечает за секунды (по логам) — переоткрываем */
     var w=__mx.ws;__mx.ready=null;__mx.ws=null;try{w&&w.close()}catch(x){}
@@ -788,10 +788,10 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-23-r10")}catch(e){}
+try{__mxLog("worker build 2026-10-23-r11")}catch(e){}
 
 /* ==== реакции MAX: список (st.max.ru), счётчики на сообщениях, отправка 178/179, пуш 155 ==== */
-var __mxRX=[["👍","https://st.max.ru/emojis/1F44D_48.webp"],["🇷🇺","https://st.max.ru/emojis/1F1F7-1F1FA_48.webp"],["❤️","https://st.max.ru/emojis/2764_48.webp"],["😂","https://st.max.ru/emojis/1F602_48.webp"],["😮","https://st.max.ru/emojis/1F62E_48.webp"],["😢","https://st.max.ru/emojis/1F622_48.webp"],["🙏","https://st.max.ru/emojis/1F64F_48.webp"],["🔥","https://st.max.ru/emojis/1F525_48.webp"],["👏","https://st.max.ru/emojis/1F44F_48.webp"],["👎","https://st.max.ru/emojis/1F44E_48.webp"],["😱","https://st.max.ru/emojis/1F631_48.webp"],["🤢","https://st.max.ru/emojis/1F922_48.webp"],["💔","https://st.max.ru/emojis/1F494_48.webp"],["🤩","https://st.max.ru/emojis/1F929_48.webp"],["💀","https://st.max.ru/emojis/1F480_48.webp"],["🤟","https://st.max.ru/emojis/1F91F_48.webp"],["🤡","https://st.max.ru/emojis/1F921_48.webp"],["😎","https://st.max.ru/emojis/1F60E_48.webp"],["🤨","https://st.max.ru/emojis/1F928_48.webp"],["😐","https://st.max.ru/emojis/1F610_48.webp"],["🤪","https://st.max.ru/emojis/1F92A_48.webp"],["😀","https://st.max.ru/emojis/1F600_48.webp"],["🤤","https://st.max.ru/emojis/1F924_48.webp"],["😇","https://st.max.ru/emojis/1F607_48.webp"],["😘","https://st.max.ru/emojis/1F618_48.webp"],["🥰","https://st.max.ru/emojis/1F970_48.webp"],["🥳","https://st.max.ru/emojis/1F973_48.webp"],["🌚","https://st.max.ru/emojis/1F31A_48.webp"],["🌝","https://st.max.ru/emojis/1F31D_48.webp"],["😴","https://st.max.ru/emojis/1F634_48.webp"],["😈","https://st.max.ru/emojis/1F608_48.webp"],["🤬","https://st.max.ru/emojis/1F92C_48.webp"],["😏","https://st.max.ru/emojis/1F60F_48.webp"],["🤔","https://st.max.ru/emojis/1F914_48.webp"],["🫣","https://st.max.ru/emojis/1FAE3_48.webp"],["😳","https://st.max.ru/emojis/1F633_48.webp"],["😔","https://st.max.ru/emojis/1F614_48.webp"],["🥲","https://st.max.ru/emojis/1F972_48.webp"],["🐱","https://st.max.ru/emojis/1F431_48.webp"],["🐶","https://st.max.ru/emojis/1F436_48.webp"],["💪","https://st.max.ru/emojis/1F4AA_48.webp"],["🤞","https://st.max.ru/emojis/1F91E_48.webp"],["👋","https://st.max.ru/emojis/1F44B_48.webp"],["🤝","https://st.max.ru/emojis/1F91D_48.webp"],["💋","https://st.max.ru/emojis/1F48B_48.webp"],["👑","https://st.max.ru/emojis/1F451_48.webp"],["🍷","https://st.max.ru/emojis/1F377_48.webp"],["🍑","https://st.max.ru/emojis/1F351_48.webp"],["✨","https://st.max.ru/emojis/2728_48.webp"]];
+var __mxRX=[["👍","https://st.max.ru/emojis/1F44D_48.webp"],["🇷🇺","https://st.max.ru/emojis/1F1F7-1F1FA_48.webp"],["❤️","https://st.max.ru/emojis/2764_48.webp"],["😂","https://st.max.ru/emojis/1F602_48.webp"],["😮","https://st.max.ru/emojis/1F62E_48.webp"],["😢","https://st.max.ru/emojis/1F622_48.webp"],["🙏","https://st.max.ru/emojis/1F64F_48.webp"],["🔥","https://st.max.ru/emojis/1F525_48.webp"],["👏","https://st.max.ru/emojis/1F44F_48.webp"],["👎","https://st.max.ru/emojis/1F44E_48.webp"],["😱","https://st.max.ru/emojis/1F631_48.webp"],["🤢","https://st.max.ru/emojis/1F922_48.webp"],["💔","https://st.max.ru/emojis/1F494_48.webp"],["🤩","https://st.max.ru/emojis/1F929_48.webp"],["💀","https://st.max.ru/emojis/1F480_48.webp"],["🤟","https://st.max.ru/emojis/1F91F_48.webp"],["🤡","https://st.max.ru/emojis/1F921_48.webp"],["😎","https://st.max.ru/emojis/1F60E_48.webp"],["🤨","https://st.max.ru/emojis/1F928_48.webp"],["😐","https://st.max.ru/emojis/1F610_48.webp"],["🤪","https://st.max.ru/emojis/1F92A_48.webp"],["😀","https://st.max.ru/emojis/1F600_48.webp"],["🤤","https://st.max.ru/emojis/1F924_48.webp"],["😇","https://st.max.ru/emojis/1F607_48.webp"],["😘","https://st.max.ru/emojis/1F618_48.webp"],["🥰","https://st.max.ru/emojis/1F970_48.webp"],["🥳","https://st.max.ru/emojis/1F973_48.webp"],["🌚","https://st.max.ru/emojis/1F31A_48.webp"],["🌝","https://st.max.ru/emojis/1F31D_48.webp"],["😴","https://st.max.ru/emojis/1F634_48.webp"],["😈","https://st.max.ru/emojis/1F608_48.webp"],["🤬","https://st.max.ru/emojis/1F92C_48.webp"],["😏","https://st.max.ru/emojis/1F60F_48.webp"],["🤔","https://st.max.ru/emojis/1F914_48.webp"],["🫣","https://st.max.ru/emojis/1FAE3_48.webp"],["😳","https://st.max.ru/emojis/1F633_48.webp"],["😔","https://st.max.ru/emojis/1F614_48.webp"],["🥲","https://st.max.ru/emojis/1F972_48.webp"],["🐱","https://st.max.ru/emojis/1F431_48.webp"],["🐶","https://st.max.ru/emojis/1F436_48.webp"],["💪","https://st.max.ru/emojis/1F4AA_48.webp"],["🤞","https://st.max.ru/emojis/1F91E_48.webp"],["👋","https://st.max.ru/emojis/1F44B_48.webp"],["🤝","https://st.max.ru/emojis/1F91D_48.webp"],["💋","https://st.max.ru/emojis/1F48B_48.webp"],["👑","https://st.max.ru/emojis/1F451_48.webp"],["🍷","https://st.max.ru/emojis/1F377_48.webp"],["🍑","https://st.max.ru/emojis/1F351_48.webp"],["✨","https://st.max.ru/emojis/2728_48.webp"],["💩","https://st.max.ru/emojis/1F4A9_48.webp"],["💯","https://st.max.ru/emojis/1F4AF_48.webp"],["👌","https://st.max.ru/emojis/1F44C_48.webp"],["🤯","https://st.max.ru/emojis/1F92F_48.webp"]];
 __mx.rx={};__mx.rxDocs={};
 function __mxRxDoc(emoji,url){
   var id=__mxH("rx:"+emoji);
@@ -802,7 +802,9 @@ function __mxRxDoc(emoji,url){
 function __mxAvailReactions(){
   return{_:"messages.availableReactions",hash:1,reactions:__mxRX.map(function(p){var d=__mxRxDoc(p[0],p[1]);
     return{_:"availableReaction",pFlags:{},reaction:p[0],title:p[0],static_icon:d,appear_animation:d,select_animation:d,activate_animation:d,effect_animation:d}})}}
-function __mxRxTop(){return{_:"messages.reactions",hash:1,reactions:__mxRX.slice(0,8).map(function(p){return{_:"reactionEmoji",emoticon:p[0]}})}}
+/* в личных чатах Web K строит меню из getTopReactions: раньше отдавали только 8 — остальное окно пустое; теперь весь список MAX */
+function __mxRxTop(){return{_:"messages.reactions",hash:1,reactions:__mxRX.map(function(p){return{_:"reactionEmoji",emoticon:p[0]}})}}
+function __mxRxRecent(){return{_:"messages.reactions",hash:1,reactions:__mxRX.slice(0,8).map(function(p){return{_:"reactionEmoji",emoticon:p[0]}})}}
 __mx.rxCanon={};__mxRX.forEach(function(p){__mx.rxCanon[p[0].replace(/\uFE0F/g,"")]=p[0]});
 function __mxRxCanon(e){return e?(__mx.rxCanon[String(e).replace(/\uFE0F/g,"")]||null):null}
 function __mxBuildReactions(counters,mine){
@@ -840,7 +842,7 @@ function __mxReactionPush(pl){
   __mx.rx[tg]={counters:(ri.counters||[]).map(function(c){return{reaction:c.reaction,count:c.count||0}}),mine:ri.yourReaction||null};
   Vd(__mxRxUpdate(key,tg))}
 __mxM["messages.getAvailableReactions"]=__mxAvailReactions;
-[["messages.getTopReactions",__mxRxTop],["messages.getRecentReactions",__mxRxTop],
+[["messages.getTopReactions",__mxRxTop],["messages.getRecentReactions",__mxRxRecent],
  ["messages.getDefaultTagReactions",function(){return{_:"messages.reactions",hash:1,reactions:[]}}],
  ["messages.getSavedReactionTags",function(){return{_:"messages.savedReactionTags",tags:[],hash:1}}],
  ["messages.getMessagesReactions",function(){return{_:"updates",updates:[],users:[],chats:[],date:0,seq:0}}],
