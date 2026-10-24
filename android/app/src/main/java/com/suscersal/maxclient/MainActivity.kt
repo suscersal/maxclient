@@ -52,7 +52,8 @@ class MainActivity : AppCompatActivity() {
         // Итог: после первого холодного запуска новые hot-update'ы
         // скачивались на диск, но никогда не подхватывались, пока
         // приложение не закрывали полностью (не убивали процесс).
-        private var serverStartedInProcess = false
+        @Volatile
+        var serverStartedInProcess = false
 
         private const val NOTIFICATIONS_PERMISSION_REQUEST_CODE = 1001
         private const val CONTACTS_PERMISSION_REQUEST_CODE = 1002
@@ -587,6 +588,8 @@ class MainActivity : AppCompatActivity() {
                     Thread.sleep(200)
                 }
             }
+            // Сервер поднят — досылаем ответы из уведомлений, которые не успели уйти (PendingReplies).
+            if (up) Thread { try { PendingReplies.flush(applicationContext) } catch (_: Exception) {} }.start()
             runOnUiThread {
                 // Это чисто локальная проверка (127.0.0.1) — интернет тут ни
                 // при чём, но на случай, если сервер всё же не поднялся

@@ -6,10 +6,6 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Ответ из уведомления (кнопка «Ответить», RemoteInput). Текст уходит локальному
@@ -30,39 +26,38 @@ class ReplyReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         Thread {
             var ok = false
+            // Запись на диск ДО отправки: если процесс убьют или сети нет — ответ не пропадёт.
+            val id = PendingReplies.add(context, chatId, text)
             try {
-                ok = send(chatId, text)
+                // Процесс мог быть разбужен FCM без MainActivity — тогда Python-сервер ещё не запущен.
+                if (BridgeStarter.ensureStarted(context)) {
+                    ok = PendingReplies.trySend(context, id, chatId, text)
+                    if (!ok) {
+                        Thread.sleep(1000)
+                        // trySend снимает «в работе»; занимаем снова, чтобы flush не отправил дубль параллельно
+                        if (PendingReplies.reserve(id)) {
+                            ok = PendingReplies.trySend(context, id, chatId, text)
+                        }
+                    }
+                } else {
+                    PendingReplies.release(id)
+                }
             } catch (_: Exception) {
+                PendingReplies.release(id)
             } finally {
                 try {
                     refreshNotification(context, notifId, chatId, text, ok)
                 } catch (_: Exception) {
                 }
+                if (ok) {
+                    try {
+                        PendingReplies.flush(context)
+                    } catch (_: Exception) {
+                    }
+                }
                 pendingResult.finish()
             }
         }.start()
-    }
-
-    /** bridge.py мог ещё не подняться (процесс разбужен FCM) — пробуем несколько раз. */
-    private fun send(chatId: Long, text: String): Boolean {
-        repeat(3) { attempt ->
-            try {
-                val conn = URL("http://127.0.0.1:8080/api/notif-reply").openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.connectTimeout = 3000
-                conn.readTimeout = 9000
-                val body = JSONObject().put("chatId", chatId).put("text", text).toString()
-                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
-                val code = conn.responseCode
-                conn.disconnect()
-                if (code == 200) return true
-            } catch (_: Exception) {
-            }
-            if (attempt < 2) Thread.sleep(1000)
-        }
-        return false
     }
 
     private fun refreshNotification(context: Context, notifId: Int, chatId: Long, text: String, ok: Boolean) {
@@ -70,7 +65,7 @@ class ReplyReceiver : BroadcastReceiver() {
         val existing = manager.activeNotifications.firstOrNull { it.id == notifId }?.notification ?: return
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(existing) ?: return
         val now = System.currentTimeMillis()
-        style.addMessage(if (ok) text else "⚠ Не отправлено: $text", now, style.user)
+        style.addMessage(if (ok) text else "⚠ Не отправлено, уйдёт при запуске приложения: $text", now, style.user)
         manager.notify(notifId, FcmService.buildNotification(context, notifId, chatId, style, now, true))
     }
 }
