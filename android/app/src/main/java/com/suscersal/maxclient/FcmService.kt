@@ -206,8 +206,36 @@ class FcmService : FirebaseMessagingService() {
         }
     }
 
+    private fun showHiddenNotification(chatId: Long) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(manager)
+        val notifId = (chatId and 0x7fffffff).toInt()
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            this, notifId, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Новое сообщение")
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        manager.notify(notifId, notification)
+    }
+
     private fun showMessageNotification(data: Map<String, String>) {
         val chatId = data["mc"]?.toLongOrNull() ?: return
+        // Код-пароль включён и «показывать текст» выключено — только «Новое сообщение»,
+        // без имени, текста и кнопки «Ответить».
+        if (AppLock.hideNotificationContent(this)) {
+            showHiddenNotification(chatId)
+            return
+        }
         val senderName = data["userName"] ?: data["title"] ?: "MAX"
         val chatTitle = data["title"] ?: senderName
         val text = data["msg"] ?: data["body"] ?: data["text"] ?: "Новое сообщение"

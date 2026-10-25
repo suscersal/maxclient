@@ -131,6 +131,26 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         AppVisibility.foreground = true
         InteractiveSender.send(true)
+        // Код-пароль: пока приложение заблокировано — содержимое скрыто, поверх открывается LockActivity.
+        if (::webView.isInitialized) {
+            if (AppLock.shouldLock(this)) {
+                webView.visibility = View.INVISIBLE
+                if (!LockActivity.isShowing) {
+                    startActivity(Intent(this, LockActivity::class.java))
+                }
+            } else {
+                AppLock.onForegroundStillUnlocked()
+                webView.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // LockActivity закрылась после успешного ввода — показать содержимое.
+        if (::webView.isInitialized && !AppLock.shouldLock(this)) {
+            webView.visibility = View.VISIBLE
+        }
     }
 
     // Приложение ушло в фон: процесс и соединение с MAX могут жить ещё долго,
@@ -139,6 +159,22 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         AppVisibility.foreground = false
         InteractiveSender.send(false)
+        AppLock.onBackground()
+    }
+
+    /** Долгий тап по иконке приложения -> «Код-пароль» (надёжный путь, не зависит от разметки Web K). */
+    private fun publishAppLockShortcut() {
+        try {
+            val intent = Intent(this, AppLockSettingsActivity::class.java).setAction(Intent.ACTION_VIEW)
+            val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this, "app_lock")
+                .setShortLabel("Код-пароль")
+                .setLongLabel("Код-пароль")
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(intent)
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.setDynamicShortcuts(this, listOf(shortcut))
+        } catch (_: Exception) {
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -183,6 +219,10 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 loadingGif.visibility = View.GONE
                 loadingStatus.visibility = View.GONE
+                // Пункт «Код-пароль» в настройках Web K (best-effort: если разметка другая, ничего не происходит).
+                if (url != null && url.contains("/tg/")) {
+                    view?.evaluateJavascript(AppLockInjector.SCRIPT, null)
+                }
             }
 
             // Всё, что не относится к нашему собственному локальному
@@ -328,6 +368,9 @@ class MainActivity : AppCompatActivity() {
         // DownloadListener, ни MediaStore-записи), поэтому JS показывал
         // "успешно сохранено", хотя по факту файла нигде не было.
         webView.addJavascriptInterface(AndroidDownloadBridge(this), "AndroidDownload")
+        // Мост JS -> нативные настройки «Код-пароль».
+        webView.addJavascriptInterface(AndroidAppLockBridge(this), "AndroidAppLock")
+        publishAppLockShortcut()
         requestLegacyStoragePermissionIfNeeded()
 
         loadingStatus.visibility = View.VISIBLE
