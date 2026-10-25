@@ -26,7 +26,7 @@ function __mxConnect(){
     var ws=new WebSocket("ws://"+location.host+"/relay"+__mxAccQ);__mx.ws=ws;var hs=null;
     ws.onerror=function(){rej(new Error("relay"))};
     ws.onclose=function(){if(__mx.ws&&__mx.ws!==ws)return;__mx.ready=null;__mx.ws=null;__mx.pend.forEach(function(p){p.rej(new Error("closed"))});__mx.pend.clear()};
-    ws.onmessage=function(ev){
+    ws.onmessage=function(ev){__mx.lastRx=Date.now();
       var d;try{d=JSON.parse(ev.data)}catch(e){return}
       if(d._seqAck){if(__mx.waitAck&&__mx.waitAck.op===d.opcode){__mx.waitAck.seq=d.seq;__mx.waitAck.go(d.seq)}return}
       /* bridge шлёт session_restored сразу после отправки hello (op 6), не дожидаясь ответа MAX; op 19 до ответа на hello сервер мог игнорировать */
@@ -39,6 +39,9 @@ function __mxConnect(){
     setTimeout(function(){rej(new Error("timeout"))},20000)});
   __mx.ready.catch(function(){__mx.ready=null});
   return __mx.ready}
+/* Зависшее (полуоткрытое) соединение с relay: сокет «жив», но ответов нет — все следующие запросы, включая отправку, молча падали.
+   Теперь «нет ack» / долгая тишина закрывают сокет, и следующий вызов открывает новый. */
+function __mxResetWs(why){var w=__mx.ws;__mx.ready=null;__mx.ws=null;__mxLog("relay: нет ответа, переподключаюсь —",why);try{w&&w.close()}catch(x){}}
 function __mxCall(op,payload){
   /* Очередь вызовов в MAX строго последовательная (ответ ждём по порядку), но отправка сообщения (op 64) идёт вне очереди:
      раньше она стояла позади загрузки истории/аватарок/счётчиков, а зависший вызов блокировал очередь до 8 с. */
@@ -56,9 +59,14 @@ function __mxPump(){
   var job=q0.shift();__mx.busy=true;__mx.curP=job.p;var t1=Date.now();
   var done=function(){__mx.busy=false;if(job.p<2)__mx.lastNormal=Date.now();var tw=t1-job.t,tt=Date.now()-t1;if(tw>1000||tt>2000)__mxLog("call op",job.op,"ждал",tw,"мс, выполнялся",tt,"мс, в очереди",(__mx.qs||[]).length);__mxPump()};
   __mxConnect().then(function(){return new Promise(function(res,rej){
-    var w={op:job.op,seq:null,go:function(seq){__mx.pend.set(seq,{res:res,rej:rej});setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},job.op===19?(__mx.t19||25000):20000)}};
+    var w={op:job.op,seq:null,go:function(seq){job.acked=true;__mx.pend.set(seq,{res:res,rej:rej});setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},job.op===19?(__mx.t19||25000):20000)}};
     __mx.waitAck=w;__mx.ws.send(JSON.stringify({opcode:job.op,payload:job.payload}));
-    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?(__mx.a19||10000):8000)})}).then(function(v){job.res(v);done()},function(e){job.rej(e);done()})}
+    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?(__mx.a19||10000):(job.op===64?4000:8000))})}).then(function(v){job.res(v);done()},function(e){
+    var m=e&&e.message;
+    if(m==="no ack"||(m==="timeout"&&Date.now()-(__mx.lastRx||0)>15000))__mxResetWs(m);
+    /* без ack запрос до MAX не дошёл — повтор безопасен (дубля сообщения не будет) */
+    if(!job.acked&&!job.retried&&(m==="no ack"||m==="closed")){job.retried=1;(__mx.qs||(__mx.qs=[])).unshift(job);done();return}
+    job.rej(e);done()})}
 function __mxAddMsgs(key,msgs){
   var list=msgs.slice().sort(function(a,b){return(a.time||0)-(b.time||0)}),made=[];
   var seen=__mx.seen[key]||(__mx.seen[key]={}),lim=__mx.lim[key];
@@ -775,7 +783,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-24-r12")}catch(e){}
+try{__mxLog("worker build 2026-10-24-r13")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
