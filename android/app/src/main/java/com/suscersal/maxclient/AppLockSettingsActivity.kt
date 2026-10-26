@@ -79,7 +79,7 @@ class AppLockSettingsActivity : AppCompatActivity() {
         })
 
         if (enabled) {
-            content.addView(clickRow("Изменить код-пароль", null) {
+            content.addView(clickRow("Изменить код-пароль", if (AppLock.isPassword(this)) "Сейчас: пароль" else "Сейчас: PIN-код") {
                 startActivityForResult(Intent(this, PinSetupActivity::class.java), 1)
             })
 

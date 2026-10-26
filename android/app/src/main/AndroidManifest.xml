@@ -45,12 +45,19 @@
         </service>
         <!-- Код-пароль: экран ввода, установка кода и настройки -->
         <activity
+            android:name=".LockNowActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
             android:name=".LockActivity"
             android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
             android:name=".PinSetupActivity"
             android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
             android:name=".AppLockSettingsActivity"

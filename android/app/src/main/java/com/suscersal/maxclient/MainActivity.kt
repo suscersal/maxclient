@@ -150,7 +150,16 @@ class MainActivity : AppCompatActivity() {
         // LockActivity закрылась после успешного ввода — показать содержимое.
         if (::webView.isInitialized && !AppLock.shouldLock(this)) {
             webView.visibility = View.VISIBLE
+            // Настройки блокировки могли поменяться — показать/скрыть кнопку-замочек в шапке.
+            webView.evaluateJavascript("window.__mxLockSync&&window.__mxLockSync()", null)
         }
+    }
+
+    /** Вызывается из JS (кнопка-замочек в шапке): заблокировать немедленно. */
+    fun lockNowFromWeb() {
+        AppLock.lockNow(this)
+        if (::webView.isInitialized) webView.visibility = View.INVISIBLE
+        if (!LockActivity.isShowing) startActivity(Intent(this, LockActivity::class.java))
     }
 
     // Приложение ушло в фон: процесс и соединение с MAX могут жить ещё долго,
@@ -172,7 +181,13 @@ class MainActivity : AppCompatActivity() {
                 .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(this, R.mipmap.ic_launcher))
                 .setIntent(intent)
                 .build()
-            androidx.core.content.pm.ShortcutManagerCompat.setDynamicShortcuts(this, listOf(shortcut))
+            val lockNow = androidx.core.content.pm.ShortcutInfoCompat.Builder(this, "app_lock_now")
+                .setShortLabel("Заблокировать")
+                .setLongLabel("Заблокировать приложение")
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(Intent(this, LockNowActivity::class.java).setAction(Intent.ACTION_VIEW))
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.setDynamicShortcuts(this, listOf(lockNow, shortcut))
         } catch (_: Exception) {
         }
     }

@@ -22,6 +22,7 @@ object AppLock {
     private const val K_SALT = "salt"
     private const val K_HASH = "hash"
     private const val K_LEN = "pin_len"
+    private const val K_TYPE = "secret_type"
     private const val K_TIMEOUT = "timeout_ms"
     private const val K_BIOMETRIC = "biometric"
     private const val K_PREVIEW = "show_preview"
@@ -31,6 +32,8 @@ object AppLock {
 
     const val MIN_LEN = 4
     const val MAX_LEN = 8
+    const val MIN_PASSWORD = 4
+    const val MAX_PASSWORD = 64
 
     /** Автоблокировка: -1 — только при запуске приложения, иначе «если вне приложения дольше N мс». */
     const val TIMEOUT_ONLY_START = -1L
@@ -51,6 +54,9 @@ object AppLock {
     }
 
     fun pinLength(ctx: Context): Int = prefs(ctx).getInt(K_LEN, MIN_LEN)
+
+    /** true — вход по паролю (любые символы), false — PIN из цифр. */
+    fun isPassword(ctx: Context): Boolean = prefs(ctx).getString(K_TYPE, "pin") == "password"
     fun timeoutMs(ctx: Context): Long = prefs(ctx).getLong(K_TIMEOUT, 60_000L)
     fun setTimeoutMs(ctx: Context, v: Long) {
         prefs(ctx).edit().putLong(K_TIMEOUT, v).apply()
@@ -95,6 +101,15 @@ object AppLock {
         backgroundAt = 0L
     }
 
+    /** «Заблокировать сейчас» (кнопка-замочек в шапке, ярлык): следующий показ приложения запросит код. */
+    @Synchronized
+    fun lockNow(ctx: Context) {
+        if (isEnabled(ctx)) {
+            unlocked = false
+            backgroundAt = 0L
+        }
+    }
+
     @Synchronized
     fun markUnlocked() {
         unlocked = true
@@ -108,12 +123,18 @@ object AppLock {
         return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
     }
 
-    fun setPin(ctx: Context, pin: String) {
+    fun setPin(ctx: Context, pin: String) = setSecret(ctx, pin, false)
+
+    /** Пароль из любых символов (буквы, цифры, знаки, эмодзи). */
+    fun setPassword(ctx: Context, password: String) = setSecret(ctx, password, true)
+
+    private fun setSecret(ctx: Context, secret: String, password: Boolean) {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         prefs(ctx).edit()
             .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
-            .putString(K_HASH, Base64.encodeToString(hash(pin, salt), Base64.NO_WRAP))
-            .putInt(K_LEN, pin.length)
+            .putString(K_HASH, Base64.encodeToString(hash(secret, salt), Base64.NO_WRAP))
+            .putInt(K_LEN, secret.length)
+            .putString(K_TYPE, if (password) "password" else "pin")
             .putBoolean(K_ENABLED, true)
             .putInt(K_FAILS, 0)
             .putLong(K_LOCKED_UNTIL, 0L)

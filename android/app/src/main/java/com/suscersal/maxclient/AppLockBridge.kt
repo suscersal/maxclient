@@ -7,6 +7,14 @@ import android.webkit.JavascriptInterface
 /** Мост JS -> нативные настройки «Код-пароль» (пункт добавляется в меню настроек Web K скриптом из AppLockInjector). */
 class AndroidAppLockBridge(private val activity: Activity) {
     @JavascriptInterface
+    fun isEnabled(): Boolean = AppLock.isEnabled(activity)
+
+    @JavascriptInterface
+    fun lockNow() {
+        activity.runOnUiThread { (activity as? MainActivity)?.lockNowFromWeb() }
+    }
+
+    @JavascriptInterface
     fun openSettings() {
         activity.runOnUiThread {
             activity.startActivity(Intent(activity, AppLockSettingsActivity::class.java))
@@ -37,8 +45,34 @@ object AppLockInjector {
       row.parentNode.insertBefore(c, row.nextSibling);
     }
   }
-  new MutationObserver(inject).observe(document.body, {childList: true, subtree: true});
+  // Кнопка-замочек в шапке списка чатов (как в Telegram): нажатие блокирует приложение сразу.
+  var LOCK_SVG = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>';
+  function syncLockBtn(){
+    var on = false;
+    try { on = !!window.AndroidAppLock.isEnabled(); } catch (e) {}
+    var headers = document.querySelectorAll('.sidebar-header');
+    for (var i = 0; i < headers.length; i++) {
+      var h = headers[i];
+      if (!h.querySelector('.input-search, .sidebar-header-search-trigger, input')) continue;
+      var btn = h.querySelector('[data-mx-lockbtn]');
+      if (on && !btn) {
+        btn = document.createElement('button');
+        btn.className = 'btn-icon sidebar-lock-button';
+        btn.setAttribute('data-mx-lockbtn', '1');
+        btn.setAttribute('aria-label', 'Заблокировать');
+        btn.innerHTML = '<span class="sidebar-lock-button-icon">' + LOCK_SVG + '</span>';
+        btn.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); window.AndroidAppLock.lockNow(); }, true);
+        h.appendChild(btn);
+        h.classList.remove('is-input-the-last-child');
+      } else if (!on && btn) {
+        btn.remove();
+      }
+    }
+  }
+  window.__mxLockSync = syncLockBtn;
+  new MutationObserver(function(){ inject(); syncLockBtn(); }).observe(document.body, {childList: true, subtree: true});
   inject();
+  syncLockBtn();
 })();
 """
 }
