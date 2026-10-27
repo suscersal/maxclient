@@ -139,7 +139,7 @@ function __mxPush(pl){
   var m=pl.message||pl,cid=pl.chatId!=null?pl.chatId:m.chatId,key=__mx.chatKey[cid];
   if(!key||!fc[key])return;
   var out=String(m.sender)===String(__mx.self);
-  if(out&&__mx.sentOut[key]&&__mx.sentOut[key].length){var i=__mx.sentOut[key].findIndex(function(s){return s.text===(m.text||"")});if(i>=0){var s=__mx.sentOut[key].splice(i,1)[0];__mx.seen[key][String(m.id)]=1;s.o.__mxid=String(m.id);__mx.tgIdOf[String(m.id)]=s.o.id;__mx.maxIdOf[s.o.id]=String(m.id);return}}
+  if(out&&__mx.sentOut[key]&&__mx.sentOut[key].length){var i=__mx.sentOut[key].findIndex(function(s){return s.text===(m.text||"")});if(i>=0){var s=__mx.sentOut[key].splice(i,1)[0];__mx.seen[key][String(m.id)]=1;s.o.__mxid=String(m.id);__mx.tgIdOf[String(m.id)]=s.o.id;__mx.maxIdOf[s.o.id]=String(m.id);try{xc({_:"updateEditMessage",message:s.o,pts:++nc,pts_count:1})}catch(x){}return}}
   var made=__mxAddMsgs(key,[m]);if(!made.length)return;
   if(!out){mc[key]=(mc[key]||0)+1}
   xc({_:"updateNewMessage",message:made[0],pts:++nc,pts_count:1})}
@@ -147,7 +147,7 @@ function __mxSend(key,e,o){
   var cid=__mx.keyChat[key];if(cid==null)return;
   (__mx.sentOut[key]||(__mx.sentOut[key]=[])).push({text:e.message,o:o});
   var t0=Date.now();__mxCall(64,{chatId:cid,message:{text:e.message,cid:Date.now()},notify:true}).then(function(p){
-    __mxLog("send ok",Date.now()-t0,"ms");var mm=p&&(p.message||p),id=mm&&mm.id;if(id!=null){__mx.seen[key][String(id)]=1;o.__mxid=String(id);__mx.tgIdOf[String(id)]=o.id;__mx.maxIdOf[o.id]=String(id);var l=__mx.sentOut[key],i=l?l.findIndex(function(s){return s.o===o}):-1;if(i>=0)l.splice(i,1)}
+    __mxLog("send ok",Date.now()-t0,"ms");var mm=p&&(p.message||p),id=mm&&mm.id;if(id!=null){__mx.seen[key][String(id)]=1;o.__mxid=String(id);__mx.tgIdOf[String(id)]=o.id;__mx.maxIdOf[o.id]=String(id);var l=__mx.sentOut[key],i=l?l.findIndex(function(s){return s.o===o}):-1;if(i>=0)l.splice(i,1);try{xc({_:"updateEditMessage",message:o,pts:++nc,pts_count:1})}catch(x){}}
   }).catch(function(err){__mxLog("send failed",Date.now()-t0,"ms",err)})}
 function __mxRead(key,maxTgId){
   var cid=__mx.keyChat[key],mid=__mx.maxIdOf[maxTgId];if(cid==null||mid==null)return;
@@ -783,7 +783,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-24-r13")}catch(e){}
+try{__mxLog("worker build 2026-10-27-r14")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
