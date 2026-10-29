@@ -18279,8 +18279,9 @@
         async function e2ePersistActive(chatId, aesKey) {
             const raw = new Uint8Array(await crypto.subtle.exportKey('raw', aesKey));
             const map = e2eLoadPersisted();
-            map[chatId] = { status: 'active', k: e2eBytesToBase64(raw) };
+            map[chatId] = { status: 'active', k: e2eBytesToBase64(raw), t: Date.now() };
             e2eSavePersistedMap(map);
+            e2eBridgePush(chatId, map[chatId]);
         }
         async function e2eRestoreForChat(chatId) {
             const entry = e2eLoadPersisted()[chatId];
@@ -18294,6 +18295,40 @@
             }
             delete e2eSessions[chatId];
             return 'none';
+        }
+
+        // --- Общие ключи с /tg/ через bridge (/api/e2e-keys) ---
+        function e2eBridgePush(chatId, entry) {
+            try {
+                fetch('/api/e2e-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId: String(chatId), entry }) }).catch(() => {});
+            } catch (e) { /* bridge недоступен — остаются локальные ключи */ }
+        }
+        async function e2eBridgePull() {
+            try {
+                const r = await fetch('/api/e2e-keys');
+                const remote = (await r.json()).keys || {};
+                const local = e2eLoadPersisted();
+                let changed = false;
+                for (const [cid, b] of Object.entries(remote)) {
+                    const l = local[cid];
+                    if (b.status === 'active' && b.k) {
+                        if (!l || (l.k !== b.k && (b.t || 0) > (l.t || 0))) {
+                            local[cid] = { status: 'active', k: b.k, t: b.t || 0 };
+                            delete e2eSessions[cid];
+                            changed = true;
+                        }
+                    } else if (b.status === 'off' && l && (b.t || 0) > (l.t || 0)) {
+                        delete local[cid];
+                        delete e2eSessions[cid];
+                        changed = true;
+                    }
+                }
+                if (changed) e2eSavePersistedMap(local);
+                for (const [cid, l] of Object.entries(local)) {
+                    if (!remote[cid] && l.status === 'active' && l.k) e2eBridgePush(cid, { status: 'active', k: l.k, t: l.t || Date.now() });
+                }
+            } catch (e) { /* без bridge — работаем только с localStorage */ }
         }
 
         // --- UI ---
@@ -18324,6 +18359,7 @@
                 const map = e2eLoadPersisted();
                 delete map[currentChatId];
                 e2eSavePersistedMap(map);
+                e2eBridgePush(currentChatId, { status: 'off', t: Date.now() });
                 e2eSetUiStatus(currentChatId, 'none');
                 log('🔓 Шифрование выключено для чата ' + currentChatId, 'info');
             }
@@ -18439,6 +18475,7 @@
         }
 
         applySettingsVars(loadSettingsVars());
+        e2eBridgePull();
         checkAuth();
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();

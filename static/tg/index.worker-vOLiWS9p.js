@@ -32,10 +32,10 @@ function __mxConnect(){
       /* bridge шлёт session_restored сразу после отправки hello (op 6), не дожидаясь ответа MAX; op 19 до ответа на hello сервер мог игнорировать */
       if(d.type==="session_restored"){hs=setTimeout(function(){hs=null;res()},4000);return}
       if(d.opcode===6&&hs!=null){clearTimeout(hs);hs=null;res();return}
-      if(d.type==="auth_required"||d._auth_error){rej(new Error("auth"));return}
+      if(d.type==="auth_required"||d._auth_error){try{__mxSnapDel()}catch(e){}rej(new Error("auth"));return}
       if(d.error&&d.offline&&!d.opcode){rej(new Error(d.details||"offline"));return}
       if(d.seq!=null&&(d.cmd===256||d.cmd===768)){var p=__mx.pend.get(d.seq);if(p){__mx.pend.delete(d.seq);d.cmd===256?p.res(d.payload):p.rej(d.payload||new Error("err"));return}}
-      if(d.opcode===128&&d.payload)__mxPush(d.payload);if(d.opcode===155&&d.payload)__mxReactionPush(d.payload);if(d.opcode===132&&d.payload)__mxPresPush(d.payload)};
+      if(d.opcode===128&&d.payload)__mxPush(d.payload);if(d.opcode===155&&d.payload)__mxReactionPush(d.payload);if(d.opcode===132&&d.payload)__mxPresPush(d.payload);if(d.opcode===216)__mxStoriesPush();if((d.opcode===142||d.opcode===140)&&d.payload)__mxDeletePush(d.payload)};
     setTimeout(function(){rej(new Error("timeout"))},20000)});
   __mx.ready.catch(function(){__mx.ready=null});
   return __mx.ready}
@@ -48,7 +48,7 @@ function __mxCall(op,payload){
   return new Promise(function(res,rej){
     /* приоритеты: 0 — отправка (op 64), 1 — обычные (история, истории-сторис, счётчики), 2 — фоновые (стикеры 26/27/28/29/259).
        Раньше пачка последовательных запросов стикеров стояла в FIFO перед загрузкой истории чата и лент историй. */
-    var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259?2:1);
+    var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259||(op===48&&payload&&payload.chatIds&&payload.chatIds.length>1)?2:1);
     var job={op:op,payload:payload,res:res,rej:rej,p:pr,t:Date.now()},q=__mx.qs||(__mx.qs=[]),i=0;if(pr<2)__mx.lastNormal=Date.now();
     while(i<q.length&&q[i].p<=pr)i++;q.splice(i,0,job);
     __mxPump()})}
@@ -96,9 +96,49 @@ function __mxRetry19(n){__mx.t19=[3000,15000,40000][n]||40000;__mx.a19=[3000,800
     /* зависшее соединение с relay не оживает, а свежее отвечает за секунды (по логам) — переоткрываем */
     var w=__mx.ws;__mx.ready=null;__mx.ws=null;try{w&&w.close()}catch(x){}
     return __mxRetry19(n+1)})}
-function __mxSync(){
-  if(__mx.syncP)return __mx.syncP;
-  __mx.syncP=__mxRetry19(0).then(function(p){
+/* ==== ext4: снимок первого sync (op 19) в IndexedDB — чаты видны сразу, сервер сверяется в фоне ==== */
+__mx.del=__mx.del||{};
+function __mxIdb(){return __mx.idbP||(__mx.idbP=new Promise(function(res,rej){try{var r=indexedDB.open("mxsnap",1);r.onupgradeneeded=function(){r.result.createObjectStore("kv")};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}}catch(e){rej(e)}}))}
+function __mxSnapGet(){return __mxIdb().then(function(db){return new Promise(function(res){var q=db.transaction("kv","readonly").objectStore("kv").get("op19:"+__mxAcc);q.onsuccess=function(){try{res(q.result?JSON.parse(q.result):null)}catch(e){res(null)}};q.onerror=function(){res(null)}})}).catch(function(){return null})}
+function __mxSnapSave(p){__mx.snapP=p;clearTimeout(__mx.snapT);__mx.snapT=setTimeout(__mxSnapFlush,3000)}
+function __mxSnapFlush(){try{var p=__mx.snapP;if(!p)return;var q={};Object.keys(p).forEach(function(k){q[k]=p[k]});q.chats=(p.chats||[]).map(function(c){return c&&c.lastMessage&&c.lastMessage.__ct!=null?Object.assign({},c,{lastMessage:__mxRawClean(c.lastMessage)}):c});
+  /* контакты копим со всей сессии (авторы историй, отправители в группах, собеседники) — следующий старт не ждёт op 32 */
+  q.contacts=Object.keys(__mx.contacts).map(function(k){return __mx.contacts[k]});
+  var js=JSON.stringify({v:1,t:Date.now(),p:q});__mxIdb().then(function(db){db.transaction("kv","readwrite").objectStore("kv").put(js,"op19:"+__mxAcc)}).catch(function(){})}catch(e){__mxLog("snapshot save failed",e)}}
+function __mxSnapDel(){clearTimeout(__mx.snapT);__mx.snapP=null;try{__mxIdb().then(function(db){var st=db.transaction("kv","readwrite").objectStore("kv");st.delete("op19:"+__mxAcc);st.delete("del:"+__mxAcc);st.delete("delraw:"+__mxAcc);st.delete("dmidx:"+__mxAcc);Object.keys(__mx.raw||{}).forEach(function(c){st.delete("raw:"+__mxAcc+":"+c)});Object.keys(__mx.dm||{}).forEach(function(k){st.delete("dm:"+__mxAcc+":"+k)})}).catch(function(){})}catch(e){}}
+/* удалённые сообщения: id по чатам, переживают перезапуск */
+function __mxDelLoad(){return __mx.delP||(__mx.delP=Promise.all([__mxIdbGet("del:"+__mxAcc),__mxIdbGet("delraw:"+__mxAcc),__mxIdbGet("dmidx:"+__mxAcc)]).then(function(r){
+  try{var o=JSON.parse(r[0]||"{}");Object.keys(o).forEach(function(c){var s=__mx.del[c]||(__mx.del[c]={});(o[c]||[]).forEach(function(i){s[i]=1})})}catch(e){}
+  try{var d=JSON.parse(r[1]||"{}");Object.keys(d).forEach(function(c){__mx.delraw[c]=Object.assign(__mx.delraw[c]||{},d[c])})}catch(e){}
+  try{JSON.parse(r[2]||"[]").forEach(function(k){__mx.dm[k]=1})}catch(e){}}))}
+function __mxDelSave(){clearTimeout(__mx.delT);__mx.delT=setTimeout(function(){try{var o={};Object.keys(__mx.del).forEach(function(c){var a=Object.keys(__mx.del[c]);if(a.length)o[c]=a.slice(-300)});var js=JSON.stringify(o);__mxIdb().then(function(db){db.transaction("kv","readwrite").objectStore("kv").put(js,"del:"+__mxAcc)}).catch(function(){})}catch(e){}},500)}
+/* Сверка свежего op 19 с тем, что уже показано из снимка: новые чаты/сообщения приходят обычными апдейтами. */
+function __mxReconcile(p){
+  var prof=p.profile&&p.profile.contact;if(prof)__mx.contacts[prof.id]=prof;
+  (p.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c});
+  var us=[],cs=[],miss=[],news=[];
+  (p.chats||[]).forEach(function(chat){
+    var key=__mxKey(chat),was=gc.indexOf(key)>=0;
+    __mx.keyChat[key]=chat.id;__mx.chatKey[chat.id]=key;__mx.chType[key]=chat.type;__mx.muted[key]=__mxMuted(chat.dontDisturbUntil);__mxNoteRights(key,chat);
+    if(chat.baseIconUrl)__mx.iconOf[Math.abs(Number(chat.id))]=chat.baseIconUrl;
+    if(chat.type==="DIALOG"){var o=__mxOther(chat);if(o!=null){us.push(__mxUser(o));if(!__mx.contacts[o])miss.push(Number(o))}}
+    else{var oc=lc.find(function(x){return"c"+x.id===key});
+      if(!oc){oc={_:"chat",pFlags:{},id:Math.abs(Number(chat.id)),title:chat.title||"Без названия",photo:{_:"chatPhotoEmpty"},participants_count:chat.participantsCount||Object.keys(chat.participants||{}).length||2,date:Math.floor((chat.created||chat.lastEventTime||Date.now())/1e3),version:1};lc.push(oc)}
+      else{if(chat.title)oc.title=chat.title;if(chat.participantsCount&&__mx.pcount&&__mx.pcount[key]==null)oc.participants_count=chat.participantsCount}
+      if(Array.isArray(chat.options)&&chat.options.indexOf("OFFICIAL")>=0){oc.pFlags=oc.pFlags||{};oc.pFlags.verified=!0}
+      cs.push(oc)}
+    var lm=chat.lastMessage;
+    if(lm){var made=__mxAddMsgs(key,[lm]);
+      if(made.length){if(!was){gc.push(key);pc[key]=0}
+        if(String(lm.sender)!==String(__mx.self))mc[key]=chat.newMessages!=null?chat.newMessages:(mc[key]||0)+1;
+        news.push(made[0])}
+      else if(was&&chat.newMessages!=null)mc[key]=chat.newMessages}});
+  __mxPublish(us,cs);
+  news.forEach(function(m){xc({_:"updateNewMessage",message:m,pts:++nc,pts_count:1})});
+  if(miss.length)__mxCall(32,{contactIds:miss}).then(function(r){var u=[];(r.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c;u.push(__mxUser(c.id))});__mxPublish(u,[])}).catch(function(){});
+  __mxLog("sync: сверка — новых сообщений",news.length)}
+function __mxApplySync(p){
+try{(p.chats||[]).forEach(function(c){if(c&&c.baseIconUrl)__mx.iconOf[Math.abs(Number(c.id))]=c.baseIconUrl})}catch(e){}
     var prof=p.profile&&p.profile.contact;if(prof){__mx.self=prof.id;__mx.contacts[prof.id]=prof}
     (p.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c});
     cc.length=0;lc.length=0;gc.length=0;hc.clear();
@@ -115,6 +155,20 @@ function __mxSync(){
     __mx.synced=1;
     var miss=[];(p.chats||[]).forEach(function(c){if(c.type==="DIALOG"){var o=__mxOther(c);if(o!=null&&!__mx.contacts[o])miss.push(Number(o))}});
     if(miss.length)return __mxCall(32,{contactIds:miss}).then(function(r){(r.contacts||[]).forEach(function(c){__mx.contacts[c.id]=c;__mxUser(c.id)})}).catch(function(){});
+  
+}
+function __mxSync(){
+  if(__mx.syncP)return __mx.syncP;
+  var t0=Date.now();
+  __mx.syncP=Promise.all([__mxSnapGet(),__mxDelLoad()]).then(function(r){
+    var snap=r[0],sp=snap&&snap.p&&Array.isArray(snap.p.chats)&&snap.p.chats.length&&Date.now()-(snap.t||0)<12096e5?snap.p:null;
+    if(sp){
+      return __mxE2eInChats(sp).catch(function(){}).then(function(){
+      var pr=__mxApplySync(sp);if(pr&&pr.catch)pr.catch(function(){});
+      __mxLog("sync: из снимка за",Date.now()-t0,"мс, чатов",sp.chats.length);
+      __mxRetry19(0).then(function(fresh){__mxLog("sync: сервер ответил за",Date.now()-t0,"мс");__mxReconcile(fresh);__mxSnapSave(fresh)}).catch(function(e){__mxLog("sync: фоновая сверка не удалась",e&&e.message||e);if(e&&e.message==="auth")__mxSnapDel()});
+      })}
+    return __mxRetry19(0).then(function(p){var r2=__mxApplySync(p);__mxLog("sync: с сервера за",Date.now()-t0,"мс");__mxSnapSave(p);return r2})
   }).catch(function(e){__mx.syncP=null;__mxLog("sync failed",e);throw{code:500,type:"MAX_OFFLINE",handled:!0}});
   return __mx.syncP}
 function __mxLoad(key,offsetId){
@@ -203,6 +257,7 @@ async function __mxGetFile(a){
   return{_:"upload.file",type:{_:"storage.fileJpeg"},mtime:0,bytes:buf}}
 /* «Выйти» в Web K выходит и из MAX-аккаунта (иначе при перезагрузке заглушка залогинила бы заново). */
 async function __mxLogout(){
+  try{__mxSnapDel()}catch(e){}
   try{await fetch("/api/logout"+__mxAccQ,{method:"POST"})}catch(e){}
   return{_:"auth.loggedOut",pFlags:{}}}
 /* ==== конец расширения ==== */
@@ -783,7 +838,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-27-r14")}catch(e){}
+try{__mxLog("worker build 2026-10-28-r16")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
@@ -889,47 +944,325 @@ function __mxStoryMedia(ownerId,s){
   var u=m.photoUrl||m.baseUrl||m.url;if(!u)return null;
   __mx.media[id]={kind:"PHOTO",chatId:0,msgId:"0",msgTime:0,idx:0,attach:{},url:u,size:0};
   return{_:"messageMediaPhoto",pFlags:{},photo:{_:"photo",pFlags:{},id:id,access_hash:"1",file_reference:[],date:date,sizes:[{_:"photoSize",type:"x",w:m.width||720,h:m.height||1280,size:0}],dc_id:2}}}
-function __mxStoryItems(oid){var o=__mx.stories.owners[oid];
-  return(o?o.list:[]).map(function(s){return{_:"storyItem",pFlags:{},id:s.tg,date:s.date,expire_date:s.date+86400,media:s.media,entities:[],privacy:[]}})}
+function __mxStoryKey(o){var t=parseInt(o&&o.type,10);return(t===1||t===2)?"c"+Math.abs(Number(o.ownerId)):String(o.ownerId)}
+function __mxStoryItem(s){return{_:"storyItem",pFlags:{},id:s.tg,date:s.date,expire_date:s.date+86400,media:s.media,entities:[],privacy:[]}}
+function __mxStoryItems(key){var o=__mx.stories.owners[key];return(o?o.list:[]).map(__mxStoryItem)}
+function __mxStoryPeer(key){return key[0]==="c"?{_:"peerChat",chat_id:+key.slice(1)}:{_:"peerUser",user_id:__mxTgUser(key)}}
+function __mxStoryKeyOfPeer(p){if(!p)return null;if(p.user_id!=null)return p.user_id===100?String(__mx.self):String(p.user_id);var cid=p.chat_id!=null?p.chat_id:p.channel_id;return cid!=null?"c"+cid:null}
+/* user/chat-объекты авторов; незнакомый чат/канал подтягиваем одним op 48 (как Komet: ChatInfoFetch) */
+async function __mxStoryActors(keys){
+  var us=[],cs=[];
+  for(var i=0;i<keys.length;i++){var k=keys[i];
+    if(k[0]!=="c"){us.push(__mxUser(k));continue}
+    var id=+k.slice(1),c=lc.find(function(x){return x.id===id});
+    if(!c){var o=__mx.stories.owners[k],raw=__mx.keyChat[k]!=null?__mx.keyChat[k]:(o&&o.ownerId);
+      try{var r=await __mxCall(48,{chatIds:[raw]}),ch=((r&&r.chats)||[]).filter(function(x){return String(x.id)===String(raw)})[0];
+        if(ch){__mxReg(k,ch.id);if(ch.baseIconUrl)__mx.iconOf[id]=ch.baseIconUrl;c=__mxChatObj(ch);lc.push(c)}}catch(e){__mxLog("stories: чат",k,"не найден",e&&e.message||e)}}
+    if(c)cs.push(c)}
+  return{us:us,cs:cs}}
+__mx.stories.idm=__mx.stories.idm||{};
 function __mxStoriesLoad(force){
   var S=__mx.stories;if(S.p&&!force&&Date.now()-S.t<12e4)return S.p;
   S.p=(async function(){
     await __mxSync();
-    var feed=await __mxCall(208,{cursor:"",count:30}),pv=(feed&&feed.storiesPreviews)||[],owners=[];
-    pv.forEach(function(p){var o=p&&p.owner;if(o&&o.ownerId&&(o.type==null||o.type===0))owners.push({ownerId:o.ownerId,read:p.readCount||0})});
-    var next={};
-    if(owners.length){
-      var r=await __mxCall(210,{owners:owners.map(function(o){return{ownerId:o.ownerId,type:0}})});
-      ((r&&r.peerStories)||[]).forEach(function(ps){var oid=ps&&ps.owner&&ps.owner.ownerId;if(!oid)return;
-        var meta=owners.find(function(x){return String(x.ownerId)===String(oid)})||{read:0},list=[];
-        (ps.stories||[]).forEach(function(s,i){var md=__mxStoryMedia(oid,s);if(md)list.push({tg:list.length+1,mid:s.id,date:Math.floor((s.time||0)/1e3)||Math.floor(Date.now()/1e3),media:md})});
-        next[oid]={list:list,read:meta.read||0,owner:ps.owner}})}
-    S.owners=next;S.t=Date.now();__mxLog("stories: авторов",Object.keys(next).length);return S})();
+    var feed=await __mxCall(208,{cursor:"",count:30}),pv=(feed&&feed.storiesPreviews)||[],owners=[],nc=0;
+    /* как в Komet (_ownerTypeFromInt): 1=чат, 2=канал, всё остальное (0/null/"USER") — человек */
+    pv.forEach(function(p){var o=p&&p.owner;if(!o||!o.ownerId)return;var t=parseInt(o.type,10);t=(t===1||t===2)?t:0;if(t)nc++;owners.push({key:__mxStoryKey(o),ownerId:o.ownerId,type:t,read:p.readCount||0})});
+    __mxLog("stories: превью",pv.length,"людей",owners.length-nc,"чатов/каналов",nc);
+    /* авторы-люди не всегда есть в контактах — как ensureStoryOwnersContactsLoaded в старом UI, подгружаем через op 32 */
+    var miss=owners.filter(function(o){return !o.type&&!__mx.contacts[o.ownerId]}).map(function(o){return Number(o.ownerId)});
+    if(miss.length){try{for(var k=0;k<miss.length;k+=100){var cr=await __mxCall(32,{contactIds:miss.slice(k,k+100)});((cr&&cr.contacts)||[]).forEach(function(c){__mx.contacts[c.id]=c})}}catch(er){__mxLog("stories: контакты авторов не загрузились",er&&er.message||er)}}
+    var next={},fails=0,chunks=0;
+    /* Komet (_ownersChunk = 20): запрос 210 с большим числом авторов сервер отклоняет — раньше слали всех (до 30) разом */
+    for(var i=0;i<owners.length;i+=20){
+      var chn=owners.slice(i,i+20),r=null;chunks++;
+      try{r=await __mxCall(210,{owners:chn.map(function(o){return{ownerId:o.ownerId,type:o.type}})})}catch(er){fails++;__mxLog("stories: 210 не удался",er&&er.message||er);continue}
+      ((r&&r.peerStories)||[]).forEach(function(ps){var po=ps&&ps.owner;if(!po||!po.ownerId)return;var key=__mxStoryKey(po);
+        var meta=owners.filter(function(x){return x.key===key})[0]||{read:0,type:0},im=S.idm[key]||(S.idm[key]={n:0,m:{}}),list=[];
+        /* tg-id стабилен в течение сессии (по id истории), иначе при истечении старых историй индексы «ехали» */
+        (ps.stories||[]).slice().sort(function(a,b){return(a.time||0)-(b.time||0)}).forEach(function(s){var md=__mxStoryMedia(key,s);if(!md)return;var sid=String(s.id);if(!im.m[sid])im.m[sid]=++im.n;
+          list.push({tg:im.m[sid],mid:s.id,date:Math.floor((s.time||0)/1e3)||Math.floor(Date.now()/1e3),media:md})});
+        var rt=meta.read>0&&list[meta.read-1]?list[meta.read-1].tg:0;
+        next[key]={list:list,readTg:rt,ownerId:po.ownerId,type:meta.type||0}})}
+    if(chunks&&fails===chunks&&!Object.keys(next).length)throw new Error("stories 210 failed");
+    S.owners=next;S.t=Date.now();var kept=0;Object.keys(next).forEach(function(k){kept+=next[k].list.length});
+    __mxLog("stories: авторов",Object.keys(next).length,"историй с медиа",kept);return S})();
   S.p.catch(function(){S.p=null});return S.p}
-function __mxStoryOwner(tg){return tg===100?__mx.self:tg}
 __mxM["stories.getAllStories"]=async function(){
   var S=null,att=0;
   /* sync мог упасть по таймауту (холодный старт) — Web K запрашивает ленту один раз, поэтому повторяем сами */
-  while(!S&&att<5){try{S=await __mxStoriesLoad(att>0)}catch(er){__mxLog("stories feed failed",att,er);att++;if(att<5)await new Promise(function(r){setTimeout(r,2000)})}}
+  while(!S&&att<5){try{S=await __mxStoriesLoad(att>0)}catch(er){__mxLog("stories feed failed",att,er&&er.message||er);att++;if(att<5)await new Promise(function(r){setTimeout(r,2000)})}}
   if(!S)S={owners:{}};
-  var ps=[],us=[];
-  Object.keys(S.owners).forEach(function(oid){var o=S.owners[oid];if(!o.list.length)return;var u=__mxUser(oid);us.push(u);
-    ps.push({_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:u.id},max_read_id:o.read,stories:__mxStoryItems(oid)})});
-  return{_:"stories.allStories",pFlags:{},count:ps.length,state:String(S.t||1),peer_stories:ps,chats:[],users:us,stealth_mode:{_:"storiesStealthMode",pFlags:{}}}};
+  var keys=Object.keys(S.owners).filter(function(k){return S.owners[k].list.length}),act=await __mxStoryActors(keys),ps=[];
+  keys.forEach(function(k){var o=S.owners[k];if(k[0]==="c"&&!act.cs.some(function(c){return"c"+c.id===k}))return;
+    ps.push({_:"peerStories",pFlags:{},peer:__mxStoryPeer(k),max_read_id:o.readTg,stories:__mxStoryItems(k)})});
+  return{_:"stories.allStories",pFlags:{},count:ps.length,state:String(S.t||1),peer_stories:ps,chats:act.cs,users:act.us,stealth_mode:{_:"storiesStealthMode",pFlags:{}}}};
 __mxM["stories.getPeerStories"]=async function(e){
-  var oid=__mxStoryOwner(e.peer&&e.peer.user_id);
+  var key=__mxStoryKeyOfPeer(e.peer);
+  if(!key)return{_:"stories.peerStories",stories:{_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:0},stories:[]},chats:[],users:[]};
   try{await __mxStoriesLoad(false)}catch(er){}
-  var o=__mx.stories.owners[oid],u=__mxUser(oid);
-  return{_:"stories.peerStories",stories:{_:"peerStories",pFlags:{},peer:{_:"peerUser",user_id:u.id},max_read_id:o?o.read:0,stories:o?__mxStoryItems(oid):[]},chats:[],users:[u]}};
+  var o=__mx.stories.owners[key],act=await __mxStoryActors([key]);
+  return{_:"stories.peerStories",stories:{_:"peerStories",pFlags:{},peer:__mxStoryPeer(key),max_read_id:o?o.readTg:0,stories:o?__mxStoryItems(key):[]},chats:act.cs,users:act.us}};
 __mxM["stories.getStoriesByID"]=async function(e){
-  var oid=__mxStoryOwner(e.peer&&e.peer.user_id);try{await __mxStoriesLoad(false)}catch(er){}
-  var ids=e.id||[],it=__mxStoryItems(oid).filter(function(s){return ids.indexOf(s.id)>=0});
-  return{_:"stories.stories",pFlags:{},count:it.length,stories:it,chats:[],users:[__mxUser(oid)]}};
+  var key=__mxStoryKeyOfPeer(e.peer);try{await __mxStoriesLoad(false)}catch(er){}
+  var ids=e.id||[],it=key?__mxStoryItems(key).filter(function(s){return ids.indexOf(s.id)>=0}):[],act=await __mxStoryActors(key?[key]:[]);
+  return{_:"stories.stories",pFlags:{},count:it.length,stories:it,chats:act.cs,users:act.us}};
 __mxM["stories.readStories"]=async function(e){
-  var oid=__mxStoryOwner(e.peer&&e.peer.user_id),o=__mx.stories.owners[oid];
-  if(o){o.list.forEach(function(s,i){if(s.tg<=e.max_id&&s.tg>o.read)__mxCall(214,{owner:{ownerId:oid,type:0},storyId:s.mid}).catch(function(er){__mxLog("story read failed",er)})});
-    o.read=Math.max(o.read,e.max_id||0)}
+  var key=__mxStoryKeyOfPeer(e.peer),o=__mx.stories.owners[key];
+  if(o){o.list.forEach(function(s){if(s.tg<=e.max_id&&s.tg>o.readTg)__mxCall(214,{owner:{ownerId:o.ownerId,type:o.type},storyId:s.mid}).catch(function(er){__mxLog("story read failed",er)})});
+    o.readTg=Math.max(o.readTg,e.max_id||0)}
   return[e.max_id]};
+/* push 216 (notifStoriesUpdate): перечитываем ленту и отдаём Web K апдейтами updateStory / updateReadStories */
+function __mxStoriesPush(){clearTimeout(__mx.stT);__mx.stT=setTimeout(function(){__mxStoriesRefresh().catch(function(e){__mxLog("stories push failed",e&&e.message||e)})},800)}
+async function __mxStoriesRefresh(){
+  var S=__mx.stories;if(!S.t)return;
+  var old=S.owners,cur=(await __mxStoriesLoad(true)).owners,ups=[],keys=Object.keys(cur);
+  var act=await __mxStoryActors(keys.filter(function(k){return cur[k].list.length}));
+  __mxPublish(act.us,act.cs);
+  keys.forEach(function(k){var o=cur[k],po=old[k],had={},peer=__mxStoryPeer(k);(po?po.list:[]).forEach(function(s){had[s.tg]=1});
+    o.list.forEach(function(s){if(!had[s.tg])ups.push({_:"updateStory",peer:peer,story:__mxStoryItem(s)})});
+    if(po&&o.readTg!==po.readTg)ups.push({_:"updateReadStories",peer:peer,max_id:o.readTg})});
+  Object.keys(old).forEach(function(k){var o=cur[k],peer=__mxStoryPeer(k);old[k].list.forEach(function(s){if(!o||!o.list.some(function(x){return x.tg===s.tg}))ups.push({_:"updateStory",peer:peer,story:{_:"storyItemDeleted",id:s.tg}})})});
+  ups.forEach(function(u){xc(u)});
+  __mxLog("stories: push 216, обновлений",ups.length)}
+/* удалённые сообщения (как в старом UI): не убираем, а помечаем «🗑 Удалено»; push 140/142 (notifMsgDelete) */
+function __mxDelMark(o){if(!o||o.__mxdel)return false;o.__mxdel=1;var tag="🗑 Удалено",b=o.message||"";o.message=b?b+"\n\n"+tag:tag;o.entities=(o.entities||[]).concat([{_:"messageEntityItalic",offset:o.message.length-tag.length,length:tag.length}]);return true}
+var __mxAddMsgsD0=__mxAddMsgs;
+__mxAddMsgs=function(key,msgs){
+  var cid=__mx.keyChat[key],byRaw={};
+  try{(msgs||[]).forEach(function(m){if(m&&m.id!=null){byRaw[String(m.id)]=m;__mxRawKeep(cid,m)}})}catch(e){}
+  var made=__mxAddMsgsD0(key,msgs);
+  try{var set=cid!=null&&__mx.del[String(cid)];
+    made.forEach(function(o){var mid=__mx.maxIdOf[o.id],raw=mid!=null&&byRaw[String(mid)];
+      if(raw&&raw.__e2eMeta)__mxE2eRetype(o,raw,raw.__e2eMeta);
+      if(set&&mid!=null&&set[String(mid)])__mxDelMark(o)})}catch(e){__mxLog("addmsgs post",e)}
+  return made};
+
+/* ==== ext5: сохранение удалённых (сырые сообщения + кэш вложений) и E2E-шифрование ==== */
+__mx.raw=__mx.raw||{};__mx.rawDirty={};__mx.delraw=__mx.delraw||{};__mx.dm=__mx.dm||{};
+__mx.e2e={sess:{},pend:{},done:{},ready:null,q:Promise.resolve()};
+function __mxIdbGet(k){return __mxIdb().then(function(db){return new Promise(function(res){var q=db.transaction("kv","readonly").objectStore("kv").get(k);q.onsuccess=function(){res(q.result)};q.onerror=function(){res(undefined)}})}).catch(function(){return undefined})}
+function __mxIdbPut(k,v){return __mxIdb().then(function(db){return new Promise(function(res){var t=db.transaction("kv","readwrite");t.objectStore("kv").put(v,k);t.oncomplete=function(){res(1)};t.onerror=function(){res(0)}})}).catch(function(){return 0})}
+/* копия сырого сообщения MAX для хранения: шифртекст вместо расшифрованного, без служебных полей */
+function __mxRawClean(m){var c=Object.assign({},m);if(c.__ct!=null)c.text=c.__ct;Object.keys(c).forEach(function(k){if(k.slice(0,2)==="__"||k==="_o"||k==="_g"||k==="_syn")delete c[k]});return c}
+function __mxRawKeep(cid,m){
+  if(cid==null||!m||m.id==null||m._syn||m._note)return;
+  var cs=String(cid),r=__mx.raw[cs]||(__mx.raw[cs]={}),id=String(m.id);r[id]=__mxRawClean(m);
+  var ks=Object.keys(r);if(ks.length>80){ks.sort(function(a,b){return(r[a].time||0)-(r[b].time||0)});for(var i=0;i<ks.length-60;i++)delete r[ks[i]]}
+  __mx.rawDirty[cs]=1;clearTimeout(__mx.rawT);__mx.rawT=setTimeout(__mxRawFlush,5000)}
+function __mxRawFlush(){Object.keys(__mx.rawDirty).forEach(function(cs){try{__mxIdbPut("raw:"+__mxAcc+":"+cs,JSON.stringify(__mx.raw[cs]||{}))}catch(e){}});__mx.rawDirty={}}
+function __mxDelRawSave(){clearTimeout(__mx.drT);__mx.drT=setTimeout(function(){try{__mxIdbPut("delraw:"+__mxAcc,JSON.stringify(__mx.delraw))}catch(e){}},500)}
+/* что осталось от удалённого сообщения: его сырое тело и (по возможности) байты вложений */
+function __mxDeletePush(pl){
+  var cid=pl.chatId!=null?pl.chatId:(pl.chat&&pl.chat.id),key=cid!=null?__mx.chatKey[cid]:null;if(!key)return;
+  var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String);if(!ids.length)return;
+  var cs=String(cid),set=__mx.del[cs]||(__mx.del[cs]={}),ups=[];ids.forEach(function(i){set[i]=1});__mxDelSave();
+  ids.forEach(function(mid){var tg=__mx.tgIdOf[mid];if(tg==null)return;var o=(fc[key]||[]).filter(function(x){return x.id===tg})[0];if(o&&__mxDelMark(o))ups.push(o)});
+  ups.forEach(function(o){xc({_:"updateEditMessage",message:o,pts:++nc,pts_count:1})});
+  __mxLog("deleted: чат",cid,"сообщений",ids.length,"помечено",ups.length);
+  __mxDelKeep(cid,ids).catch(function(e){__mxLog("deleted keep failed",e&&e.message||e)})}
+async function __mxDelKeep(cid,ids){
+  var cs=String(cid),dl=__mx.delraw[cs]||(__mx.delraw[cs]={}),pool=__mx.raw[cs],stored,n=0,i;
+  for(i=0;i<ids.length;i++){var id=ids[i],raw=pool&&pool[id];
+    if(!raw){if(stored===undefined){var js=await __mxIdbGet("raw:"+__mxAcc+":"+cs);try{stored=js?JSON.parse(js):null}catch(e){stored=null}}raw=stored&&stored[id]}
+    if(raw){dl[id]=raw;n++}}
+  var ks=Object.keys(dl);if(ks.length>500){ks.sort(function(a,b){return(dl[a].time||0)-(dl[b].time||0)});for(i=0;i<ks.length-500;i++)delete dl[ks[i]]}
+  if(!n)return __mxLog("deleted: тела сообщений нет в кэше — сохранить нечего");
+  __mxDelRawSave();
+  for(i=0;i<ids.length;i++)if(dl[ids[i]])await __mxDelCacheMedia(cid,ids[i]);
+  __mxLog("deleted: сохранено сообщений",n)}
+async function __mxDelCacheMedia(cid,id){
+  var cs=String(cid),keys=[],saved=0;
+  Object.keys(__mx.media).forEach(function(k){var r=__mx.media[k];if(r&&String(r.msgId)===String(id)&&String(r.chatId)===cs&&r.kind&&r.kind!=="LOCAL"&&r.kind!=="E2E"&&!__mx.dm[k])keys.push(k)});
+  for(var i=0;i<keys.length;i++){var k=keys[i],rec=__mx.media[k];
+    try{var r=await __mxGetMedia({location:{id:k,_:"inputDocumentFileLocation"},offset:0,limit:Math.min(rec.size||3e7,3e7)}),b=r&&r.bytes;
+      if(b&&b.length&&b.length<=3e7){await __mxIdbPut("dm:"+__mxAcc+":"+k,b.buffer.slice(b.byteOffset,b.byteOffset+b.length));__mx.dm[k]=1;saved++}}catch(e){__mxLog("deleted media",rec.kind,"не сохранён",e&&e.type||e&&e.message||e)}}
+  if(saved)__mxIdbPut("dmidx:"+__mxAcc,JSON.stringify(Object.keys(__mx.dm)))}
+/* удалённые сообщения возвращаем в историю: страница ответа 49 + удалённые того же временного окна */
+function __mxDelInject(cid,pl,r){
+  var dl=__mx.delraw[String(cid)];if(!dl||!r)return;
+  var ms=r.messages||(r.messages=[]),have={};ms.forEach(function(m){have[String(m.id)]=1});
+  var partial=ms.length<(pl.backward||0),tmin=0,tmax=(pl.from&&pl.from<Date.now()+864e5)?pl.from:Infinity,add=0;
+  if(ms.length&&!partial){tmin=Infinity;ms.forEach(function(m){if((m.time||0)<tmin)tmin=m.time||0})}
+  Object.keys(dl).forEach(function(id){if(have[id])return;var m=dl[id],t=m.time||0;if(t>=tmin&&t<=tmax){ms.push(Object.assign({},m));add++}});
+  if(add)__mxLog("deleted: в историю возвращено",add)}
+/* вложения удалённых: отдаём из локального кэша */
+var __mxGetMediaD0=__mxGetMedia;
+__mxGetMedia=async function(a){
+  var loc=a&&a.location,id=loc&&loc.id!=null?String(loc.id):null,rec=id&&__mx.media[id];
+  if(rec&&rec.kind==="E2E")return __mxE2eGetMedia(a,rec);
+  if(id&&__mx.dm[id]&&!(loc.thumb_size&&loc._==="inputDocumentFileLocation")){
+    var ab=await __mxIdbGet("dm:"+__mxAcc+":"+id);
+    if(ab){var b=new Uint8Array(ab),off=a.offset||0,lim=a.limit||b.length;return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:b.subarray(off,off+lim)}}}
+  return __mxGetMediaD0(a)};
+
+/* ------------------------------------------------------------------ E2E: ECDH P-256 + AES-256-GCM, формат как в старом интерфейсе */
+var __E2E_HS_S="\u2063\u2063\u2063\u2063",__E2E_HS_E="\u2064\u2064\u2064\u2064",__E2E_PFX="⛨E2E:",__E2E_META="⛨M1:";
+function __e2b64(u){var s="",i;for(i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)}
+function __e2u8(b){var s=atob(b),u=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u}
+function __e2inv(u){var o=[],i,j;for(i=0;i<u.length;i++)for(j=7;j>=0;j--)o.push((u[i]>>j)&1?"\u200C":"\u200B");return o.join("")}
+function __e2fromInv(s){var b=[],i,j,v;for(i=0;i+8<=s.length;i+=8){v=0;for(j=0;j<8;j++)v=(v<<1)|(s[i+j]==="\u200C"?1:0);b.push(v)}return new Uint8Array(b)}
+function __e2embed(vis,obj){return vis+__E2E_HS_S+__e2inv(new TextEncoder().encode(JSON.stringify(obj)))+__E2E_HS_E}
+function __e2extract(t){if(!t)return null;var a=t.indexOf(__E2E_HS_S),b=t.indexOf(__E2E_HS_E);if(a<0||b<0||b<=a)return null;try{return JSON.parse(new TextDecoder().decode(__e2fromInv(t.slice(a+__E2E_HS_S.length,b))))}catch(e){return null}}
+function __e2strip(t){var a=t.indexOf(__E2E_HS_S),b=t.indexOf(__E2E_HS_E);if(a<0||b<0)return t;return(t.slice(0,a)+t.slice(b+__E2E_HS_E.length)).trim()}
+function __e2rep(k,v){return v instanceof Uint8Array?{__u8:__e2b64(v)}:v}
+function __e2rev(k,v){return v&&typeof v==="object"&&v.__u8!=null?__e2u8(v.__u8):v}
+async function __mxE2eEncB(aes,u){var iv=crypto.getRandomValues(new Uint8Array(12)),ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:iv},aes,u)),o=new Uint8Array(12+ct.length);o.set(iv,0);o.set(ct,12);return o}
+async function __mxE2eDecB(aes,u){return new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:u.slice(0,12)},aes,u.slice(12)))}
+async function __mxE2eEncT(aes,t){return __E2E_PFX+__e2b64(await __mxE2eEncB(aes,new TextEncoder().encode(t)))}
+async function __mxE2eDecT(aes,enc){return new TextDecoder().decode(await __mxE2eDecB(aes,__e2u8(enc.slice(__E2E_PFX.length))))}
+/* ключи общие со старым интерфейсом через bridge (/api/e2e-keys) */
+function __mxE2eReady(){return __mx.e2e.ready||(__mx.e2e.ready=(async function(){
+  try{var r=await fetch("/api/e2e-keys"),j=await r.json(),m=(j&&j.keys)||{};
+    for(var c in m){var en=m[c];if(en&&en.status==="active"&&en.k){try{__mx.e2e.sess[c]={status:"active",aesKey:await crypto.subtle.importKey("raw",__e2u8(en.k),{name:"AES-GCM",length:256},true,["encrypt","decrypt"])}}catch(e){}}}
+    __mxLog("e2e: активных чатов",Object.keys(__mx.e2e.sess).length)}catch(e){__mxLog("e2e: ключи не загрузились",e&&e.message||e)}})())}
+function __mxE2ePost(cid,entry){return fetch("/api/e2e-keys",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chatId:String(cid),entry:entry})}).catch(function(){})}
+async function __mxE2ePersist(cid,aes){var raw=new Uint8Array(await crypto.subtle.exportKey("raw",aes));await __mxE2ePost(cid,{status:"active",k:__e2b64(raw),t:Date.now()})}
+function __mxE2eForget(cid){delete __mx.e2e.sess[String(cid)];delete __mx.e2e.pend[String(cid)];return __mxE2ePost(cid,{status:"off",t:Date.now()})}
+function __mxE2eSess(cid){var s=__mx.e2e.sess[String(cid)];return s&&s.status==="active"?s:null}
+/* служебная заметка в чате (локальная, на сервер не уходит) */
+function __mxE2eNote(cid,text){
+  var key=__mx.chatKey[cid];if(!key)return;
+  var made=__mxAddMsgs(key,[{id:String(Date.now()*1000+Math.floor(Math.random()*1e3)),time:Date.now(),sender:__mx.self,text:text,type:"USER",attaches:[],_note:1}]);
+  if(made.length)xc({_:"updateNewMessage",message:made[0],pts:++nc,pts_count:1})}
+async function __mxE2eHs(cid,m,hs){
+  var cs=String(cid),mk=cs+":"+m.id;if(__mx.e2e.done[mk])return;__mx.e2e.done[mk]=1;
+  var peer;try{peer=await crypto.subtle.importKey("raw",__e2u8(hs.k),{name:"ECDH",namedCurve:"P-256"},false,[])}catch(e){return}
+  if(hs.t==="req"){__mx.e2e.pend[cs]={k:hs.k,id:m.id};m.text=(m.text?m.text+"\n":"")+"➜ /e2e accept — принять, /e2e decline — отклонить"}
+  else if(hs.t==="ack"){
+    var s=__mx.e2e.sess[cs];if(!s||s.status!=="pending"||!s.keyPair)return;
+    var aes=await crypto.subtle.deriveKey({name:"ECDH",public:peer},s.keyPair.privateKey,{name:"AES-GCM",length:256},true,["encrypt","decrypt"]);
+    __mx.e2e.sess[cs]={status:"active",aesKey:aes};await __mxE2ePersist(cid,aes);__mxE2eNote(cid,"🔒 Шифрование включено")}}
+/* входящее сообщение (сырое, MAX): расшифровка / разбор рукопожатия; меняет m.text на месте */
+async function __mxE2eInMsg(m,cid){
+  if(!m||typeof m.text!=="string"||cid==null)return;
+  if(m.text.indexOf(__E2E_PFX)!==0&&m.text.indexOf(__E2E_HS_S)<0)return;
+  await __mxE2eReady();
+  var own=String(m.sender)===String(__mx.self);
+  if(m.text.indexOf(__E2E_PFX)===0){
+    var s=__mxE2eSess(cid);m.__ct=m.text;
+    if(s){try{var pt=await __mxE2eDecT(s.aesKey,m.text);
+      if(pt.indexOf(__E2E_META)===0){var meta=JSON.parse(pt.slice(__E2E_META.length),__e2rev);m.__e2eMeta=meta;pt=meta.c||""}
+      m.text=(own||!pt)?pt:"🔒 "+pt;m.__e2e=1;return}catch(e){}}
+    m.__e2e=0;m.text="🔒 Не удалось расшифровать сообщение";return}
+  var hs=__e2extract(m.text);
+  if(hs&&hs.t&&hs.k){m.text=__e2strip(m.text);
+    if(__mx.self==null||own)return;
+    if(hs.t==="req"&&__mxE2eSess(cid))return;
+    await __mxE2eHs(cid,m,hs)}}
+async function __mxE2eInChats(p){
+  var l=((p&&p.chats)||[]).filter(function(c){var t=c&&c.lastMessage&&c.lastMessage.text;return typeof t==="string"&&(t.indexOf(__E2E_PFX)===0||t.indexOf(__E2E_HS_S)>=0)});
+  for(var i=0;i<l.length;i++)await __mxE2eInMsg(l[i].lastMessage,l[i].id)}
+async function __mxE2eIn49(pl,r){
+  try{if(r&&Array.isArray(r.messages)){
+      if((pl.backward||0)>=10)__mxDelInject(pl.chatId,pl,r);
+      for(var i=0;i<r.messages.length;i++)await __mxE2eInMsg(r.messages[i],pl.chatId)}}catch(e){__mxLog("e2e history",e&&e.message||e)}
+  return r}
+async function __mxE2eOut(pl){
+  await __mxE2eReady();
+  var s=__mxE2eSess(pl.chatId),t=pl.message.text;
+  if(s&&typeof t==="string"&&t&&t.indexOf(__E2E_PFX)!==0&&t.indexOf(__E2E_HS_S)<0)pl.message.text=await __mxE2eEncT(s.aesKey,t)}
+var __mxCallE0=__mxCall;
+__mxCall=function(op,payload){
+  if(op===64&&payload&&payload.message&&payload.chatId!=null)return __mxE2eOut(payload).then(function(){return __mxCallE0(op,payload)});
+  var pr=__mxCallE0(op,payload);
+  if(op===19)return pr.then(function(r){return __mxE2eInChats(r).catch(function(){}).then(function(){return r})});
+  if(op===49)return pr.then(function(r){return __mxE2eIn49(payload,r)});
+  return pr};
+var __mxPushE0=__mxPush;
+__mxPush=function(pl){
+  var m=pl&&(pl.message||pl),cid=pl&&(pl.chatId!=null?pl.chatId:(m&&m.chatId));
+  __mx.e2e.q=__mx.e2e.q.then(function(){return __mxE2eInMsg(m,cid)}).catch(function(e){__mxLog("e2e push",e&&e.message||e)}).then(function(){try{__mxRawKeep(cid,m);__mxPushE0(pl)}catch(e){__mxLog("push failed",e)}})};
+/* вложения: шифруем байты, имя/тип/подпись/атрибуты едут внутри шифртекста метаданных */
+async function __mxE2eMediaPack(s,blob,name,mime,isPhoto,cap,attrs){
+  var enc=await __mxE2eEncB(s.aesKey,new Uint8Array(await blob.arrayBuffer()));
+  var meta={n:name,m:mime,p:isPhoto?1:0,s:blob.size,c:cap||"",a:attrs||[]};
+  var text=__E2E_PFX+__e2b64(await __mxE2eEncB(s.aesKey,new TextEncoder().encode(__E2E_META+JSON.stringify(meta,__e2rep))));
+  var nm="e2e-";for(var i=0;i<8;i++)nm+=Math.floor(Math.random()*16).toString(16);
+  return{blob:new Blob([enc],{type:"application/octet-stream"}),name:nm+".bin",text:text}}
+function __mxE2eRetype(o,m,meta){
+  var old=o.media&&(o.media.document?o.media.document.id:(o.media.photo?o.media.photo.id:null)),rec=old!=null&&__mx.media[String(old)];
+  if(!rec)return;
+  var nid=__mxH("e2e:"+old);
+  __mx.media[nid]={kind:"E2E",inner:String(old),chatId:rec.chatId,msgId:rec.msgId,msgTime:rec.msgTime,idx:0,attach:{},url:null,size:meta.s||0,cid:rec.chatId};
+  if(meta.p)o.media={_:"messageMediaPhoto",pFlags:{},photo:{_:"photo",pFlags:{},id:nid,access_hash:"1",file_reference:[],date:o.date,sizes:[{_:"photoSize",type:"x",w:1024,h:768,size:0}],dc_id:2}};
+  else{var at=(meta.a||[]).slice();if(!at.some(function(x){return x&&x._==="documentAttributeFilename"}))at.push({_:"documentAttributeFilename",file_name:meta.n||"file"});
+    o.media=__mxDocMedia(nid,o.date,meta.m||"application/octet-stream",meta.s||0,at)}
+  o.message=m.text||""}
+async function __mxE2eGetMedia(a,rec){
+  if(!rec.plain){
+    if(!rec.pP)rec.pP=(async function(){
+      var s=__mxE2eSess(rec.cid);if(!s)throw new Error("нет ключа");
+      var parts=[],off=0,L=1048576,len=0,o=0;
+      for(;;){var r=await __mxGetMedia({location:{id:rec.inner,_:"inputDocumentFileLocation"},offset:off,limit:L}),b=r&&r.bytes;if(!b||!b.length)break;parts.push(b);len+=b.length;if(b.length<L)break;off+=b.length}
+      var all=new Uint8Array(len);parts.forEach(function(p){all.set(p,o);o+=p.length});
+      return await __mxE2eDecB(s.aesKey,all)})().then(function(p){rec.plain=p;return p},function(e){rec.pP=null;__mxLog("e2e media",e&&e.message||e);throw e});
+    try{await rec.pP}catch(e){throw{code:400,type:"LOCATION_INVALID",handled:!0}}}
+  var buf=rec.plain,off2=a.offset||0,lim=a.limit||buf.length;
+  return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:buf.subarray(off2,off2+lim)}}
+/* команды /e2e в поле ввода личного чата (в Web K нет своего UI) */
+async function __mxE2eCmd(e,key,cid){
+  var a=((e.message||"").trim().split(/\s+/)[1]||"status").toLowerCase(),cs=String(cid),E=__mx.e2e,kp,pub,peer,aes;
+  if(__mx.chType[key]!=="DIALOG")return __mxE2eNote(cid,"🔐 E2E-шифрование работает только в личных чатах");
+  await __mxE2eReady();
+  if(a==="on"){
+    kp=await crypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveKey"]);E.sess[cs]={status:"pending",keyPair:kp};
+    pub=new Uint8Array(await crypto.subtle.exportKey("raw",kp.publicKey));
+    await __mxCall(64,{chatId:cid,message:{text:__e2embed("🔐 Запрос на включение шифрования",{t:"req",k:__e2b64(pub)}),cid:Date.now(),attaches:[]},notify:true});
+    __mxE2eNote(cid,"🔐 Запрос на шифрование отправлен, ждём подтверждения собеседника")}
+  else if(a==="accept"){
+    var p=E.pend[cs];if(!p)return __mxE2eNote(cid,"🔐 Нет входящего запроса на шифрование");
+    peer=await crypto.subtle.importKey("raw",__e2u8(p.k),{name:"ECDH",namedCurve:"P-256"},false,[]);
+    kp=await crypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveKey"]);
+    aes=await crypto.subtle.deriveKey({name:"ECDH",public:peer},kp.privateKey,{name:"AES-GCM",length:256},true,["encrypt","decrypt"]);
+    E.sess[cs]={status:"active",aesKey:aes};delete E.pend[cs];await __mxE2ePersist(cid,aes);
+    pub=new Uint8Array(await crypto.subtle.exportKey("raw",kp.publicKey));
+    await __mxCall(64,{chatId:cid,message:{text:__e2embed("🔐 Шифрование включено",{t:"ack",k:__e2b64(pub)}),cid:Date.now(),attaches:[]},notify:true});
+    __mxE2eNote(cid,"🔒 Шифрование включено")}
+  else if(a==="decline"){delete E.pend[cs];__mxE2eNote(cid,"🔓 Запрос на шифрование отклонён")}
+  else if(a==="off"){await __mxE2eForget(cid);__mxE2eNote(cid,"🔓 Шифрование выключено")}
+  else __mxE2eNote(cid,E.sess[cs]&&E.sess[cs].status==="active"?"🔒 Шифрование включено. /e2e off — выключить":(E.sess[cs]?"⏳ Ожидаем подтверждения собеседника":"🔓 Шифрование выключено.\n/e2e on — включить (собеседник подтвердит командой /e2e accept)"))}
+__mxM["messages.sendMessage"]=function(e){
+  var t=(e&&e.message||"").trim();
+  if(!/^\/e2e(\s|$)/i.test(t))return Tc["messages.sendMessage"](e);
+  /* команду не отправляем: показываем и сразу убираем «исходящий» пузырь, иначе Web K ждёт подтверждения вечно */
+  var key=uc(e.peer),cid=__mx.keyChat[key],n=Q(key,!0,e.message,0,tc,{entities:e.entities});
+  setTimeout(function(){var l=fc[key];if(l){var i=l.indexOf(n);if(i>=0)l.splice(i,1)}
+    xc({_:"updateDeleteMessages",messages:[n.id],pts:++nc,pts_count:1});
+    if(cid!=null)__mxE2eCmd(e,key,cid).catch(function(er){__mxLog("e2e cmd",er&&er.message||er)})},0);
+  return{_:"updates",updates:[{_:"updateMessageID",id:n.id,random_id:e.random_id},{_:"updateNewMessage",message:n,pts:++nc,pts_count:1}],users:[],chats:[],date:Math.floor(Date.now()/1e3),seq:0}};
+async function __mxSendMediaE2E(e){
+  await __mxSync();
+  var key=uc(e.peer),cid=__mx.keyChat[key],im=e.media||{};
+  if(cid==null)throw{code:400,type:"PEER_ID_INVALID",handled:!0};
+  if(im._==="inputMediaDocument")return __mxSendSticker(e,key,cid,im);
+  var isPhoto=im._==="inputMediaUploadedPhoto",isDoc=im._==="inputMediaUploadedDocument";
+  if(!isPhoto&&!isDoc)throw{code:400,type:"MEDIA_INVALID",handled:!0};
+  var f=im.file,bytes=__mxJoin(f);
+  if(!bytes)throw{code:400,type:"FILE_PARTS_INVALID",handled:!0};
+  var name=f.name||(isPhoto?"photo.jpg":"file"),mime=isPhoto?"image/jpeg":(im.mime_type||"application/octet-stream");
+  var cap=e.message||"",date=Math.floor(Date.now()/1e3),id=__mxH("out:"+Date.now()+":"+name),media;
+  if(isPhoto){media={_:"messageMediaPhoto",pFlags:{},photo:{_:"photo",pFlags:{},id:id,access_hash:"1",file_reference:[],date:date,sizes:[{_:"photoSize",type:"x",w:1024,h:768,size:0}],dc_id:2}}}
+  else{var attrs=(im.attributes||[]).slice();if(!attrs.some(function(x){return x._==="documentAttributeFilename"}))attrs.push({_:"documentAttributeFilename",file_name:name});
+    media=__mxDocMedia(id,date,mime,bytes.length,attrs)}
+  var o=Q(key,!0,cap,0,100,{entities:e.entities,media:media});
+  /* локальная копия, чтобы превью/скачивание своего вложения работали без сети */
+  var blob=new Blob([bytes],{type:mime}),rec={kind:"LOCAL",chatId:cid,msgId:"",msgTime:0,idx:0,attach:{},url:null,size:0,blob:blob};
+  __mx.media[id]=rec;
+  (__mx.sentOut[key]||(__mx.sentOut[key]=[])).push({text:cap,o:o});
+  (async function(){
+    try{
+      var fd=new FormData();var E2=__mxE2eSess(cid),up=E2?await __mxE2eMediaPack(E2,blob,name,mime,isPhoto,cap,im.attributes):null;fd.append("file",up?new File([up.blob],up.name,{type:"application/octet-stream"}):new File([blob],name,{type:mime}));
+      var res=await fetch(isPhoto&&!up?"/api/upload-photo":"/api/upload-file",{method:"POST",body:fd}),j=await res.json().catch(function(){return{}});
+      if(!res.ok||j.error)throw new Error(j.error||("HTTP "+res.status));
+      var at=isPhoto&&!up?{_type:"PHOTO",photoToken:j.photoToken}:{_type:"FILE",token:j.token};
+      var p=await __mxCall(64,{chatId:cid,message:{text:up?up.text:cap,cid:Date.now(),attaches:[at]},notify:!0}),mm=p&&(p.message||p),mid=mm&&mm.id;
+      if(mid!=null){__mx.seen[key][String(mid)]=1;o.__mxid=String(mid);__mx.tgIdOf[String(mid)]=o.id;__mx.maxIdOf[o.id]=String(mid);rec.msgId=String(mid);rec.kind="LOCAL"}
+      var l=__mx.sentOut[key],i=l?l.findIndex(function(s){return s.o===o}):-1;if(i>=0)l.splice(i,1)
+    }catch(er){__mxLog("send media failed",er)}})();
+  return{_:"updates",updates:[{_:"updateMessageID",id:o.id,random_id:e.random_id},{_:"updateNewMessage",message:o,pts:++nc,pts_count:1}],users:[],chats:[],date:date,seq:0}}
+__mxM["messages.sendMedia"]=__mxSendMediaE2E;
+
 [["stories.incrementStoryViews",function(){return!0}],
  ["stories.getStoriesViews",function(){return{_:"stories.storyViews",views:[],users:[]}}]
 ].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});

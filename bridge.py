@@ -2748,7 +2748,7 @@ class MaxClient:
         return seq
 
     def _recv_exact_more(self):
-        chunk = self.sock.recv(4096)
+        chunk = self.sock.recv(65536)
         if not chunk:
             raise ConnectionError("Connection closed")
         self.buf += chunk
@@ -4913,6 +4913,54 @@ def post_messages_cache():
     return jsonify({"success": True})
 
 
+_E2E_KEYS_FILE = os.path.join(os.path.dirname(__file__), "e2e_keys.json")
+_e2e_keys_lock = threading.Lock()
+
+
+def _e2e_keys_load():
+    try:
+        with open(_E2E_KEYS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+@app.route("/api/e2e-keys", methods=["GET"])
+def get_e2e_keys():
+    """Ключи E2E-чатов, общие для старого и нового (/tg/) интерфейсов.
+    Запись: {status: 'active', k: base64(AES-256), t: ms} или надгробие {status: 'off', t: ms}."""
+    with _e2e_keys_lock:
+        return jsonify({"success": True, "keys": _e2e_keys_load()})
+
+
+@app.route("/api/e2e-keys", methods=["POST"])
+def post_e2e_keys():
+    """Сохраняет (или помечает выключенным) ключ одного чата. Побеждает запись с большим t."""
+    payload = request.get_json(force=True, silent=True) or {}
+    chat_id = str(payload.get("chatId", ""))
+    entry = payload.get("entry")
+    if not chat_id or not isinstance(entry, dict):
+        return jsonify({"success": False, "error": "chatId and entry required"}), 400
+    status = entry.get("status")
+    if status not in ("active", "off") or (status == "active" and not entry.get("k")):
+        return jsonify({"success": False, "error": "bad entry"}), 400
+    clean = {"status": status, "t": int(entry.get("t") or time.time() * 1000)}
+    if status == "active":
+        clean["k"] = str(entry["k"])
+    with _e2e_keys_lock:
+        keys = _e2e_keys_load()
+        old = keys.get(chat_id)
+        if old and int(old.get("t") or 0) > clean["t"]:
+            return jsonify({"success": True, "ignored": True})
+        keys[chat_id] = clean
+        tmp = _E2E_KEYS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(keys, f)
+        os.replace(tmp, _E2E_KEYS_FILE)
+    return jsonify({"success": True})
+
+
 @app.route("/api/logout", methods=["POST"])
 def logout():
     """Выход из аккаунта"""
@@ -5475,7 +5523,7 @@ def _relay_impl(ws):
             except queue.Empty:
                 pass
 
-            msg = ws.receive(timeout=0.2)
+            msg = ws.receive(timeout=0.02)  # было 0.2: каждый ответ MAX ждал до 200 мс на опросе очереди
             if msg is None:
                 continue
 
