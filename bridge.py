@@ -3113,6 +3113,10 @@ def tg_index():
         return _tg_nocache(send_from_directory(TG_DIR, "index.html"), "index.html")
 
 
+# Файлы /tg/, которые правятся на месте (имя с хэшем прежнее): всегда no-cache, и по ним считается build.
+_TG_LIVE_PREFIXES = ("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-", "sw-")
+
+
 def _tg_boot_info():
     """build = отпечаток воркеров (имя+размер+mtime). Меняется при любой правке воркера, даже если
     имя файла прежнее — страница по нему принудительно перекачивает воркеры (см. static/tg/index.html)."""
@@ -3121,7 +3125,7 @@ def _tg_boot_info():
     names = set()
     for d in dirs:
         try:
-            names.update(n for n in os.listdir(d) if (n.startswith(("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-", "sw-"))) and n.endswith(".js"))
+            names.update(n for n in os.listdir(d) if n.startswith(_TG_LIVE_PREFIXES) and n.endswith(".js"))
         except OSError:
             pass
     h = hashlib.md5()
@@ -3141,10 +3145,26 @@ _EMPTY_TGS = ('{"tgs":1,"v":"5.5.2","fr":60,"ip":0,"op":2,"w":512,"h":512,"nm":"
               '"shapes":[],"ip":0,"op":2,"st":0,"bm":0}]}')
 
 
-def _tg_nocache(resp, rel):
-    """У index.html и index.worker-*.js имя файла не меняется при правках (хэш прежний),
-    поэтому браузер держал устаревшую копию. no-cache = всегда сверять по ETag (304, если не менялось)."""
-    if rel.endswith((".html", ".js", ".css")) or rel.startswith("index.worker-"):
+_TG_HASHED_RE = re.compile(r"-[A-Za-z0-9_-]{8}\.(?:js|css|wasm)$")
+_TG_STATIC_EXT = (".png", ".svg", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".otf",
+                  ".mp3", ".ogg", ".wav", ".json", ".tgs", ".webmanifest")
+
+
+def _tg_nocache(resp, rel, live=False):
+    """Заголовки кеша для /tg/*.
+    Раньше всё отдавалось с Cache-Control: no-cache (дефолт send_from_directory): на каждом запуске браузер
+    заново проверял каждый модуль и каждую эмодзи-картинку (сотни запросов, 30+ МБ PNG) — это и тормозило старт.
+    Теперь: файлы с хэшем в имени — неизменяемые (год), остальная статика (картинки, шрифты, звуки) — неделя;
+    no-cache остаётся у index.html, правимых на месте файлов (_TG_LIVE_PREFIXES, их обновляет build-механизм),
+    OTA-оверлея и всего неопознанного."""
+    base = os.path.basename(rel)
+    if live or rel.endswith(".html") or base.startswith(_TG_LIVE_PREFIXES):
+        resp.headers["Cache-Control"] = "no-cache"
+    elif _TG_HASHED_RE.search(base):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif base.lower().endswith(_TG_STATIC_EXT):
+        resp.headers["Cache-Control"] = "public, max-age=604800"
+    else:
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 
@@ -3160,7 +3180,7 @@ def static_files(filename):
             from werkzeug.security import safe_join
             ov = safe_join(TG_OVERLAY_DIR, rel)
             if ov and os.path.isfile(ov):
-                return _tg_nocache(send_from_directory(TG_OVERLAY_DIR, rel), rel)
+                return _tg_nocache(send_from_directory(TG_OVERLAY_DIR, rel), rel, live=True)
         if rel.startswith("assets/tgs/") and rel.endswith(".json") and not os.path.isfile(os.path.join(TG_DIR, rel)):
             # В репозитории нет части анимаций Web K (напр. Folders_1.json): HTML-404 ломал tlottie и открытие вкладки.
             # Отдаём пустую, но валидную Lottie-анимацию.
@@ -3179,18 +3199,100 @@ _MEDIA_CACHE_ITEM_MAX = 2 * 1024 * 1024
 _media_cache_lock = threading.Lock()
 
 
+_IMG_DISK_DIR = os.getenv("IMG_CACHE_DIR", os.path.join(os.path.dirname(MESSAGES_CACHE_FILE) or ".", "img_cache"))
+_IMG_DISK_MAX = 150 * 1024 * 1024
+_IMG_DISK_TTL = 30 * 24 * 3600
+_img_disk_state = {"pruned": False}
+
+
+def _img_disk_path(kind, url):
+    return os.path.join(_IMG_DISK_DIR, kind + "-" + hashlib.sha1(url.encode("utf-8")).hexdigest())
+
+
+def _img_disk_get(kind, url):
+    p = _img_disk_path(kind, url)
+    try:
+        st = os.stat(p)
+        if time.time() - st.st_mtime > _IMG_DISK_TTL:
+            return None
+        with open(p, "rb") as f:
+            raw = f.read()
+        head, _, data = raw.partition(b"\n")
+        if not data:
+            return None
+        os.utime(p, None)  # «свежесть» для LRU-чистки
+        return head.decode("utf-8", "replace"), data
+    except Exception:
+        return None
+
+
+def _img_disk_put(kind, url, content_type, data):
+    try:
+        os.makedirs(_IMG_DISK_DIR, exist_ok=True)
+        p = _img_disk_path(kind, url)
+        tmp = p + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write((content_type or "image/jpeg").replace("\n", " ").encode("utf-8") + b"\n" + data)
+        os.replace(tmp, p)
+        if not _img_disk_state["pruned"]:
+            _img_disk_state["pruned"] = True
+            threading.Thread(target=_img_disk_prune, daemon=True).start()
+    except Exception as e:
+        logger.debug(f"[img cache] disk put failed: {e}")
+
+
+def _img_disk_prune():
+    """Один раз за запуск: выкидываем просроченное и самое старое, пока кеш больше лимита."""
+    try:
+        items = []
+        total = 0
+        now = time.time()
+        for n in os.listdir(_IMG_DISK_DIR):
+            p = os.path.join(_IMG_DISK_DIR, n)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            if n.endswith(".tmp") or now - st.st_mtime > _IMG_DISK_TTL:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+                continue
+            items.append((st.st_mtime, st.st_size, p))
+            total += st.st_size
+        if total > _IMG_DISK_MAX:
+            items.sort()
+            for _, size, p in items:
+                if total <= _IMG_DISK_MAX * 0.8:
+                    break
+                try:
+                    os.remove(p)
+                    total -= size
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+
 def _media_cache_get(kind, url):
     with _media_cache_lock:
         hit = _MEDIA_CACHE.get((kind, url))
         if hit is not None:
             _MEDIA_CACHE.move_to_end((kind, url))
-        return hit
+            return hit
+    disk = _img_disk_get(kind, url)
+    if disk:
+        _media_cache_put(kind, url, disk[0], disk[1], persist=False)
+    return disk
 
 
-def _media_cache_put(kind, url, content_type, data):
+def _media_cache_put(kind, url, content_type, data, persist=True):
     global _MEDIA_CACHE_BYTES
     if not data or len(data) > _MEDIA_CACHE_ITEM_MAX:
         return
+    if persist:
+        _img_disk_put(kind, url, content_type, data)
     with _media_cache_lock:
         old = _MEDIA_CACHE.pop((kind, url), None)
         if old is not None:
@@ -3282,7 +3384,7 @@ def proxy_image():
 
     _hit = _media_cache_get("img", url)
     if _hit:
-        return Response(_hit[1], content_type=_hit[0], headers={"Cache-Control": "public, max-age=3600"})
+        return Response(_hit[1], content_type=_hit[0], headers={"Cache-Control": "public, max-age=604800, immutable"})
 
     try:
         data = None
@@ -3330,7 +3432,7 @@ def proxy_image():
         if data is None:
             raise last_err or Exception("unknown error")
         _media_cache_put("img", url, content_type, data)
-        return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=3600"})
+        return Response(data, content_type=content_type, headers={"Cache-Control": "public, max-age=604800, immutable"})
     except Exception as e:
         logger.warning(f"[img proxy] failed for {url}: {e}")
         return "", 502
