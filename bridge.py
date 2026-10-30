@@ -5015,6 +5015,41 @@ def post_messages_cache():
     return jsonify({"success": True})
 
 
+@app.route("/api/img-cache", methods=["GET"])
+def get_img_cache_stats():
+    """Сколько занимает дисковый кэш картинок (экран «Использование памяти» в /tg/)."""
+    files = total = 0
+    try:
+        for n in os.listdir(_IMG_DISK_DIR):
+            try:
+                total += os.path.getsize(os.path.join(_IMG_DISK_DIR, n))
+                files += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return jsonify({"files": files, "bytes": total, "limit": _IMG_DISK_MAX})
+
+
+@app.route("/api/img-cache/clear", methods=["POST"])
+def clear_img_cache():
+    global _MEDIA_CACHE_BYTES
+    removed = 0
+    with _media_cache_lock:
+        _MEDIA_CACHE.clear()
+        _MEDIA_CACHE_BYTES = 0
+    try:
+        for n in os.listdir(_IMG_DISK_DIR):
+            try:
+                os.remove(os.path.join(_IMG_DISK_DIR, n))
+                removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return jsonify({"ok": True, "removed": removed})
+
+
 _E2E_KEYS_FILE = os.path.join(os.path.dirname(__file__), "e2e_keys.json")
 _e2e_keys_lock = threading.Lock()
 

@@ -179,6 +179,7 @@ function __mxSync(){
   __mx.syncP=Promise.all([__mxSnapGet(),__mxDelLoad()]).then(function(r){
     var snap=r[0],sp=snap&&snap.p&&Array.isArray(snap.p.chats)&&snap.p.chats.length&&Date.now()-(snap.t||0)<12096e5?snap.p:null;
     if(sp){
+      __mxMetaFrom(sp);
       return __mxE2eInChats(sp).catch(function(){}).then(function(){
       var pr=__mxApplySync(sp);if(pr&&pr.catch)pr.catch(function(){});
       __mxLog("sync: из снимка за",Date.now()-t0,"мс, чатов",sp.chats.length);
@@ -854,7 +855,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-10-28-r16")}catch(e){}
+try{__mxLog("worker build 2026-10-30-r17")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
@@ -1182,7 +1183,7 @@ var __mxCallE0=__mxCall;
 __mxCall=function(op,payload){
   if(op===64&&payload&&payload.message&&payload.chatId!=null)return __mxE2eOut(payload).then(function(){return __mxCallE0(op,payload)});
   var pr=__mxCallE0(op,payload);
-  if(op===19)return pr.then(function(r){return __mxE2eInChats(r).catch(function(){}).then(function(){return r})});
+  if(op===19)return pr.then(function(r){__mxMetaFrom(r);return __mxE2eInChats(r).catch(function(){}).then(function(){return r})});
   if(op===49)return pr.then(function(r){return __mxE2eIn49(payload,r)});
   return pr};
 var __mxPushE0=__mxPush;
@@ -1279,6 +1280,27 @@ async function __mxSendMediaE2E(e){
   return{_:"updates",updates:[{_:"updateMessageID",id:o.id,random_id:e.random_id},{_:"updateNewMessage",message:o,pts:++xd,pts_count:1}],users:[],chats:[],date:date,seq:0}}
 __mxM["messages.sendMedia"]=__mxSendMediaE2E;
 
+/* ==== ext6: данные для нативных экранов MAX (профиль, ID, статусы) — BroadcastChannel "mx-ui", клиент: static/tg/mx-ui.js ==== */
+function __mxMetaFrom(p){try{var m=__mx.chatMeta||(__mx.chatMeta={});((p&&p.chats)||[]).forEach(function(c){if(c&&c.id!=null)m[String(c.id)]={created:c.created||0,status:c.status||"",type:c.type||"",title:c.title||"",count:c.participantsCount||0,icon:c.baseIconUrl||"",desc:c.description||"",link:c.link||""}})}catch(e){}}
+function __mxUiProf(c,id){
+  c=c||{};var nm=c.names||[],on=nm.filter(function(n){return n&&n.type==="ONEME"})[0]||nm[0]||{};
+  return{id:Number(id),name:__mxName(c)||"",first:on.firstName||"",last:on.lastName||"",phone:c.phone?String(c.phone):"",photo:c.baseRawUrl||c.baseUrl||"",photoSmall:c.baseUrl||"",desc:c.description||"",link:c.link||"",options:Array.isArray(c.options)?c.options:[],accountStatus:c.accountStatus||0,registrationTime:c.registrationTime||0,updateTime:c.updateTime||0,country:c.country||"",gender:c.gender}}
+async function __mxUiRpc(m,a){
+  await __mxSync();
+  if(m==="me"){var sid=__mx.self;return __mxUiProf(__mx.contacts[sid],sid)}
+  if(m==="contact"){
+    var id=String(a.id);if(Number(id)===100)return __mxUiRpc("me",{});
+    if(!__mx.contacts[id]){try{var r=await __mxCall(32,{contactIds:[Number(id)]});((r&&r.contacts)||[]).forEach(function(x){__mx.contacts[x.id]=x})}catch(e){}}
+    var p=__mxUiProf(__mx.contacts[id],id),cid=__mx.keyChat["u"+id],meta=cid!=null?(__mx.chatMeta||{})[String(cid)]:null;
+    p.chatId=cid!=null?cid:null;if(meta){p.chatCreated=meta.created;p.chatStatus=meta.status}
+    var st=__mxUser(id).status||{};
+    p.presence={k:st._==="userStatusOnline"?"online":(st._==="userStatusOffline"?"offline":"recently"),t:st.was_online?st.was_online*1000:0};
+    return p}
+  if(m==="chat"){
+    var ck=__mx.keyChat["c"+Math.abs(Number(a.id))],mt=(__mx.chatMeta||{})[String(ck)]||{};
+    return{id:Math.abs(Number(a.id)),name:mt.title||"",photo:mt.icon||"",photoSmall:mt.icon||"",desc:mt.desc||"",link:mt.link||"",members:mt.count||0,chatId:ck!=null?ck:null,chatCreated:mt.created||0,chatStatus:mt.status||"",options:[],accountStatus:0}}
+  throw new Error("неизвестный запрос "+m)}
+try{var __mxBc=new BroadcastChannel("mx-ui");__mxBc.onmessage=function(e){var d=e.data;if(!d||d.t!=="req")return;__mxUiRpc(d.m,d.a||{}).then(function(r){__mxBc.postMessage({t:"res",id:d.id,r:r})},function(er){__mxBc.postMessage({t:"res",id:d.id,e:String(er&&er.message||er)})})}}catch(e){}
 [["stories.incrementStoryViews",function(){return!0}],
  ["stories.getStoriesViews",function(){return{_:"stories.storyViews",views:[],users:[]}}]
 ].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});
