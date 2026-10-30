@@ -18041,6 +18041,51 @@
             bottomNavGoChats();
         };
 
+        // ── Системная «Назад» (Android-жест/кнопка, кнопка браузера): закрывает верхний слой, а не выходит из приложения ──
+        // Пока открыт хоть один слой (модалка, просмотрщик, настройки, экран чата), в истории лежит одна запись-страховка;
+        // popstate снимает её и закрывает верхний слой. Слои перечислены сверху вниз.
+        const MxBack = (() => {
+            const el = id => document.getElementById(id);
+            const act = id => { const e = el(id); return !!e && e.classList.contains('active'); };
+            const shown = id => { const e = el(id); return !!e && !!e.style.display && e.style.display !== 'none'; };
+            const layers = [
+                { open: () => { const e = el('miniappOverlay'); return !!e && !e.classList.contains('hidden'); }, close: () => closeMiniApp() },
+                { open: () => shown('storyCreator'), close: () => closeStoryCreator() },
+                { open: () => shown('storyViewer'), close: () => closeStoryViewer() },
+                { open: () => act('photoViewer'), close: () => closePhotoViewer() },
+                { open: () => act('videoModal'), close: () => closeVideoModal() },
+                { open: () => shown('folderEditorModal'), close: () => closeFolderEditor() },
+                { open: () => act('scamAllCheckedModal'), close: () => closeScamAllCheckedModal() },
+                { open: () => act('contactPhotosModal'), close: () => closeContactPhotosModal() },
+                { open: () => act('chatMediaModal'), close: () => closeChatMediaModal() },
+                { open: () => act('blockedContactsModal'), close: () => closeBlockedContactsModal() },
+                { open: () => act('newChatModal'), close: () => closeNewChatModal() },
+                { open: () => act('chatProfileModal'), close: () => closeChatProfile() },
+                { open: () => act('settingsModal'), close: () => { if (settingsMenu.currentPage) settingsMenu.showList(); else closeSettingsModal(); } },
+                { open: () => { const e = el('chatDetailSection'); return !!e && !e.classList.contains('hidden'); }, close: () => { const b = el('backBtn'); if (b && b.onclick) b.onclick(); } },
+            ];
+            let sent = false, skip = false, raf = 0;
+            const top = () => { for (const L of layers) { try { if (L.open()) return L; } catch (e) { /* слой ещё не инициализирован */ } } return null; };
+            const sync = () => {
+                raf = 0;
+                const t = top();
+                if (t && !sent) { try { history.pushState({ mxBack: 1 }, ''); sent = true; } catch (e) { } }
+                else if (!t && sent) { sent = false; skip = true; try { history.back(); } catch (e) { skip = false; } }
+            };
+            const schedule = () => { if (!raf) raf = requestAnimationFrame(sync); };
+            window.addEventListener('popstate', () => {
+                if (skip) { skip = false; return; }
+                if (!sent) return;
+                sent = false;                                  // запись-страховку браузер уже снял
+                const t = top();
+                if (t) { try { t.close(); } catch (e) { console.warn('[back]', e); } }
+                schedule();                                    // слои остались (или закрытие отменено) — вернём запись
+            });
+            new MutationObserver(schedule).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class', 'style'] });
+            schedule();
+            return { top, schedule };
+        })();
+
         document.getElementById('sendMessageBtn').onclick = async () => {
             if (activeBotChatId) { sendBotChatMessage(); return; }
             const text = document.getElementById('messageText').value.trim();

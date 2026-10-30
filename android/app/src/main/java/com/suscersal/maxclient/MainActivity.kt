@@ -24,6 +24,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -205,6 +206,15 @@ class MainActivity : AppCompatActivity() {
         fetchAndSendFcmTokenIfAvailable()
 
         webView = findViewById(R.id.webview)
+
+        // Системная «Назад»: сначала шаг назад внутри приложения (закрыть экран/модалку/чат — их записи лежат в истории WebView),
+        // на корне — свернуть, а не убить приложение (иначе рвётся сессия MAX и уходит фоновая синхронизация).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::webView.isInitialized && webView.canGoBack()) webView.goBack()
+                else moveTaskToBack(true)
+            }
+        })
         val loadingGif = findViewById<GifView>(R.id.loadingGif)
         val loadingStatus = findViewById<TextView>(R.id.loadingStatus)
 

@@ -167,10 +167,14 @@
     var box = document.createElement('div'); box.id = 'mx-old';
     box.innerHTML = '<header><button type="button">‹ Назад</button><span></span></header><iframe></iframe>';
     box.querySelector('span').textContent = title; box.querySelector('iframe').src = src;
-    function close() { box.remove(); window.removeEventListener('message', onMsg); }
+    var rel = null;
+    function drop() { box.remove(); window.removeEventListener('message', onMsg); }
+    function close() { drop(); if (rel) { var r = rel; rel = null; r(); } }
     function onMsg(e) { if (e.data && e.data.mxClose) close(); }
     box.querySelector('button').onclick = close; window.addEventListener('message', onMsg);
     document.body.appendChild(box);
+    /* системная «Назад» закрывает фрейм, а не приложение (стек живёт в mx-ui.js) */
+    if (window.__mxBackLayer) rel = window.__mxBackLayer(function () { rel = null; drop(); });
   }
   var MORE = [['bots', 'Кастомные боты'], ['scamCheck', 'Скам-проверка (ИИ)'], ['gifPreview', 'Просмотреть GIF'], ['vars', 'Переменные'],
               ['debugDump', 'Дебаг-дамп'], ['device', 'Устройство (протокол)'], ['about', 'О приложении'], ['switchClassic', 'Классический интерфейс']];

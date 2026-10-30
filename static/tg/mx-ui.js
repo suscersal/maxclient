@@ -193,7 +193,24 @@
   }
 
   /* ------------------------------------------------------------ каркас страниц */
-  var root = null, pages = [];
+  /* Системная «Назад» (Android-жест/кнопка, кнопка браузера) закрывает верхний экран, а не выходит из приложения.
+     Пока открыт хоть один слой, в истории лежит одна «страховочная» запись; popstate снимает верхний слой.
+     Слоями могут быть и чужие оверлеи (фрейм классического UI): window.__mxBackLayer(close) → release(). */
+  var root = null, pages = [], layers = [], sent = false, skipPop = null;
+  function syncSent(cb) {
+    if (layers.length && !sent) { try { history.pushState({ mxu: 1 }, ''); sent = true; } catch (e) { } if (cb) cb(); }
+    else if (!layers.length && sent) { sent = false; skipPop = cb || true; try { history.back(); } catch (e) { skipPop = null; if (cb) cb(); } }
+    else if (cb) cb();
+  }
+  function layerPush(close, isPage) { var L = { close: close, page: !!isPage }; layers.push(L); syncSent(); return L; }
+  function layerRelease(L) { var i = layers.indexOf(L); if (i >= 0) layers.splice(i, 1); syncSent(); }
+  window.addEventListener('popstate', function (e) {
+    if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); return; }
+    if (!sent) return;
+    e.stopImmediatePropagation(); sent = false;           // запись-страховку браузер уже снял
+    var L = layers.pop(); if (L) { try { L.close(); } catch (er) { } }
+    syncSent();                                           // остались слои — вернём запись
+  }, true);
   function ensureRoot() {
     if (root) return root;
     root = h('div', { class: 'mxu-root' });
@@ -208,13 +225,26 @@
     var lum = (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255;
     root.style.setProperty('--mxu-fade', lum < 0.5 ? bg : 'rgba(0,0,0,.78)');
   }
-  function onKey(e) { if (e.key === 'Escape' && pages.length) { e.stopPropagation(); back(); } }
-  function back() {
-    var p = pages.pop(); if (!p) return;
-    p.el.classList.remove('mxu-in');
-    setTimeout(function () { p.el.remove(); if (!pages.length && root) { root.remove(); root = null; document.removeEventListener('keydown', onKey, true); } }, 270);
+  function dropRoot() { if (root) { root.remove(); root = null; document.removeEventListener('keydown', onKey, true); } }
+  function onKey(e) { if (e.key === 'Escape' && layers.length) { e.stopPropagation(); back(); } }
+  function removePage(pg) {
+    var i = pages.indexOf(pg); if (i >= 0) pages.splice(i, 1);
+    pg.el.classList.remove('mxu-in');
+    setTimeout(function () { pg.el.remove(); if (!pages.length) dropRoot(); }, 270);
   }
-  function closeAll() { while (pages.length) { var p = pages.pop(); p.el.remove(); } if (root) { root.remove(); root = null; document.removeEventListener('keydown', onKey, true); } }
+  /* кнопка «назад» в интерфейсе = то же, что системная */
+  function back() {
+    var L = layers[layers.length - 1]; if (!L) return;
+    if (sent) { try { history.back(); return; } catch (e) { } }
+    layers.pop(); L.close(); syncSent();
+  }
+  /* закрыть все экраны MAX (например, перед переходом в чат); cb вызовется, когда история приведена в порядок */
+  function closeAll(cb) {
+    var ps = pages.slice(); pages.length = 0; ps.forEach(function (p) { p.el.remove(); });
+    layers = layers.filter(function (l) { return !l.page; });
+    dropRoot();
+    syncSent(cb);
+  }
   function page(opts) {
     ensureRoot();
     var el = h('div', { class: 'mxu-page' }), body = h('div', { class: 'mxu-body' });
@@ -224,6 +254,7 @@
     root.appendChild(el);
     var pg = { el: el, body: body, title: title, setTitle: function (t) { title.textContent = t; }, spin: function () { body.innerHTML = ''; body.appendChild(h('div', { class: 'mxu-spin' })); } };
     pages.push(pg);
+    layerPush(function () { removePage(pg); }, true);
     requestAnimationFrame(function () { requestAnimationFrame(function () { el.classList.add('mxu-in'); }); });
     return pg;
   }
@@ -384,7 +415,7 @@
       ));
       pg.body.appendChild(card(
         row({ icon: 'gift', title: 'Пригласить друзей', chev: 1, onclick: function () { open('invite'); } }),
-        row({ icon: 'link', title: 'Вступить по ссылке', chev: 1, onclick: function () { closeAll(); legacyOpen('joinLink', 'Вступить по ссылке'); } }),
+        row({ icon: 'link', title: 'Вступить по ссылке', chev: 1, onclick: function () { closeAll(function () { legacyOpen('joinLink', 'Вступить по ссылке'); }); } }),
         row({ icon: 'info', title: 'Дополнительно', chev: 1, onclick: function () { open('more'); } }),
         row({ icon: 'info', title: 'О приложении', chev: 1, onclick: function () { open('about'); } })
       ));
@@ -402,7 +433,7 @@
       var h0 = hero({ title: p.name || ('ID ' + a.id), photo: p.photo, photoSmall: p.photoSmall, dot: ps && ps.dot, subText: ps && ps.text });
       pg.body.appendChild(h0);
       var tiles = h('div', { class: 'mxu-tiles' });
-      tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { closeAll(); try { location.hash = '#' + (a.group ? -Math.abs(a.id) : a.id); } catch (e) { } } }, icon('chat', 28), 'Чат'));
+      tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { closeAll(function () { try { location.hash = '#' + (a.group ? -Math.abs(a.id) : a.id); } catch (e) { } }); } }, icon('chat', 28), 'Чат'));
       tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { copy(p.id, 'ID'); } }, icon('copy', 28), 'ID'));
       tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { if (p.link) copy(p.link, 'Ссылка'); else if (p.phone) copy(fullPhone(p.phone), 'Номер'); else toast('Нечего копировать'); } }, icon('link', 28), p.link ? 'Ссылка' : 'Номер'));
       pg.body.appendChild(tiles);
@@ -607,7 +638,7 @@
     function on() { try { return localStorage.getItem('mx_dbg_btn') !== '0'; } catch (e) { return true; } }
     pg.body.appendChild(card(
       row({ icon: 'bug', title: 'Кнопка отладочной консоли', sub: 'Журнал воркера, синхронизации и сетевых вызовов', toggle: { on: on(), onchange: function (v) { try { localStorage.setItem('mx_dbg_btn', v ? '1' : '0'); } catch (e) { } applyDbg(); } } }),
-      row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(); b.click(); } else toast('Консоль недоступна'); } }),
+      row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(function () { b.click(); }); } else toast('Консоль недоступна'); } }),
       row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } })
     ));
     pg.body.appendChild(hint('Строки «sync: …», «stories: …», «deleted: …» и «e2e: …» в консоли показывают, где тратится время при старте и что происходит с историями и шифрованием.'));
@@ -689,5 +720,7 @@
   }
   new MutationObserver(function () { document.querySelectorAll('.btn-menu').forEach(patchMenu); }).observe(document.documentElement, { childList: true, subtree: true });
 
+  /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
+  window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };
   window.__mxUi = { open: open, closeAll: closeAll, rpc: rpc, screens: S };
 })();
