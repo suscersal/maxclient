@@ -196,10 +196,17 @@
   /* Системная «Назад» (Android-жест/кнопка, кнопка браузера) закрывает верхний экран, а не выходит из приложения.
      Пока открыт хоть один слой, в истории лежит одна «страховочная» запись; popstate снимает верхний слой.
      Слоями могут быть и чужие оверлеи (фрейм классического UI): window.__mxBackLayer(close) → release(). */
-  var root = null, pages = [], layers = [], sent = false, skipPop = null;
+  var root = null, pages = [], layers = [], sent = false, sentIdx = null, skipPop = null, foreign = 0;
+  /* Web K сам вызывает history.back()/go(), когда закрывает меню, вкладку настроек или попап. Если такой вызов придётся
+     на нашу запись-страховку, это не «Назад» пользователя. Системная «Назад» JS-вызовов не делает — так их и различаем. */
+  var nativeBack = history.back, nativeGo = history.go;
+  history.back = function () { foreign = Date.now(); return nativeBack.apply(history, arguments); };
+  history.go = function () { foreign = Date.now(); return nativeGo.apply(history, arguments); };
+  function ownBack() { return nativeBack.call(history); }
+  function navIdx() { try { return window.navigation && navigation.currentEntry ? navigation.currentEntry.index : null; } catch (e) { return null; } }
   function syncSent(cb) {
-    if (layers.length && !sent) { try { history.pushState({ mxu: 1 }, ''); sent = true; } catch (e) { } if (cb) cb(); }
-    else if (!layers.length && sent) { sent = false; skipPop = cb || true; try { history.back(); } catch (e) { skipPop = null; if (cb) cb(); } }
+    if (layers.length && !sent) { try { history.pushState({ mxu: 1 }, ''); sent = true; sentIdx = navIdx(); } catch (e) { } if (cb) cb(); }
+    else if (!layers.length && sent) { sent = false; skipPop = cb || true; try { ownBack(); } catch (e) { skipPop = null; if (cb) cb(); } }
     else if (cb) cb();
   }
   function layerPush(close, isPage) { var L = { close: close, page: !!isPage }; layers.push(L); syncSent(); return L; }
@@ -207,6 +214,11 @@
   window.addEventListener('popstate', function (e) {
     if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); return; }
     if (!sent) return;
+    var idx = navIdx();
+    if (idx != null && sentIdx != null && idx >= sentIdx) return;      // не откат назад (чужой hash/pushState) — не наше событие
+    if (foreign && Date.now() - foreign < 800) {                       // Web K сам сделал back и снял нашу запись: вернём её
+      foreign = 0; sent = false; setTimeout(syncSent, 0); return;      // событие не глушим — Web K ждёт его для своих окон
+    }
     e.stopImmediatePropagation(); sent = false;           // запись-страховку браузер уже снял
     var L = layers.pop(); if (L) { try { L.close(); } catch (er) { } }
     syncSent();                                           // остались слои — вернём запись
@@ -235,7 +247,7 @@
   /* кнопка «назад» в интерфейсе = то же, что системная */
   function back() {
     var L = layers[layers.length - 1]; if (!L) return;
-    if (sent) { try { history.back(); return; } catch (e) { } }
+    if (sent) { try { ownBack(); return; } catch (e) { } }
     layers.pop(); L.close(); syncSent();
   }
   /* закрыть все экраны MAX (например, перед переходом в чат); cb вызовется, когда история приведена в порядок */
