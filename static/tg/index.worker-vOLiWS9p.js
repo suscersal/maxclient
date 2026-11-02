@@ -1167,7 +1167,7 @@ var __mxCallE0=__mxCall;
 __mxCall=function(op,payload){
   if(op===64&&payload&&payload.message&&payload.chatId!=null)return __mxE2eOut(payload).then(function(){return __mxCallE0(op,payload)});
   var pr=__mxCallE0(op,payload);
-  if(op===19)return pr.then(function(r){__mxMetaFrom(r);return __mxE2eInChats(r).catch(function(){}).then(function(){return r})});
+  if(op===19)return pr.then(function(r){__mxMetaFrom(r,!0);return __mxE2eInChats(r).catch(function(){}).then(function(){return r})});
   if(op===49)return pr.then(function(r){return __mxE2eIn49(payload,r)});
   return pr};
 var __mxPushE0=__mxPush;
@@ -1265,7 +1265,9 @@ async function __mxSendMediaE2E(e){
 __mxM["messages.sendMedia"]=__mxSendMediaE2E;
 
 /* ==== ext6: данные для нативных экранов MAX (профиль, ID, статусы) — BroadcastChannel "mx-ui", клиент: static/tg/mx-ui.js ==== */
-function __mxMetaFrom(p){try{var m=__mx.chatMeta||(__mx.chatMeta={});((p&&p.chats)||[]).forEach(function(c){if(c&&c.id!=null)m[String(c.id)]={created:c.created||0,status:c.status||"",type:c.type||"",title:c.title||"",count:c.participantsCount||0,icon:c.baseIconUrl||"",desc:c.description||"",link:c.link||""}})}catch(e){}}
+function __mxMetaFrom(p,fresh){try{var m=__mx.chatMeta||(__mx.chatMeta={});((p&&p.chats)||[]).forEach(function(c){if(c&&c.id!=null)m[String(c.id)]={created:c.created||0,status:c.status||"",type:c.type||"",title:c.title||"",count:c.participantsCount||0,icon:c.baseIconUrl||"",desc:c.description||"",link:c.link||"",parts:c.type==="CHAT"?Object.keys(c.participants||{}).slice(0,2000):null}});
+  /* настоящие контакты — только из свежего ответа: в снимок мы пишем и «подгруженных» людей, они контактами не являются */
+  if(fresh&&p&&Array.isArray(p.contacts)){var cs=__mx.contactSet={};p.contacts.forEach(function(c){if(c&&c.id!=null)cs[c.id]=1})}}catch(e){}}
 function __mxUiProf(c,id){
   c=c||{};var nm=c.names||[],on=nm.filter(function(n){return n&&n.type==="ONEME"})[0]||nm[0]||{};
   return{id:Number(id),name:__mxName(c)||"",first:on.firstName||"",last:on.lastName||"",phone:c.phone?String(c.phone):"",photo:c.baseRawUrl||c.baseUrl||"",photoSmall:c.baseUrl||"",desc:c.description||"",link:c.link||"",options:Array.isArray(c.options)?c.options:[],accountStatus:c.accountStatus||0,registrationTime:c.registrationTime||0,updateTime:c.updateTime||0,country:c.country||"",gender:c.gender}}
@@ -1277,12 +1279,27 @@ async function __mxUiRpc(m,a){
     if(!__mx.contacts[id]){try{var r=await __mxCall(32,{contactIds:[Number(id)]});((r&&r.contacts)||[]).forEach(function(x){__mx.contacts[x.id]=x})}catch(e){}}
     var p=__mxUiProf(__mx.contacts[id],id),cid=__mx.keyChat["u"+id],meta=cid!=null?(__mx.chatMeta||{})[String(cid)]:null;
     p.chatId=cid!=null?cid:null;if(meta){p.chatCreated=meta.created;p.chatStatus=meta.status}
+    p.bot=p.options.indexOf("BOT")>=0;p.isContact=__mx.contactSet?!!__mx.contactSet[id]:null;p.muted=!!__mx.muted["u"+id];p.canMute=cid!=null;
     var st=__mxUser(id).status||{};
     p.presence={k:st._==="userStatusOnline"?"online":(st._==="userStatusOffline"?"offline":"recently"),t:st.was_online?st.was_online*1000:0};
     return p}
   if(m==="chat"){
     var ck=__mx.keyChat["c"+Math.abs(Number(a.id))],mt=(__mx.chatMeta||{})[String(ck)]||{};
-    return{id:Math.abs(Number(a.id)),name:mt.title||"",photo:mt.icon||"",photoSmall:mt.icon||"",desc:mt.desc||"",link:mt.link||"",members:mt.count||0,chatId:ck!=null?ck:null,chatCreated:mt.created||0,chatStatus:mt.status||"",options:[],accountStatus:0}}
+    return{id:Math.abs(Number(a.id)),name:mt.title||"",photo:mt.icon||"",photoSmall:mt.icon||"",desc:mt.desc||"",link:mt.link||"",members:mt.count||0,chatId:ck!=null?ck:null,chatCreated:mt.created||0,chatStatus:mt.status||"",options:[],accountStatus:0,muted:!!__mx.muted["c"+Math.abs(Number(a.id))],canMute:ck!=null}}
+  if(m==="mute"){
+    var mk=a.group?"c"+Math.abs(Number(a.id)):"u"+a.id,mc=__mx.keyChat[mk];if(mc==null)throw new Error("диалога ещё нет");
+    var mo={};mo[mc]={dontDisturbUntil:a.mute?-1:0};await __mxCall(22,{settings:{chats:mo}});__mx.muted[mk]=!!a.mute;return{muted:!!a.mute}}
+  if(m==="addContact"){
+    var aid=Number(a.id),ac=__mx.contacts[aid]||{},fn=(ac.names&&ac.names[0]&&ac.names[0].firstName)||ac.name||"Контакт";
+    await __mxCall(34,{action:"ADD",contactId:aid,firstName:fn});(__mx.contactSet||(__mx.contactSet={}))[aid]=1;return{ok:!0}}
+  if(m==="common"){
+    var uid=String(a.id),out=[];Object.keys(__mx.chatMeta||{}).forEach(function(k){var t=__mx.chatMeta[k];if(t.type==="CHAT"&&t.parts&&t.parts.indexOf(uid)>=0)out.push({id:Math.abs(Number(k)),title:t.title||"Группа",photo:t.icon||"",members:t.count||t.parts.length})});
+    return{chats:out}}
+  if(m==="media"){
+    var kk=a.group?"c"+Math.abs(Number(a.id)):"u"+a.id,kc=__mx.keyChat[kk];if(kc==null)return{items:[]};
+    var types=a.kind==="files"?["FILE"]:["PHOTO","VIDEO"],r2=await __mxCall(51,{chatId:kc,messageId:0,attachTypes:types,forward:0,backward:60}),items=[];
+    ((r2&&r2.messages)||[]).forEach(function(mm){(mm.attaches||[]).forEach(function(at){if(types.indexOf(at._type)<0)return;items.push({t:at._type,url:at.baseUrl||at.url||at.thumbnail||at.previewUrl||"",name:at.name||at.fileName||"",size:at.size||0,time:mm.time||0})})});
+    return{items:items}}
   throw new Error("неизвестный запрос "+m)}
 try{var __mxBc=new BroadcastChannel("mx-ui");__mxBc.onmessage=function(e){var d=e.data;if(!d||d.t!=="req")return;__mxUiRpc(d.m,d.a||{}).then(function(r){__mxBc.postMessage({t:"res",id:d.id,r:r})},function(er){__mxBc.postMessage({t:"res",id:d.id,e:String(er&&er.message||er)})})}}catch(e){}
 [["stories.incrementStoryViews",function(){return!0}],

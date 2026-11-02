@@ -168,7 +168,25 @@
     '.mxu-toast{position:fixed;left:50%;bottom:calc(36px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:rgba(40,40,44,.96);color:#fff;border-radius:14px;padding:12px 18px;font-size:15px;z-index:2147483100;transition:.2s;max-width:86vw;text-align:center}',
     '.mxu-toast.on{opacity:1;transform:translate(-50%,0)}',
     '.mxu-err{margin:30px 28px;text-align:center;color:var(--secondary-text-color,#8e8e93);font-size:15px}',
-    '.mxu-gif{display:block;max-width:calc(100% - 32px);max-height:60vh;margin:10px auto;border-radius:20px}'
+    '.mxu-gif{display:block;max-width:calc(100% - 32px);max-height:60vh;margin:10px auto;border-radius:20px}',
+    '.mxu-tile.dim{opacity:.5}',
+    '.mxu-tile.on{background:rgba(128,128,128,.3)}',
+    '.mxu-wide .mxu-ic{color:var(--primary-color,#8774e1)}',
+    '.mxu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 16px 14px;border-radius:22px;overflow:hidden}',
+    '.mxu-gi{position:relative;aspect-ratio:1;background:rgba(128,128,128,.22);overflow:hidden;cursor:pointer}',
+    '.mxu-gi img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
+    '.mxu-gi .mxu-play{position:absolute;right:6px;bottom:6px;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center;font-size:11px}',
+    '.mxu-ava{width:46px;height:46px;border-radius:50%;object-fit:cover;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:19px;overflow:hidden}',
+    '.mxu-ava img{width:100%;height:100%;object-fit:cover}',
+    '.mxu-menu-bg{position:fixed;inset:0;z-index:2147483050}',
+    '.mxu-menu{position:fixed;right:14px;top:calc(68px + env(safe-area-inset-top,0px));min-width:220px;border-radius:18px;background:var(--surface-color,#17171a);box-shadow:0 8px 30px rgba(0,0,0,.45);overflow:hidden;padding:6px 0;z-index:2147483051}',
+    '.mxu-menu button{display:flex;align-items:center;gap:14px;width:100%;border:0;background:none;color:inherit;font:inherit;font-size:16px;padding:13px 18px;text-align:left;cursor:pointer}',
+    '.mxu-menu button:active{background:rgba(128,128,128,.18)}',
+    '.mxu-menu .mxu-ic{color:var(--secondary-text-color,#8e8e93)}',
+    '.mxu-viewer{position:absolute;inset:0;background:#000;display:grid;place-items:center}',
+    '.mxu-viewer img{max-width:100%;max-height:100%;object-fit:contain}',
+    '.mxu-empty{padding:34px 24px;text-align:center;color:var(--secondary-text-color,#8e8e93);font-size:15px}',
+    '@media (min-width:900px){.mxu-root{background:rgba(0,0,0,.6)}.mxu-page{width:560px;left:50%;right:auto;margin-left:-280px;box-shadow:0 0 40px rgba(0,0,0,.5)}}'
   ].join('\n');
   var st = document.createElement('style'); st.id = 'mxu-css'; st.textContent = CSS; document.head.appendChild(st);
 
@@ -434,7 +452,28 @@
     }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(hero({ title: 'Профиль' })); pg.body.appendChild(errBox(e)); });
   };
 
-  /* Профиль контакта / чата — hero + Чат + Info */
+  /* Профиль контакта / чата — как в Komet: hero, плитки (Чат / Звук / Звонок), «Добавить в контакты», вкладки */
+  function tile(ic, text, cb, cls) { return h('button', { class: 'mxu-tile' + (cls ? ' ' + cls : ''), onclick: cb }, icon(ic, 28), text); }
+  function avatar(photo, title, size) {
+    var el = h('div', { class: 'mxu-ava', style: 'background:' + hashColor(title || '?') + (size ? ';width:' + size + 'px;height:' + size + 'px' : '') }, (title || '?').trim().charAt(0).toUpperCase());
+    if (photo) { var im = h('img', { alt: '', src: imgUrl(photo) }); im.onerror = function () { im.remove(); }; el.appendChild(im); }
+    return el;
+  }
+  function showMenu(items) {
+    ensureRoot();
+    var bg = h('div', { class: 'mxu-menu-bg' }), m = h('div', { class: 'mxu-menu' });
+    function close() { bg.remove(); m.remove(); }
+    items.forEach(function (it) { m.appendChild(h('button', { onclick: function () { close(); it.run(); } }, icon(it.icon, 22), it.text)); });
+    bg.addEventListener('click', close);
+    root.appendChild(bg); root.appendChild(m);
+  }
+  function viewer(url, title) {
+    var pg = page({ title: title || 'Фото' });
+    pg.el.style.background = '#000'; pg.el.querySelector('.mxu-bar').style.background = '#000'; pg.el.querySelector('.mxu-bar').style.color = '#fff';
+    pg.body.appendChild(h('div', { class: 'mxu-viewer', style: 'position:fixed;top:60px;left:0;right:0;bottom:0' }, h('img', { alt: '', src: imgUrl(url) })));
+  }
+  function goChat(a) { closeAll(function () { try { location.hash = '#' + (a.group ? -Math.abs(a.id) : a.id); } catch (e) { } }); }
+
   S.contact = function (a) {
     a = a || {};
     var pg = page({ hero: true });
@@ -442,16 +481,88 @@
     rpc(a.group ? 'chat' : 'contact', { id: a.id }).then(function (p) {
       pg.body.innerHTML = '';
       var ps = a.group ? { text: p.members ? p.members + ' участн.' : '' } : presenceText(p.presence);
-      var h0 = hero({ title: p.name || ('ID ' + a.id), photo: p.photo, photoSmall: p.photoSmall, dot: ps && ps.dot, subText: ps && ps.text });
-      pg.body.appendChild(h0);
-      var tiles = h('div', { class: 'mxu-tiles' });
-      tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { closeAll(function () { try { location.hash = '#' + (a.group ? -Math.abs(a.id) : a.id); } catch (e) { } }); } }, icon('chat', 28), 'Чат'));
-      tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { copy(p.id, 'ID'); } }, icon('copy', 28), 'ID'));
-      tiles.appendChild(h('button', { class: 'mxu-tile', onclick: function () { if (p.link) copy(p.link, 'Ссылка'); else if (p.phone) copy(fullPhone(p.phone), 'Номер'); else toast('Нечего копировать'); } }, icon('link', 28), p.link ? 'Ссылка' : 'Номер'));
+      var items = [{ icon: 'copy', text: 'Копировать ID', run: function () { copy(p.id, 'ID'); } }];
+      if (p.link) items.push({ icon: 'link', text: 'Копировать ссылку', run: function () { copy(p.link, 'Ссылка'); } });
+      if (p.phone && !a.group) items.push({ icon: 'phone', text: 'Копировать номер', run: function () { copy(fullPhone(p.phone), 'Номер'); } });
+      var more = h('button', { class: 'mxu-fab', 'aria-label': 'Меню', onclick: function () { showMenu(items); } }, icon('more'));
+      pg.body.appendChild(hero({ title: p.name || ('ID ' + a.id), photo: p.photo, photoSmall: p.photoSmall, dot: ps && ps.dot, subText: ps && ps.text, right: more }));
+
+      var tiles = h('div', { class: 'mxu-tiles' }), muted = !!p.muted;
+      tiles.appendChild(tile('chat', 'Чат', function () { goChat(a); }));
+      var snd;
+      function mkSnd() { return tile(muted ? 'mute' : 'bell', muted ? 'Без звука' : 'Звук', toggleSound, muted ? 'on' : (p.canMute ? '' : 'dim')); }
+      function toggleSound() {
+        if (!p.canMute) return toast('Сначала откройте чат — диалога ещё нет');
+        var want = !muted;
+        rpc('mute', { id: a.id, group: !!a.group, mute: want }).then(function () {
+          muted = want; var n = mkSnd(); snd.replaceWith(n); snd = n;
+          toast(muted ? 'Уведомления выключены' : 'Уведомления включены');
+        }, function (e) { toast('Ошибка: ' + e.message); });
+      }
+      snd = mkSnd();
+      tiles.appendChild(snd);
+      tiles.appendChild(tile('phone', 'Звонок', function () { toast('Звонки в этом клиенте не поддерживаются'); }, 'dim'));
       pg.body.appendChild(tiles);
-      pg.body.appendChild(sec('Info'));
-      if (p.desc) pg.body.appendChild(card(h('div', { class: 'mxu-row' }, h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-l', style: 'font-size:14px;color:var(--secondary-text-color,#8e8e93)' }, 'О себе'), h('div', { class: 'mxu-t', style: 'font-weight:400;font-size:17px;margin-top:3px;white-space:pre-wrap' }, p.desc)))));
-      pg.body.appendChild(infoCard(p));
+
+      if (!a.group && p.isContact === false && !p.bot && !p.self) {
+        var addB = h('button', { class: 'mxu-wide', onclick: function () {
+          rpc('addContact', { id: a.id }).then(function () { addB.remove(); toast('Контакт добавлен'); }, function (e) { toast('Ошибка: ' + e.message); });
+        } }, icon('userplus', 26), 'Добавить в контакты');
+        pg.body.appendChild(addB);
+      }
+
+      var tabs = a.group ? [['media', 'Медиа'], ['info', 'Info'], ['files', 'Файлы']] : [['common', 'Общие чаты'], ['media', 'Медиа'], ['info', 'Info'], ['files', 'Файлы']];
+      var chips = h('div', { class: 'mxu-chips' }), body = h('div'), cache = {}, TAB = {};
+      TAB.info = function (box) {
+        if (p.desc) box.appendChild(card(h('div', { class: 'mxu-row' }, h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-l', style: 'font-size:14px;color:var(--secondary-text-color,#8e8e93)' }, a.group ? 'Описание' : 'О себе'), h('div', { class: 'mxu-t', style: 'font-weight:400;font-size:17px;margin-top:3px;white-space:pre-wrap' }, p.desc)))));
+        box.appendChild(infoCard(p));
+      };
+      TAB.common = function (box) {
+        box.appendChild(h('div', { class: 'mxu-spin', style: 'margin:30px auto' }));
+        rpc('common', { id: a.id }).then(function (r) {
+          box.innerHTML = '';
+          if (!r.chats.length) return box.appendChild(h('div', { class: 'mxu-empty' }, 'Общих групп нет'));
+          var c = card();
+          r.chats.forEach(function (g) {
+            c.appendChild(h('div', { class: 'mxu-row click', onclick: function () { goChat({ id: g.id, group: true }); } }, avatar(g.photo, g.title), h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-t' }, g.title), g.members ? h('div', { class: 'mxu-s' }, g.members + ' участн.') : null)));
+          });
+          box.appendChild(c);
+        }, function (e) { box.innerHTML = ''; box.appendChild(errBox(e)); });
+      };
+      TAB.media = function (box) {
+        box.appendChild(h('div', { class: 'mxu-spin', style: 'margin:30px auto' }));
+        rpc('media', { id: a.id, group: !!a.group, kind: 'media' }).then(function (r) {
+          box.innerHTML = '';
+          if (!r.items.length) return box.appendChild(h('div', { class: 'mxu-empty' }, 'Медиафайлов нет'));
+          var g = h('div', { class: 'mxu-grid' });
+          r.items.forEach(function (it) {
+            var cell = h('div', { class: 'mxu-gi', onclick: function () { if (it.url) viewer(it.url, it.t === 'VIDEO' ? 'Видео' : 'Фото'); } });
+            if (it.url) { var im = h('img', { alt: '', loading: 'lazy', src: imgUrl(it.url) }); im.onerror = function () { im.remove(); }; cell.appendChild(im); }
+            if (it.t === 'VIDEO') cell.appendChild(h('span', { class: 'mxu-play' }, '▶'));
+            g.appendChild(cell);
+          });
+          box.appendChild(g);
+        }, function (e) { box.innerHTML = ''; box.appendChild(errBox(e)); });
+      };
+      TAB.files = function (box) {
+        box.appendChild(h('div', { class: 'mxu-spin', style: 'margin:30px auto' }));
+        rpc('media', { id: a.id, group: !!a.group, kind: 'files' }).then(function (r) {
+          box.innerHTML = '';
+          if (!r.items.length) return box.appendChild(h('div', { class: 'mxu-empty' }, 'Файлов нет'));
+          var c = card();
+          r.items.forEach(function (it) { c.appendChild(row({ icon: 'idcard', title: it.name || 'Файл', sub: [it.size ? fmtBytes(it.size) : '', it.time ? fmtDT(it.time) : ''].filter(Boolean).join(' · ') })); });
+          box.appendChild(c); box.appendChild(hint('Чтобы скачать файл, откройте его в чате.'));
+        }, function (e) { box.innerHTML = ''; box.appendChild(errBox(e)); });
+      };
+      function select(k) {
+        [].forEach.call(chips.children, function (c) { c.classList.toggle('on', c.getAttribute('data-k') === k); });
+        body.innerHTML = '';
+        if (!cache[k]) { cache[k] = h('div'); TAB[k](cache[k]); }
+        body.appendChild(cache[k]);
+      }
+      tabs.forEach(function (t) { chips.appendChild(h('button', { class: 'mxu-chip', 'data-k': t[0], onclick: function () { select(t[0]); } }, t[1])); });
+      pg.body.appendChild(chips); pg.body.appendChild(body);
+      select('info');
     }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(hero({ title: 'Профиль' })); pg.body.appendChild(errBox(e)); });
   };
 
@@ -731,6 +842,31 @@
     }
   }
   new MutationObserver(function () { document.querySelectorAll('.btn-menu').forEach(patchMenu); }).observe(document.documentElement, { childList: true, subtree: true });
+
+  /* Тап по шапке чата / аватарке в сообщении открывает наш профиль (вместо боковой панели Web K) */
+  function openProfileOf(pid) {
+    if (pid === 100 || pid === 0 || !isFinite(pid)) { if (pid === 100) open('profile'); return pid === 100; }
+    open('contact', pid < 0 ? { id: Math.abs(pid), group: true } : { id: pid });
+    return true;
+  }
+  function peerOfHeader() {
+    var av = document.querySelector('.chat-info [data-peer-id]');
+    if (av && av.dataset.peerId && isFinite(Number(av.dataset.peerId))) return Number(av.dataset.peerId);
+    return currentPeer();
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target; if (!t || !t.closest || (root && root.contains(t))) return;
+    var done = false;
+    if (t.closest('.chat-info') && !t.closest('button, .btn-icon, .chat-utils, a')) {
+      var pid = peerOfHeader(); if (pid != null) done = openProfileOf(pid);
+    } else {
+      var av = t.closest('.bubbles [data-peer-id]');
+      if (av && (av.tagName === 'AVATAR-ELEMENT' || /(^|\s)(avatar|user-avatar)(\s|$)/.test(av.className || ''))) {
+        var id2 = Number(av.dataset.peerId); if (id2 && isFinite(id2) && id2 > 0) done = openProfileOf(id2);
+      }
+    }
+    if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
 
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
   window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };
