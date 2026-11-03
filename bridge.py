@@ -4807,6 +4807,8 @@ _scan_lock = threading.Lock()
 
 # fetch_once active flag — relay skips forwarding while set
 _fetch_once_active = threading.Event()
+_GHOST_CHATS = set()
+_ghost_seq = [2000000000]
 
 
 def scan_all_cached_chats(self_id=None, chat_id_filter=None):
@@ -5329,6 +5331,17 @@ def _op_via_session(opcode, payload, timeout=12.0):
     return fetch_once(opcode, dict(payload), wait_opcode=opcode, timeout=15)
 
 
+@app.route("/api/ghost", methods=["GET", "POST"])
+def api_ghost():
+    """Чаты в режиме «призрак»: opcode 50 (CHAT_MARK, «прочитано») по ним не уходит в MAX."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        ids = data.get("chatIds") or []
+        _GHOST_CHATS.clear()
+        _GHOST_CHATS.update(str(x) for x in ids)
+    return jsonify({"chatIds": sorted(_GHOST_CHATS)})
+
+
 @app.route("/api/sessions", methods=["GET"])
 def api_sessions():
     """Активные сеансы аккаунта (opcode 96, как SessionsModule в Komet)."""
@@ -5777,6 +5790,12 @@ def _relay_impl(ws):
 
             if opcode == 0:
                 ws.send(json.dumps({"opcode": 0, "payload": {"pong": True}}))
+                continue
+
+            if opcode == 50 and str(payload.get("chatId")) in _GHOST_CHATS:
+                _ghost_seq[0] += 1
+                ws.send(json.dumps({"_seqAck": True, "opcode": 50, "seq": _ghost_seq[0]}))
+                ws.send(json.dumps({"ver": 11, "cmd": 256, "seq": _ghost_seq[0], "opcode": 50, "payload": {}}))
                 continue
 
             # opcode 50 = chatMark (READ_MESSAGE и т.п.). Клиент теперь сам

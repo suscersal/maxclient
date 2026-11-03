@@ -1307,6 +1307,13 @@ async function __mxUiRpc(m,a){
   if(m==="mute"){
     var mk=a.group?"c"+Math.abs(Number(a.id)):"u"+a.id,mc=__mx.keyChat[mk];if(mc==null)throw new Error("диалога ещё нет");
     var mo={};mo[mc]={dontDisturbUntil:a.mute?-1:0};await __mxCall(22,{settings:{chats:mo}});__mx.muted[mk]=!!a.mute;return{muted:!!a.mute}}
+  if(m==="e2e"){
+    var ek=a.group?"c"+Math.abs(Number(a.id)):"u"+a.id,ec=__mx.keyChat[ek];
+    if(ec==null)throw new Error("диалога ещё нет");
+    await __mxE2eReady();
+    if(a.op&&a.op!=="status")await __mxE2eCmd({message:"/e2e "+a.op},ek,ec);
+    var es=__mx.e2e.sess[String(ec)];
+    return{dialog:__mx.chType[ek]==="DIALOG",chatId:ec,status:es?es.status:(__mx.e2e.pend[String(ec)]?"incoming":"off")}}
   if(m==="addContact"){
     var aid=Number(a.id),ac=__mx.contacts[aid]||{},fn=(ac.names&&ac.names[0]&&ac.names[0].firstName)||ac.name||"Контакт";
     await __mxCall(34,{action:"ADD",contactId:aid,firstName:fn});(__mx.contactSet||(__mx.contactSet={}))[aid]=1;return{ok:!0}}

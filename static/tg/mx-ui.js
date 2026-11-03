@@ -881,10 +881,10 @@
     b.appendChild(sec('Приватность'));
     var gh = lsCount('maxclient_ghost_read'), ar = lsCount('maxclient_autoreply');
     b.appendChild(card(
-      row({ icon: 'eyeoff', title: 'Режим призрака', sub: 'Не отмечать сообщения прочитанными. Включается в меню чата', value: gh ? 'чатов: ' + gh : 'выкл' }),
-      row({ icon: 'bot', title: 'Автоответ', sub: 'Автоматический ответ в выбранных чатах', value: ar ? 'чатов: ' + ar : 'выкл' })
+      row({ icon: 'eyeoff', title: 'Режим призрака', sub: 'Не отмечать сообщения прочитанными. Меню чата (⋮) → «Призрак»', value: gh ? 'чатов: ' + gh : 'выкл' }),
+      row({ icon: 'bot', title: 'Автоответ', sub: 'Пока только в классическом интерфейсе', value: ar ? 'чатов: ' + ar : 'выкл' })
     ));
-    b.appendChild(hint('Призрак и автоответ задаются для каждого чата отдельно в классическом интерфейсе; настройки общие для обоих интерфейсов.'));
+    b.appendChild(hint('Призрак включается для каждого чата в его меню (⋮); сквозное шифрование — там же, в личных чатах. Настройки призрака общие с классическим интерфейсом.'));
 
     b.appendChild(sec('Уведомления'));
     b.appendChild(card(tog({ icon: 'bell', title: 'Текст в уведомлениях', sub: 'Показывать превью сообщения в push', on: function () { return lsGet('maxclient_notif_preview', '1') !== '0'; }, set: function (v) { lsSet('maxclient_notif_preview', v ? '1' : '0'); } })));
@@ -929,6 +929,43 @@
   }
   applyDbg();
 
+
+  /* ------------------------------------------------------------ призрак и E2E из меню чата */
+  var GH_KEY = 'maxclient_ghost_read';
+  function ghMap() { try { return JSON.parse(localStorage.getItem(GH_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function ghSync() { var m = ghMap(); jpost('/api/ghost', { chatIds: Object.keys(m).filter(function (k) { return m[k]; }) }).catch(function () { }); }
+  ghSync(); setInterval(ghSync, 30000);
+  function chatIdOf(pid) { return rpc(pid < 0 ? 'chat' : 'contact', { id: Math.abs(pid) }).then(function (r) { return r && r.chatId; }); }
+  function setLabel(it, t) { var tx = it.querySelector('.btn-menu-item-text'); if (tx) tx.textContent = t; else it.textContent = t; }
+  function labelGhost(it) {
+    var pid = currentPeer(); if (pid == null) return;
+    chatIdOf(pid).then(function (cid) { if (cid != null) setLabel(it, ghMap()[cid] ? 'Призрак: включён' : 'Призрак (не читать)'); }, function () { });
+  }
+  function toggleGhost() {
+    var pid = currentPeer(); if (pid == null) return toast('Не удалось определить чат');
+    chatIdOf(pid).then(function (cid) {
+      if (cid == null) return toast('Чат ещё не создан');
+      var m = ghMap(); m[cid] = !m[cid];
+      try { localStorage.setItem(GH_KEY, JSON.stringify(m)); } catch (e) { }
+      ghSync();
+      toast(m[cid] ? 'Призрак включён: «прочитано» не отправляется' : 'Призрак выключен');
+    }, function (e) { toast('Ошибка: ' + e.message); });
+  }
+  function toggleE2e() {
+    var pid = currentPeer(); if (pid == null) return toast('Не удалось определить чат');
+    if (pid < 0) return toast('Шифрование работает только в личных чатах');
+    function act(op, msg) { return rpc('e2e', { id: pid, op: op }, 30000).then(function () { toast(msg); }, function (e) { toast('Ошибка: ' + e.message); }); }
+    rpc('e2e', { id: pid, op: 'status' }).then(function (r) {
+      if (!r.dialog) return toast('Шифрование работает только в личных чатах');
+      if (r.status === 'active') { if (confirm('Выключить сквозное шифрование в этом чате?')) act('off', 'Шифрование выключено'); }
+      else if (r.status === 'pending') toast('Ждём подтверждения собеседника');
+      else if (r.status === 'incoming') {
+        if (confirm('Собеседник предлагает включить сквозное шифрование. Принять?')) act('accept', 'Шифрование включено');
+        else if (confirm('Отклонить запрос?')) act('decline', 'Запрос отклонён');
+      } else if (confirm('Включить сквозное шифрование? Собеседнику придёт запрос.')) act('on', 'Запрос на шифрование отправлен');
+    }, function (e) { toast('Ошибка: ' + e.message); });
+  }
+
   /* ------------------------------------------------------------ пункты в меню Web K */
   var GLYPH_USER = String.fromCharCode(0xea57);
   function currentPeer() {
@@ -961,11 +998,16 @@
     } else if (/(Выбрать сообщения|Select Messages|Очистить историю|Clear History|Удалить чат|Delete Chat|Покинуть|Leave|Заблокировать|Block)/i.test(names) && /(Поиск|Search)/i.test(names)) {
       menu.setAttribute('data-mxu-done', '1');
       var last = items[items.length - 1];
+      var ref = items[Math.max(0, items.length - 1)];
       last.parentNode.insertBefore(cloneItem(last, 'Info (MAX)', function () {
         var pid = currentPeer();
         if (pid == null) return toast('Не удалось определить чат');
         open('contact', pid < 0 ? { id: Math.abs(pid), group: true } : { id: pid });
-      }), items[Math.max(0, items.length - 1)]);
+      }), ref);
+      var gi = cloneItem(last, 'Призрак (не читать)', toggleGhost);
+      last.parentNode.insertBefore(gi, ref);
+      labelGhost(gi);
+      last.parentNode.insertBefore(cloneItem(last, 'Шифрование (E2E)', toggleE2e), ref);
     }
   }
   new MutationObserver(function () { document.querySelectorAll('.btn-menu').forEach(patchMenu); }).observe(document.documentElement, { childList: true, subtree: true });
