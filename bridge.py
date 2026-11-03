@@ -2729,6 +2729,23 @@ class MaxClient:
         self.buf = b""
         self._connected = False
         self._lock = threading.Lock()
+        self._waiters = {}  # seq -> (Event, box, opcode): ответы, которые ждёт сам bridge (не фронт)
+
+    def send_wait(self, opcode: int, payload: dict, timeout: float = 10.0):
+        """Отправить запрос по ЭТОЙ ЖЕ сессии и дождаться ответа (его принимает recv_loop).
+        Не открывает вторую сессию MAX с тем же токеном — раньше fetch_once() из /api/file-url
+        именно так сбрасывал рабочую relay-сессию («вылетает сессия», «Must be ONLINE session»)."""
+        ev = threading.Event()
+        box = {}
+        with self._lock:
+            pkt = self.pack(opcode, payload)
+            seq = self.seq
+            self._waiters[seq] = (ev, box, opcode)
+            self.sock.sendall(pkt)
+        if not ev.wait(timeout):
+            self._waiters.pop(seq, None)
+            return None
+        return box.get("p")
 
     def pack(self, opcode: int, payload: dict) -> bytes:
         self.seq = (self.seq + 1) % 256
@@ -5318,11 +5335,23 @@ def get_file_url():
         "messageId": int(message_id),
     }
 
-    try:
-        packet = fetch_once(88, payload, wait_opcode=88, timeout=15)
-    except Exception as e:
-        logger.warning(f"[file-url] failed: {e}")
-        return jsonify({"error": str(e)}), 500
+    packet = None
+    _rc = _active_client_for_push.get("client")
+    if _rc is not None and getattr(_rc, "_connected", False):
+        try:
+            packet = _rc.send_wait(88, dict(payload), timeout=10.0)
+            if packet and packet.get("cmd") != 256:
+                logger.info(f"[file-url] relay-сессия ответила ошибкой: {packet.get('payload')!r} — пробую fetch_once")
+                packet = None
+        except Exception as e:
+            logger.warning(f"[file-url] relay-сессия: {e}")
+            packet = None
+    if packet is None:
+        try:
+            packet = fetch_once(88, payload, wait_opcode=88, timeout=15)
+        except Exception as e:
+            logger.warning(f"[file-url] failed: {e}")
+            return jsonify({"error": str(e)}), 500
 
     if not packet:
         return jsonify({"error": "Нет ответа от сервера"}), 502
@@ -5846,6 +5875,12 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
             if packet["opcode"] == 19 and packet["cmd"] == 256:
                 register_fcm_push_token(client)
 
+            _w = client._waiters.get(packet.get("seq"))
+            if _w and _w[2] == packet.get("opcode"):
+                client._waiters.pop(packet.get("seq"), None)
+                _w[1]["p"] = packet
+                _w[0].set()
+                continue
             out_queue.put(packet)
             maybe_push_notify(packet)
         except Exception as e:

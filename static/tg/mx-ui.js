@@ -85,6 +85,7 @@
     mute: '<path d="M6 16v-5a6 6 0 0 1 9-5.2M18 11v5l1.6 2H5M10 21h4M3 3l18 18"/>',
     classic: '<rect x="3" y="4" width="18" height="14" rx="2.5"/><path d="M8 21h8M12 18v3"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.8l1.6 2.3 2.7-.6.9 2.6 2.6.9-.6 2.7L21.5 12l-2.3 1.6.6 2.7-2.6.9-.9 2.6-2.7-.6L12 21.2l-1.6-2.3-2.7.6-.9-2.6-2.6-.9.6-2.7L2.5 12l2.3-1.6-.6-2.7 2.6-.9.9-2.6 2.7.6z"/>',
     lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'
   };
   function icon(n, size) {
@@ -438,6 +439,7 @@
       if (p.desc) { pg.body.appendChild(sec('О себе')); pg.body.appendChild(card(h('div', { class: 'mxu-row' }, h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-t', style: 'font-weight:400;font-size:17px;white-space:pre-wrap' }, p.desc))))); }
       pg.body.appendChild(sec('MAX'));
       pg.body.appendChild(card(
+        row({ icon: 'info', title: 'Функции клиента', sub: 'Темы, призрак, автоответ, отладка', chev: 1, onclick: function () { open('features'); } }),
         row({ icon: 'bell', title: 'Уведомления', sub: 'Push и тестовое уведомление', chev: 1, onclick: function () { open('notifications'); } }),
         row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
         row({ icon: 'device', title: 'Устройство (протокол)', sub: 'Как клиент представляется серверу MAX', chev: 1, onclick: function () { open('device'); } }),
@@ -770,6 +772,7 @@
   S.more = function () {
     var pg = page({ title: 'Дополнительно' });
     pg.body.appendChild(card(
+      row({ icon: 'info', title: 'Функции клиента', chev: 1, onclick: function () { open('features'); } }),
       row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } }),
       row({ icon: 'bug', title: 'Отладка', chev: 1, onclick: function () { open('debug'); } })
     ));
@@ -777,6 +780,93 @@
     pg.body.appendChild(card(
       row({ icon: 'bot', title: 'Кастомные боты', sub: 'Чаты с локальными ботами живут в классическом чате', chev: 1, onclick: function () { legacyOpen('bots', 'Кастомные боты'); } }),
       row({ icon: 'classic', title: 'Переключиться на классический интерфейс', chev: 1, onclick: function () { legacyOpen('switchClassic', 'Классический интерфейс'); } })
+    ));
+  };
+
+
+  /* ------------------------------------------------------------ темы MAX (те же, что в классическом интерфейсе) */
+  var TH_KEY = 'maxclient_tg_theme';
+  var THEMES = [
+    { id: 'default', name: 'Стандартная', sub: 'Тема Web K (как настроено в «Настройки чатов»)' },
+    { id: 'dark', name: 'Тёмная', sub: 'Тёмно-синяя, как в Telegram', c: ['#4DA3FF', '#0E1621', '#17212B', '#FFFFFF', '#8E8E93', '#101921', '#182533', '#2B5278'] },
+    { id: 'simple', name: 'Простая', sub: 'Светлый минимализм', c: ['#007aff', '#f5f7fa', '#ffffff', '#333333', '#7a7a7a', '#e2e5e9', '#ffffff', '#d9ecff'] },
+    { id: 'neon', name: 'Неон', sub: 'Тёмная с розово-бирюзовыми акцентами', c: ['#ff007f', '#0d0e15', '#15161f', '#00ffcc', '#7a90a0', '#232538', '#15161f', '#7a0040'] },
+    { id: 'forest', name: 'Летний лес', sub: 'Светлая зелёная', c: ['#4caf50', '#f0f4f1', '#ffffff', '#2c3e2b', '#6b8065', '#d7e3d4', '#ffffff', '#dcedc8'] },
+    { id: 'sepia', name: 'Сепия', sub: 'Тёплая бумажная', c: ['#b8860b', '#f4efe6', '#faf6ef', '#5c4b3a', '#8a7a6a', '#e0d5c8', '#faf6ef', '#ecd9b8'] },
+    { id: 'space', name: 'Космос', sub: 'Глубокий синий', c: ['#6c8cff', '#0a0e27', '#141832', '#b8c6ff', '#7a8abf', '#2a3060', '#1a2040', '#3a52b8'] }
+  ];
+  function rgbOf(hex) { var n = parseInt(hex.slice(1), 16); return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255); }
+  function getTheme() { try { return localStorage.getItem(TH_KEY) || 'default'; } catch (e) { return 'default'; } }
+  function applyTheme(id) {
+    var t = THEMES.filter(function (x) { return x.id === id; })[0];
+    var el = document.getElementById('mxu-theme');
+    if (!t || !t.c) { if (el) el.remove(); return; }
+    var c = t.c, v = {
+      'primary-color': c[0], 'primary-color-rgb': rgbOf(c[0]), 'background-color': c[1], 'surface-color': c[2], 'surface-color-rgb': rgbOf(c[2]),
+      'primary-text-color': c[3], 'primary-text-color-rgb': rgbOf(c[3]), 'secondary-text-color': c[4], 'border-color': c[5],
+      'message-background-color': c[6], 'message-out-background-color': c[7], 'chat-input-background': c[2]
+    };
+    var css = ':root,:root.night,:root:not(.night){' + Object.keys(v).map(function (k) { return '--' + k + ':' + v[k] + '!important'; }).join(';') + '}';
+    if (!el) { el = document.createElement('style'); el.id = 'mxu-theme'; document.head.appendChild(el); }
+    el.textContent = css;
+  }
+  function setTheme(id) { try { localStorage.setItem(TH_KEY, id); } catch (e) { } applyTheme(id); }
+  applyTheme(getTheme());
+
+  S.themes = function () {
+    var pg = page({ title: 'Тема оформления' });
+    function draw() {
+      pg.body.innerHTML = '';
+      var cur = getTheme();
+      pg.body.appendChild(card.apply(null, THEMES.map(function (t) {
+        return row({ radio: 1, sel: cur === t.id, title: t.name, sub: t.sub, onclick: function () { setTheme(t.id); draw(); } });
+      })));
+      pg.body.appendChild(hint('Темы те же, что в классическом интерфейсе. Применяются сразу и сохраняются на этом устройстве.'));
+    }
+    draw();
+  };
+
+  /* ------------------------------------------------------------ Функции клиента */
+  function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+  function lsCount(k) { try { var o = JSON.parse(localStorage.getItem(k) || '{}'); return Object.keys(o).filter(function (x) { return o[x]; }).length; } catch (e) { return 0; } }
+  function flag(key, def) { return lsGet(key, def ? '1' : '0') === '1'; }
+  function tog(o) {
+    return row({ icon: o.icon, title: o.title, sub: o.sub, toggle: { on: o.on(), onchange: function (v) { o.set(v); if (o.note) toast(o.note); } } });
+  }
+
+  S.features = function () {
+    var pg = page({ title: 'Функции клиента' });
+    var b = pg.body;
+    b.appendChild(sec('Оформление'));
+    var th = THEMES.filter(function (x) { return x.id === getTheme(); })[0] || THEMES[0];
+    b.appendChild(card(row({ icon: 'image', title: 'Тема оформления', value: th.name, chev: 1, onclick: function () { open('themes'); } })));
+
+    b.appendChild(sec('Приватность'));
+    var gh = lsCount('maxclient_ghost_read'), ar = lsCount('maxclient_autoreply');
+    b.appendChild(card(
+      row({ icon: 'eyeoff', title: 'Режим призрака', sub: 'Не отмечать сообщения прочитанными. Включается в меню чата', value: gh ? 'чатов: ' + gh : 'выкл' }),
+      row({ icon: 'bot', title: 'Автоответ', sub: 'Автоматический ответ в выбранных чатах', value: ar ? 'чатов: ' + ar : 'выкл' })
+    ));
+    b.appendChild(hint('Призрак и автоответ задаются для каждого чата отдельно в классическом интерфейсе; настройки общие для обоих интерфейсов.'));
+
+    b.appendChild(sec('Уведомления'));
+    b.appendChild(card(tog({ icon: 'bell', title: 'Текст в уведомлениях', sub: 'Показывать превью сообщения в push', on: function () { return lsGet('maxclient_notif_preview', '1') !== '0'; }, set: function (v) { lsSet('maxclient_notif_preview', v ? '1' : '0'); } })));
+
+    b.appendChild(sec('Инструменты'));
+    b.appendChild(card(
+      row({ icon: 'shield', title: 'Скам-проверка (ИИ)', sub: 'Проверка входящих сообщений', chev: 1, onclick: function () { open('scam'); } }),
+      row({ icon: 'bell', title: 'Уведомления и push', chev: 1, onclick: function () { open('notifications'); } }),
+      row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
+      row({ icon: 'device', title: 'Устройство (протокол)', chev: 1, onclick: function () { open('device'); } }),
+      row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } })
+    ));
+
+    b.appendChild(sec('Отладка'));
+    b.appendChild(card(
+      tog({ icon: 'bug', title: 'Панель логов', on: function () { return flag('maxclient_log_panel_enabled', false); }, set: function (v) { lsSet('maxclient_log_panel_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
+      tog({ icon: 'bug', title: 'Дамп отладки', sub: 'Сохранять подробный дамп запросов', on: function () { return flag('maxclient_debug_dump_enabled', false); }, set: function (v) { lsSet('maxclient_debug_dump_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
+      row({ icon: 'bug', title: 'Консоль отладки', chev: 1, onclick: function () { open('debug'); } })
     ));
   };
 
@@ -867,6 +957,86 @@
     }
     if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
+
+
+
+  /* ------------------------------------------------------------ скин списков: круглый поиск, вкладки-«пилюли» (как в референсе) */
+  (function () {
+    var C = [
+      '.input-search-input{border-radius:28px!important;background:var(--surface-color)!important}',
+      '.menu-horizontal-div{background:var(--surface-color);border-radius:30px;padding:5px;margin:6px 12px 8px!important;gap:2px;overflow-x:auto;scrollbar-width:none}',
+      '.menu-horizontal-div::-webkit-scrollbar{display:none}',
+      '.menu-horizontal-div-item{border-radius:24px!important;padding:11px 18px!important;font-weight:600}',
+      '.menu-horizontal-div-item.active{background:rgba(var(--primary-color-rgb,135,116,225),.2)!important;color:var(--primary-color)!important}',
+      '.menu-horizontal-div-item:not(.active):hover{background:transparent!important}',
+      '.menu-horizontal-div-item>i{display:none!important}',
+      /* поиск главного списка не должен ловить тапы, пока поверх открыта другая вкладка сайдбара (Контакты, Настройки и т.д.) */
+      '#column-left .sidebar-slider:has(>.sidebar-slider-item.active:not(.item-main)) .item-main{pointer-events:none!important}',
+      '#column-left .sidebar-slider:has(>.sidebar-slider-item.active:not(.item-main)) .item-main input{visibility:hidden!important}'
+    ].join('');
+    var e = document.createElement('style'); e.id = 'mxu-skin'; e.textContent = C; document.head.appendChild(e);
+  })();
+
+  /* ------------------------------------------------------------ плавающая нижняя панель (Чаты / Контакты / Настройки / Профиль) */
+  (function () {
+    var NAVCSS = [
+      '.mxn{display:none;position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(92vw,520px);z-index:60;padding:6px;border-radius:34px;gap:4px;',
+      'background:rgba(var(--surface-color-rgb,23,33,43),.88);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 6px 24px rgba(0,0,0,.35);color:var(--secondary-text-color,#8e8e93)}',
+      '.mxn button{flex:1;border:0;background:none;color:inherit;font:inherit;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px 7px;border-radius:28px;cursor:pointer;-webkit-tap-highlight-color:transparent}',
+      '.mxn button.on{color:var(--primary-color,#8774e1);background:rgba(128,128,128,.2)}',
+      '.mxn button:active{background:rgba(128,128,128,.28)}',
+      '@media (max-width:899px){body.is-left-column-shown .mxn{display:flex}',
+      'body.is-left-column-shown #column-left .chatlist-container{padding-bottom:96px}',
+      'body.is-left-column-shown #column-left .btn-circle.btn-corner{bottom:92px!important}}'
+    ].join('');
+    var stN = document.createElement('style'); stN.id = 'mxn-css'; stN.textContent = NAVCSS; document.head.appendChild(stN);
+
+    var cur = 'chats', bar = null, btns = {};
+    function visible(el) { return !!(el && el.offsetParent !== null); }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    /* вернуться на список чатов: закрыть экраны MAX и вкладки сайдбара Web K */
+    function toRoot() {
+      closeAll();
+      var n = 0;
+      return (function step() {
+        var b = [].slice.call(document.querySelectorAll('#column-left .sidebar-slider-item.active .sidebar-close-button, #column-left .tabs-tab.active .sidebar-close-button')).filter(visible)[0];
+        if (!b || n++ > 4) return Promise.resolve();
+        b.click();
+        return sleep(260).then(step);
+      })();
+    }
+    function menuClick(re) {
+      var t = document.querySelector('#column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button');
+      if (!t) return Promise.resolve(false);
+      t.click();
+      return sleep(180).then(function () {
+        var items = [].slice.call(document.querySelectorAll('.btn-menu.active .btn-menu-item, .btn-menu.is-visible .btn-menu-item, .btn-menu .btn-menu-item')).filter(visible);
+        var it = items.filter(function (el) { return re.test(txt(el)); })[0];
+        if (it) { it.click(); return true; }
+        t.click(); return false;
+      });
+    }
+    function go(id) {
+      if (id === 'profile') { set('profile'); open('profile'); return; }
+      toRoot().then(function () {
+        set(id);
+        if (id === 'contacts') menuClick(/^(Контакты|Contacts)$/).then(function (ok) { if (!ok) toast('Не удалось открыть «Контакты»'); });
+        else if (id === 'settings') menuClick(/^(Настройки|Settings)$/).then(function (ok) { if (!ok) toast('Не удалось открыть «Настройки»'); });
+      });
+    }
+    function set(id) { cur = id; Object.keys(btns).forEach(function (k) { btns[k].classList.toggle('on', k === id); }); }
+    function mk(id, label, ic) {
+      var b = h('button', { type: 'button', 'aria-label': label, onclick: function () { go(id); } }, icon(ic, 26), h('span', null, label));
+      btns[id] = b; return b;
+    }
+    bar = h('div', { class: 'mxn', role: 'navigation' },
+      mk('chats', 'Чаты', 'chat'), mk('contacts', 'Контакты', 'user'), mk('settings', 'Настройки', 'gear'), mk('profile', 'Профиль', 'idcard'));
+    set('chats');
+    function mount() { if (document.body) document.body.appendChild(bar); else document.addEventListener('DOMContentLoaded', mount); }
+    mount();
+    /* закрыли экран MAX / вернулись на список — подсветка «Чаты» */
+    new MutationObserver(function () { if (cur === 'profile' && !document.querySelector('.mxu-root')) set('chats'); }).observe(document.documentElement, { childList: true, subtree: true });
+  })();
 
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
   window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };

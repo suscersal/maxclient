@@ -484,6 +484,8 @@ async function __mxGetMedia(a){
           __mxLog("video bytes",buf.length,"ct",ct,"src",rec.vlabel||"?","head",__mxHead(buf,16));
           if(off===0&&!__mxIsVideoBytes(buf)){__mxLog("video: ответ НЕ видео:",__mxHead(buf,160));err="not video";continue}}
         return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:buf}}
+      /* 416: Web K просит кусок за концом файла (размер в документе округлён/больше реального) — это конец файла, а не ошибка */
+      if(res.status===416&&ranged&&off>0){__mxLog("file: 416 → конец файла",rec.kind,off);return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:new Uint8Array(0)}}
       err="http "+res.status;if(thumb)break
     }catch(e){err=String(e&&e.message||e)}}
   if(thumb&&rec.attach.previewData)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:__mxHex(rec.attach.previewData)};
