@@ -5824,7 +5824,9 @@ def _relay_impl(ws):
                     # Теперь ждём окончания fetch_once (до 10 с), продолжая
                     # отдавать накопившиеся пакеты, и только потом шлём.
                     _w0 = time.time()
-                    while _fetch_once_active.is_set() and time.time() - _w0 < 10:
+                    # 4 с, а не 10: фронт ждёт ack 8 с и при тишине рвёт WS (новая сессия MAX
+                    # → цепочка переподключений). И не выбрасываем опкод молча — шлём всё равно.
+                    while _fetch_once_active.is_set() and time.time() - _w0 < 4:
                         try:
                             while True:
                                 ws.send(json.dumps(stringify_big_ints(out_queue.get_nowait())))
@@ -5832,9 +5834,9 @@ def _relay_impl(ws):
                             pass
                         time.sleep(0.05)
                     if _fetch_once_active.is_set():
-                        logger.warning(f"[relay] Skipped opcode={opcode} (fetch_once active >10s)")
-                        continue
-                    logger.info(f"[relay] opcode={opcode} задержан на {time.time() - _w0:.1f}с (fetch_once)")
+                        logger.warning(f"[relay] opcode={opcode}: fetch_once active >4s, шлём без ожидания")
+                    else:
+                        logger.info(f"[relay] opcode={opcode} задержан на {time.time() - _w0:.1f}с (fetch_once)")
                 _sent_seq = client.send(opcode, payload)
                 if opcode in (19, 272):
                     logger.info(f"[relay] -> opcode={opcode} seq={_sent_seq}")
