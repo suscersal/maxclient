@@ -5316,6 +5316,54 @@ def button_callback():
     return jsonify({})
 
 
+def _op_via_session(opcode, payload, timeout=12.0):
+    """Запрос к MAX по уже открытой relay-сессии; если её нет — отдельная сессия (fetch_once)."""
+    rc = _active_client_for_push.get("client")
+    if rc is not None and getattr(rc, "_connected", False):
+        try:
+            p = rc.send_wait(opcode, dict(payload), timeout=timeout)
+            if p and p.get("cmd") == 256:
+                return p
+        except Exception as e:
+            logger.warning(f"[op {opcode}] relay-сессия: {e}")
+    return fetch_once(opcode, dict(payload), wait_opcode=opcode, timeout=15)
+
+
+@app.route("/api/sessions", methods=["GET"])
+def api_sessions():
+    """Активные сеансы аккаунта (opcode 96, как SessionsModule в Komet)."""
+    try:
+        packet = _op_via_session(96, {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+    pl = packet.get("payload") or {}
+    if packet.get("cmd") != 256:
+        return jsonify({"error": (pl.get("localizedMessage") or pl.get("message") or "Ошибка сервера")}), 502
+    out = []
+    for s in (pl.get("sessions") or []):
+        if isinstance(s, dict):
+            out.append({"id": s.get("id"), "client": s.get("client") or "", "location": s.get("location") or "",
+                        "current": bool(s.get("current")), "time": s.get("time") or 0, "info": s.get("info") or ""})
+    return jsonify(stringify_big_ints({"sessions": out}))
+
+
+@app.route("/api/sessions/close", methods=["POST"])
+def api_sessions_close():
+    """Выйти на всех устройствах, кроме этого (opcode 97)."""
+    try:
+        packet = _op_via_session(97, {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+    if packet.get("cmd") != 256:
+        pl = packet.get("payload") or {}
+        return jsonify({"error": (pl.get("localizedMessage") or pl.get("message") or "Ошибка сервера")}), 502
+    return jsonify({"ok": True})
+
+
 @app.route("/api/file-url", methods=["POST"])
 def get_file_url():
     """Актуальная (подписанная, со сроком действия) ссылка на файл-вложение.

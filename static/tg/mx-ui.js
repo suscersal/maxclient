@@ -439,6 +439,7 @@
       if (p.desc) { pg.body.appendChild(sec('О себе')); pg.body.appendChild(card(h('div', { class: 'mxu-row' }, h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-t', style: 'font-weight:400;font-size:17px;white-space:pre-wrap' }, p.desc))))); }
       pg.body.appendChild(sec('MAX'));
       pg.body.appendChild(card(
+        row({ icon: 'device', title: 'Устройства', sub: 'Сеансы аккаунта, выход на других', chev: 1, onclick: function () { open('sessions'); } }),
         row({ icon: 'info', title: 'Функции клиента', sub: 'Темы, призрак, автоответ, отладка', chev: 1, onclick: function () { open('features'); } }),
         row({ icon: 'bell', title: 'Уведомления', sub: 'Push и тестовое уведомление', chev: 1, onclick: function () { open('notifications'); } }),
         row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
@@ -826,6 +827,41 @@
     draw();
   };
 
+
+  /* ------------------------------------------------------------ Устройства (сеансы аккаунта) */
+  S.sessions = function () {
+    var pg = page({ title: 'Устройства' });
+    function when(t) { if (!t) return ''; var d = new Date(t > 1e11 ? t : t * 1000); return isNaN(d) ? '' : d.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }); }
+    function srow(x) { return row({ icon: 'device', title: x.client || 'Устройство', sub: [x.info, x.location, when(x.time)].filter(Boolean).join(' · ') }); }
+    function render() {
+      pg.spin();
+      jget('/api/sessions').then(function (d) {
+        pg.body.innerHTML = '';
+        var list = d.sessions || [], cur = list.filter(function (x) { return x.current; }), rest = list.filter(function (x) { return !x.current; });
+        if (cur.length) { pg.body.appendChild(sec('Это устройство')); pg.body.appendChild(card.apply(null, cur.map(srow))); }
+        pg.body.appendChild(sec('Другие сеансы'));
+        pg.body.appendChild(rest.length ? card.apply(null, rest.map(srow)) : hint('Других активных сеансов нет.'));
+        pg.body.appendChild(h('div', { class: 'mxu-btns' }, btn('Выйти на всех устройствах, кроме этого', 'danger', function () {
+          if (!confirm('Завершить все сеансы, кроме текущего?')) return;
+          jpost('/api/sessions/close').then(function () { toast('Другие сеансы завершены'); render(); }, function (e) { toast('Ошибка: ' + e.message); });
+        }, 'trash')));
+        pg.body.appendChild(hint('Если вход с неизвестного устройства — не ваш, завершите остальные сеансы.'));
+      }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(errBox(e)); });
+    }
+    render();
+  };
+  /* ссылка из служебного сообщения «Новый вход» (max.ru/:settings/devices) открывает наш экран, а не сайт */
+  (function () {
+    function isDev(u) { return /max\.ru\/:settings\/devices/i.test(u || ''); }
+    document.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest && e.target.closest('a[href],[data-href],[data-url]');
+      var u = a && (a.getAttribute('href') || a.getAttribute('data-href') || a.getAttribute('data-url'));
+      if (isDev(u)) { e.preventDefault(); e.stopPropagation(); open('sessions'); }
+    }, true);
+    var wo = window.open;
+    window.open = function (u) { if (isDev(String(u))) { open('sessions'); return null; } return wo.apply(window, arguments); };
+  })();
+
   /* ------------------------------------------------------------ Функции клиента */
   function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
@@ -858,6 +894,7 @@
       row({ icon: 'shield', title: 'Скам-проверка (ИИ)', sub: 'Проверка входящих сообщений', chev: 1, onclick: function () { open('scam'); } }),
       row({ icon: 'bell', title: 'Уведомления и push', chev: 1, onclick: function () { open('notifications'); } }),
       row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
+      row({ icon: 'device', title: 'Устройства (сеансы)', sub: 'Где выполнен вход, выход на других', chev: 1, onclick: function () { open('sessions'); } }),
       row({ icon: 'device', title: 'Устройство (протокол)', chev: 1, onclick: function () { open('device'); } }),
       row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } })
     ));
