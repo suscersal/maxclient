@@ -851,6 +851,23 @@ async function __mxStartBot(e){
     var txt="/start"+(e.start_param?" "+e.start_param:"");
     try{await __mxCall(64,{chatId:raw,message:{text:txt,cid:Date.now()},notify:true})}catch(er){__mxLog("startBot failed",er)}}
   return{_:"updates",updates:[],users:[],chats:[],date:Math.floor(Date.now()/1e3),seq:0}}
+/* ---- удаление сообщений (Web K: messages.deleteMessages без peer) -> MAX op 66, как msgDelete в Komet ---- */
+__mx.selfDel=__mx.selfDel||{};
+__mxM["messages.deleteMessages"]=async function(e){
+  var ids=(e&&e.id)||[],by={},forMe=!(e&&e.revoke);
+  ids.forEach(function(tg){var mid=__mx.maxIdOf[tg];if(mid==null)return;var key=null;
+    for(var k in jd){if((jd[k]||[]).some(function(x){return x.id===tg})){key=k;break}}
+    var cid=key!=null?__mx.keyChat[key]:null;if(cid==null)return;
+    var g=by[cid]||(by[cid]={cid:cid,key:key,tg:[],mx:[]});g.tg.push(tg);g.mx.push(String(mid))});
+  var gs=Object.keys(by);
+  if(!gs.length)throw{code:400,type:"MESSAGE_ID_INVALID",handled:!0,method:"messages.deleteMessages"};
+  for(var i=0;i<gs.length;i++){var g=by[gs[i]];
+    g.mx.forEach(function(m){__mx.selfDel[m]=1});
+    try{await __mxCall(66,{messageIds:g.mx,chatId:g.cid,forMe:forMe,itemType:"REGULAR"})}
+    catch(err){__mxLog("delete failed",err&&err.message||err);g.mx.forEach(function(m){delete __mx.selfDel[m]});throw{code:400,type:"MESSAGE_DELETE_FORBIDDEN",handled:!0,method:"messages.deleteMessages"}}
+    jd[g.key]=(jd[g.key]||[]).filter(function(x){return g.tg.indexOf(x.id)<0})}
+  __mxLog("delete ok",ids.length,forMe?"(у меня)":"(у всех)");
+  return{_:"messages.affectedMessages",pts:++xd,pts_count:ids.length}};
 __mxM["messages.getBotCallbackAnswer"]=__mxBotCallback;
 __mxM["messages.startBot"]=__mxStartBot;
 
@@ -1081,7 +1098,7 @@ function __mxDelRawSave(){clearTimeout(__mx.drT);__mx.drT=setTimeout(function(){
 /* что осталось от удалённого сообщения: его сырое тело и (по возможности) байты вложений */
 function __mxDeletePush(pl){
   var cid=pl.chatId!=null?pl.chatId:(pl.chat&&pl.chat.id),key=cid!=null?__mx.chatKey[cid]:null;if(!key)return;
-  var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String);if(!ids.length)return;
+  var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String).filter(function(i){return !__mx.selfDel[i]});if(!ids.length)return;
   var cs=String(cid),set=__mx.del[cs]||(__mx.del[cs]={}),ups=[];ids.forEach(function(i){set[i]=1});__mxDelSave();
   ids.forEach(function(mid){var tg=__mx.tgIdOf[mid];if(tg==null)return;var o=(jd[key]||[]).filter(function(x){return x.id===tg})[0];if(o&&__mxDelMark(o))ups.push(o)});
   ups.forEach(function(o){Vd({_:"updateEditMessage",message:o,pts:++xd,pts_count:1})});

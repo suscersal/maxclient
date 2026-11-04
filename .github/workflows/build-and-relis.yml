@@ -75,7 +75,7 @@ jobs:
           # адаптер MAX<->Web K, scripts/tg/ext3.js) ДОСТАВЛЯЮТСЯ через OTA как
           # tg/index.worker-*.js (см. generate-ota-manifest.sh, bridge.py: оверлей
           # /tg/). Их изменение — тоже hot-update, без сборки APK.
-          TG_HOT_REGEX='^static/tg/index\.worker-[A-Za-z0-9_-]+\.js$'
+          TG_HOT_REGEX='^static/tg/(index\.worker-[A-Za-z0-9_-]+|mx-ui)\.js$'
           TG_CHANGED=$(echo "$NON_IGNORED" | grep -E '^static/tg/' | grep -Ev "$TG_HOT_REGEX" || true)
 
           if [[ -z "$NON_HOT" && -z "$TG_CHANGED" ]]; then

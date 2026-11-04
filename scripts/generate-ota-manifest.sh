@@ -62,13 +62,14 @@ if os.path.isdir(assets_src):
             hash_and_copy(f"assets/{fname}", fpath)
 
 # Воркеры интерфейса /tg/ (весь адаптер MAX<->Web K живёт в них). Остальные
-# ~3000 файлов tg/ в OTA не едут (лимит ассетов релиза) — только эти два-три.
+# ~3000 файлов tg/ в OTA не едут (лимит ассетов релиза) — только эти два-три
+# и наш слой интерфейса mx-ui.js (нехэшированное имя, но уникальное, плоское имя ассета однозначно).
 # Имена у воркеров уникальные (index.worker-<hash>.js), поэтому плоское имя
 # ассета релиза однозначно; bridge.py накладывает tg/ из hotpatch поверх APK.
 tg_src = os.path.join(src, "tg")
 if os.path.isdir(tg_src):
     for fname in sorted(os.listdir(tg_src)):
-        if fname.startswith("index.worker-") and fname.endswith(".js"):
+        if (fname.startswith("index.worker-") and fname.endswith(".js")) or fname == "mx-ui.js":
             hash_and_copy(f"tg/{fname}", os.path.join(tg_src, fname))
 
 with open(os.path.join(out_dir, "version.json"), "w", encoding="utf-8") as f:

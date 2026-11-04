@@ -3131,7 +3131,7 @@ def tg_index():
 
 
 # Файлы /tg/, которые правятся на месте (имя с хэшем прежнее): всегда no-cache, и по ним считается build.
-_TG_LIVE_PREFIXES = ("index.worker-", "buttonMenu-", "apiManagerProxy-", "settings-", "state-", "sw-")
+_TG_LIVE_PREFIXES = ("index.worker-", "mx-ui", "buttonMenu-", "apiManagerProxy-", "settings-", "state-", "sw-")
 
 
 def _tg_boot_info():

@@ -930,6 +930,23 @@
   applyDbg();
 
 
+  /* ------------------------------------------------------------ удалённые сообщения — красным (воркер дописывает «🗑 Удалено») */
+  (function () {
+    var e = document.createElement('style'); e.id = 'mxu-del';
+    e.textContent = '.bubble.mx-del .bubble-content{background:rgba(229,57,53,.16)!important;box-shadow:inset 3px 0 0 #e53935}' +
+      '.bubble.mx-del .message i:last-of-type{color:#ff5252!important;font-style:normal;font-weight:600}';
+    document.head.appendChild(e);
+    var pend = false;
+    function scan() {
+      pend = false;
+      [].forEach.call(document.querySelectorAll('.bubble:not(.mx-del) .message'), function (m) {
+        if (m.textContent.indexOf('🗑 Удалено') !== -1) { var b = m.closest('.bubble'); if (b) b.classList.add('mx-del'); }
+      });
+    }
+    new MutationObserver(function () { if (!pend) { pend = true; requestAnimationFrame(scan); } })
+      .observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  })();
+
   /* ------------------------------------------------------------ призрак и E2E из меню чата */
   var GH_KEY = 'maxclient_ghost_read';
   function ghMap() { try { return JSON.parse(localStorage.getItem(GH_KEY) || '{}') || {}; } catch (e) { return {}; } }
