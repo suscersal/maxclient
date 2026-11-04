@@ -5342,6 +5342,273 @@ def api_ghost():
     return jsonify({"chatIds": sorted(_GHOST_CHATS)})
 
 
+# ============================================================
+# Звонки (по Komet: lib/backend/modules/calls.dart, lib/core/calls/*)
+# ============================================================
+# Три слоя (см. AGENTS.md): сессия MAX (op 78/137 — здесь), сигнализация ws2
+# (отдельный WebSocket — проксируем через /call-ws, браузер не умеет ставить
+# User-Agent и не должен получать произвольный URL) и WebRTC (static/calls.js).
+_CALL_CAPS = "3c02f"  # Ws2Config.defaultCapabilities в Komet
+_CALL_SDK = "0.2.1.3"
+_CALL_APP_KEY = "CGPGAGLGDIHBABABA"  # clientAppKey из CallsModule._internalParams
+_CALL_WS_UA = "okhttp/4.12.0"
+_CALL_WS_TTL = 3600
+_CALL_WS = {}  # callKey -> {"url", "ts"}: прокси ходит только по адресам, которые выдал MAX
+_call_ws_lock = threading.Lock()
+_call_subs = set()  # очереди SSE-подписчиков /api/call/events
+_call_subs_lock = threading.Lock()
+
+
+def _call_internal_params() -> str:
+    return json.dumps({
+        "platform": "ANDROID",
+        "sdkVersion": _CALL_SDK,
+        "clientAppKey": _CALL_APP_KEY,
+        "deviceId": get_or_create_device_id(),
+        "protocolVersion": 5,
+        "onlyAdminCanRecord": False,
+        "isWaitForAdminEnabled": False,
+        "hexCapability": _CALL_CAPS,
+    }, separators=(",", ":"))
+
+
+def _decode_vcp(vcp: str):
+    """`<rawLen>:<base64(LZ4-блок(JSON))>` -> dict с параметрами звонка (ключи как в kolibri vcp.rs)."""
+    try:
+        sep = vcp.find(":")
+        if sep <= 0:
+            return None
+        raw_len = int(vcp[:sep])
+        if raw_len <= 0:
+            return None
+        comp = base64.b64decode(vcp[sep + 1:])
+        raw = lz4.block.decompress(comp, uncompressed_size=raw_len)[:raw_len]
+        obj = json.loads(raw.decode("utf-8"))
+        if not isinstance(obj, dict) or not obj.get("tkn") or not obj.get("wse"):
+            return None
+    except Exception as e:
+        logger.warning(f"[call] vcp не разобран: {e}")
+        return None
+    turn_urls = [u.strip() for u in str(obj.get("trne") or "").split(",") if u.strip()]
+    ice = []
+    if obj.get("stne"):
+        ice.append({"urls": [obj["stne"]]})
+    if turn_urls:
+        s = {"urls": turn_urls}
+        if obj.get("trnu"):
+            s["username"] = obj["trnu"]
+        if obj.get("trnp"):
+            s["credential"] = obj["trnp"]
+        ice.append(s)
+    try:
+        user_id = int(str(obj.get("trnu") or "").split(":")[-1])
+    except ValueError:
+        user_id = 0
+    return {"token": obj["tkn"], "wsEndpoint": obj["wse"], "iceServers": ice,
+            "userId": user_id, "isVideo": bool(obj.get("iv")), "expiresAt": obj.get("et")}
+
+
+def _ws2_client_query() -> dict:
+    return {"version": "5", "capabilities": _CALL_CAPS, "device": "Android/Unknown",
+            "platform": "ANDROID", "clientType": "ONE_ME", "appVersion": f"sdk-{_CALL_SDK}",
+            "osVersion": "34"}
+
+
+def _ws2_url_from_vcp(params: dict, conversation_id: str) -> str:
+    """Входящий звонок (Ws2Config.fromVcp): query собирается заново."""
+    q = {"userId": str(params["userId"]), "token": params["token"], "conversationId": conversation_id}
+    q.update(_ws2_client_query())
+    return params["wsEndpoint"].split("?")[0] + "?" + urllib.parse.urlencode(q)
+
+
+def _ws2_url_from_endpoint(endpoint: str) -> str:
+    """Исходящий звонок / вход по ссылке (Ws2Config.fromEndpoint): токен уже в query endpoint.
+    Без tgt=start сервер принимает сокет, но не поднимает разговор."""
+    base = urllib.parse.urlsplit(endpoint)
+    q = dict(urllib.parse.parse_qsl(base.query, keep_blank_values=True))
+    q.update(_ws2_client_query())
+    q["tgt"] = "start"
+    return urllib.parse.urlunsplit((base.scheme, base.netloc, base.path, urllib.parse.urlencode(q), ""))
+
+
+def _call_register_ws(url: str) -> str:
+    key = uuid.uuid4().hex
+    now = time.time()
+    with _call_ws_lock:
+        for k in [k for k, v in _CALL_WS.items() if now - v["ts"] > _CALL_WS_TTL]:
+            _CALL_WS.pop(k, None)
+        _CALL_WS[key] = {"url": url, "ts": now}
+    return key
+
+
+def _call_publish(event: dict):
+    event = stringify_big_ints(event)
+    with _call_subs_lock:
+        subs = list(_call_subs)
+    for q in subs:
+        try:
+            q.put_nowait(event)
+        except queue.Full:
+            pass
+
+
+def _call_on_push(packet: dict):
+    """Вызывается из recv_loop: 137 — входящий звонок (conversationId, callerId, vcp, type)."""
+    opcode = packet.get("opcode")
+    payload = packet.get("payload")
+    if not isinstance(payload, dict):
+        return
+    if opcode == 137:
+        conv = payload.get("conversationId")
+        caller = payload.get("callerId")
+        params = _decode_vcp(payload.get("vcp") or "") if payload.get("vcp") else None
+        if not conv or caller is None or not params:
+            logger.warning(f"[call] push 137 без conversationId/callerId/vcp: keys={list(payload.keys())}")
+            return
+        key = _call_register_ws(_ws2_url_from_vcp(params, str(conv)))
+        _call_publish({"type": "incoming", "conversationId": conv, "callerId": caller, "callKey": key,
+                       "userId": params["userId"], "iceServers": params["iceServers"],
+                       "isVideo": payload.get("type") == "VIDEO" or params["isVideo"],
+                       "country": payload.get("country"), "isContact": payload.get("isContact")})
+    elif opcode == 128:
+        # Эвристика (формат пуша отмены в Komet не нашли): запись звонка (вложение CALL) приходит,
+        # когда звонок уже завершён, — звонящий отменил или сброшено. Фронт сам сверит с отправителем.
+        msg = payload.get("message") if isinstance(payload.get("message"), dict) else payload
+        for a in (msg.get("attaches") or []):
+            if isinstance(a, dict) and a.get("_type") == "CALL":
+                _call_publish({"type": "call_record", "sender": msg.get("sender"), "hangupType": a.get("hangupType")})
+                break
+
+
+def _call_parse_endpoint(payload: dict, keys):
+    """Как CallsModule._parseCallerEndpoint: JSON-строка с endpoint и id.internal."""
+    for k in keys:
+        raw = payload.get(k)
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, dict) else {})
+        except ValueError:
+            parsed = {}
+        if isinstance(parsed, dict) and parsed.get("endpoint"):
+            ident = parsed.get("id")
+            internal = ident.get("internal") if isinstance(ident, dict) else None
+            return parsed["endpoint"], int(internal or 0)
+    return None, 0
+
+
+def _call_op_error(packet):
+    pl = (packet or {}).get("payload") or {}
+    return pl.get("localizedMessage") or pl.get("message") or pl.get("error") or "Ошибка сервера"
+
+
+@app.route("/api/call/start", methods=["POST"])
+def api_call_start():
+    """Исходящий звонок 1:1: opcode 78 (CallsModule.initiateCall)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        callee = int(data.get("calleeId"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "calleeId не указан"}), 400
+    is_video = bool(data.get("isVideo"))
+    conv = str(uuid.uuid4())
+    try:
+        packet = _op_via_session(78, {"conversationId": conv, "calleeIds": [callee],
+                                      "internalParams": _call_internal_params(), "isVideo": is_video})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+    if packet.get("cmd") != 256:
+        return jsonify({"error": _call_op_error(packet)}), 502
+    pl = packet.get("payload") or {}
+    endpoint, calls_uid = _call_parse_endpoint(pl, ("internalCallerParams",))
+    if not endpoint:
+        logger.warning(f"[call] op 78: нет endpoint, keys={list(pl.keys())}")
+        return jsonify({"error": "Сервер не вернул адрес звонка"}), 502
+    return jsonify(stringify_big_ints({
+        "conversationId": pl.get("conversationId") or conv, "callKey": _call_register_ws(_ws2_url_from_endpoint(endpoint)),
+        "userId": calls_uid, "isVideo": is_video}))
+
+
+@app.route("/api/call/events")
+def api_call_events():
+    """SSE: входящие звонки (push 137). Отдельно от /relay, чтобы работало в обоих интерфейсах."""
+    q = queue.Queue(maxsize=50)
+    with _call_subs_lock:
+        _call_subs.add(q)
+
+    def gen():
+        try:
+            yield "retry: 3000\n\n"
+            while True:
+                try:
+                    yield f"data: {json.dumps(q.get(timeout=15), ensure_ascii=False)}\n\n"
+                except queue.Empty:
+                    yield ": ping\n\n"
+        finally:
+            with _call_subs_lock:
+                _call_subs.discard(q)
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@sock.route("/call-ws")
+def call_ws_proxy(ws):
+    """Мост браузер <-> ws2. Адрес берётся из реестра по ключу (выдан /api/call/*, push 137)."""
+    import simple_websocket  # приходит вместе с flask_sock
+    key = request.args.get("k") or ""
+    with _call_ws_lock:
+        entry = _CALL_WS.get(key)
+    if not entry:
+        try:
+            ws.close(reason=1008, message="unknown call key")
+        except Exception:
+            pass
+        return
+    try:
+        up = simple_websocket.Client(entry["url"], headers={"User-Agent": _CALL_WS_UA},
+                                     ssl_context=ssl.create_default_context())
+    except Exception as e:
+        logger.warning(f"[call] ws2 не подключился: {e}")
+        try:
+            ws.send(json.dumps({"type": "proxy-error", "error": str(e)}))
+            ws.close(reason=1011, message="ws2 connect failed")
+        except Exception:
+            pass
+        return
+    stop = threading.Event()
+
+    def _up_to_browser():
+        try:
+            while not stop.is_set():
+                msg = up.receive(timeout=0.5)
+                if msg is None:
+                    continue
+                if msg == "ping":  # keepalive ws2: текстовый кадр ping -> pong
+                    up.send("pong")
+                    continue
+                ws.send(msg)
+        except Exception as e:
+            logger.info(f"[call] ws2 закрыт: {e}")
+        finally:
+            stop.set()
+
+    t = threading.Thread(target=_up_to_browser, daemon=True)
+    t.start()
+    try:
+        while not stop.is_set():
+            msg = ws.receive(timeout=0.2)
+            if msg is not None:
+                up.send(msg)
+    except Exception as e:
+        logger.info(f"[call] браузер отключился: {e}")
+    finally:
+        stop.set()
+        try:
+            up.close()
+        except Exception:
+            pass
+
+
 @app.route("/api/sessions", methods=["GET"])
 def api_sessions():
     """Активные сеансы аккаунта (opcode 96, как SessionsModule в Komet)."""
@@ -5950,6 +6217,8 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
                 _w[1]["p"] = packet
                 _w[0].set()
                 continue
+            if packet["opcode"] in (137, 128):
+                _call_on_push(packet)
             out_queue.put(packet)
             maybe_push_notify(packet)
         except Exception as e:

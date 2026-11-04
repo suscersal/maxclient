@@ -504,7 +504,14 @@
       }
       snd = mkSnd();
       tiles.appendChild(snd);
-      tiles.appendChild(tile('phone', 'Звонок', function () { toast('Звонки в этом клиенте не поддерживаются'); }, 'dim'));
+      var canCall = !!window.MaxCalls && !a.group && !p.bot && !p.self;
+      tiles.appendChild(tile('phone', 'Звонок', function () {
+        if (!window.MaxCalls) return toast('Модуль звонков не загружен');
+        if (a.group) return toast('Групповые звонки не поддерживаются');
+        if (p.bot || p.self) return toast('Этому контакту позвонить нельзя');
+        var ph = p.photoSmall || p.photo;
+        window.MaxCalls.start(a.id, { name: p.name, avatarUrl: ph ? imgUrl(ph) : null });
+      }, canCall ? '' : 'dim'));
       pg.body.appendChild(tiles);
 
       if (!a.group && p.isContact === false && !p.bot && !p.self) {
@@ -1136,5 +1143,12 @@
 
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
   window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };
+  /* имя и фото звонящего для экрана входящего звонка (static/calls.js) */
+  if (window.MaxCalls) window.MaxCalls.setResolver(function (id) {
+    return rpc('contact', { id: id }).then(function (p) {
+      var ph = p && (p.photoSmall || p.photo);
+      return { name: p && p.name, avatarUrl: ph ? imgUrl(ph) : null };
+    });
+  });
   window.__mxUi = { open: open, closeAll: closeAll, rpc: rpc, screens: S };
 })();

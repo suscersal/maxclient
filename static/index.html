@@ -4838,6 +4838,7 @@
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5) !important;
         }
     </style>
+    <script src="calls.js"></script>
 </head>
 
 <body>
@@ -5469,6 +5470,8 @@
                 <div id="chatDetailStatus" style="font-size:12px;color:#888;"></div>
             </div>
             <span class="chat-id-label" id="chatIdLabel"></span>
+            <button type="button" class="back-btn hidden" id="chatCallBtn" onclick="startChatCall()"
+                title="Позвонить" aria-label="Позвонить" style="margin-left:4px;" data-ic="phone" data-ic-size="18"></button>
             <button type="button" class="back-btn" id="chatSearchBtn" onclick="openChatSearch()"
                 title="Поиск по чату" aria-label="Поиск по чату" style="margin-left:4px;" data-ic="search" data-ic-size="18"></button>
             <label id="e2eToggleWrap" title="Шифрование сообщений"
@@ -11508,12 +11511,36 @@
             setActiveNavTab('navContactsBtn');
         }
 
-        // ============ ЗВОНКИ (история — videoChatHistory, opcode 79) ============
-        // Сам звонок инициировать нельзя (в клиенте нет функции звонков
-        // вообще), но ПРОСМОТР истории — отдельная, честно проверенная по
-        // Komet возможность (CallsModule.fetchHistory), опкод не требует
-        // самой возможности звонить, только читает лог.
+        // ============ ЗВОНКИ ============
+        // Сами звонки (аудио 1:1) — static/calls.js + блок «Звонки» в bridge.py;
+        // здесь только кнопки и подсказка имён для экрана звонка.
+        // История — videoChatHistory, opcode 79 (Komet: CallsModule.fetchHistory).
         let _callHistory = [];
+
+        if (window.MaxCalls) {
+            MaxCalls.setResolver(id => ({
+                name: contactNameFromPayload(contactsById[id] || { id }),
+                avatarUrl: memberAvatarUrl(id)
+            }));
+        }
+
+        // Позвонить можно только в личном диалоге (не боты, не «Избранное»).
+        function callablePeerId(chat) {
+            if (!chat || chat.type !== 'DIALOG' || isBotChat(chat)) return null;
+            const id = otherParticipantId(chat);
+            return (id != null && id !== selfId) ? id : null;
+        }
+
+        function updateChatCallButton(chat) {
+            const btn = document.getElementById('chatCallBtn');
+            if (btn) btn.classList.toggle('hidden', !window.MaxCalls || callablePeerId(chat) == null);
+        }
+
+        function startChatCall() {
+            const id = callablePeerId(chatsById[currentChatId]);
+            if (id == null || !window.MaxCalls) return;
+            MaxCalls.start(id);
+        }
 
         function bottomNavCalls() {
             document.getElementById('chatDetailSection')?.classList.add('hidden');
@@ -11591,7 +11618,8 @@
                 const timeStr = c.time ? new Date(c.time).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
                 const durStr = c.duration ? ` (${formatTime(c.duration)})` : '';
                 return `
-                    <div class="chat-item" style="cursor:default;">
+                    <div class="chat-item" style="${c.peerId ? 'cursor:pointer;' : 'cursor:default;'}"
+                        ${c.peerId ? `onclick="MaxCalls && MaxCalls.start(${Number(c.peerId)})" title="Перезвонить"` : ''}>
                         <div class="chat-avatar" style="${avatarBg}">${avatarHtml}</div>
                         <div class="chat-info">
                             <div class="chat-name">${escapeHtml(name)}</div>
@@ -15882,6 +15910,7 @@
                 fetchChatParticipantsCount(chatId);
             }
             document.getElementById('chatIdLabel').textContent = 'ID: ' + chatId;
+            updateChatCallButton(chat);
 
             const avatarUrl = chatAvatarUrl(chat);
             const initial = getInitials(chatDisplayName(chat));

@@ -26,7 +26,7 @@ mkdir -p "$OUT_DIR"
 # файлы (не требуют компиляции и не влияют на нативный код Kotlin).
 # Если добавляешь новый файл в static/ или новый .py-модуль, который
 # должен обновляться без пересборки APK, — впиши его сюда тоже.
-HOT_FILES=(bridge.py msgpack_lite.py index.html avatars.json manifest.json loading.gif)
+HOT_FILES=(bridge.py msgpack_lite.py index.html calls.js avatars.json manifest.json loading.gif)
 
 python3 - "$VERSION" "$SRC" "$OUT_DIR" "${HOT_FILES[@]}" <<'PYEOF'
 import sys, os, json, hashlib, shutil

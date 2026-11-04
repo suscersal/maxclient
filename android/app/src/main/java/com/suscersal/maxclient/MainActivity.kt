@@ -66,6 +66,21 @@ class MainActivity : AppCompatActivity() {
     private val notifChannelId = "max_client_messages"
     private var notifIdCounter = 1
 
+    // Микрофон для звонков (static/calls.js -> getUserMedia). WebView сам не умеет
+    // просить RECORD_AUDIO: запрос страницы приходит в WebChromeClient.onPermissionRequest,
+    // там мы просим у системы разрешение и отвечаем WebView (grant/deny).
+    private var pendingMicRequest: android.webkit.PermissionRequest? = null
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val req = pendingMicRequest
+        pendingMicRequest = null
+        if (req != null) {
+            if (granted) req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            else req.deny()
+        }
+    }
+
     // Колбэк WebView, ожидающий результат выбора файла (см. onShowFileChooser
     // ниже) — сохраняется здесь между запуском SAF-интента и получением
     // результата в fileChooserLauncher.
@@ -310,6 +325,32 @@ class MainActivity : AppCompatActivity() {
                 (resultMsg?.obj as? android.webkit.WebView.WebViewTransport)?.webView = transport
                 resultMsg?.sendToTarget()
                 return true
+            }
+
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                if (request == null) return
+                runOnUiThread {
+                    // Только наша локальная страница и только микрофон (камеры в клиенте нет).
+                    val host = request.origin?.host
+                    val wantsMic = request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                    if ((host != "127.0.0.1" && host != "localhost") || !wantsMic) {
+                        request.deny()
+                        return@runOnUiThread
+                    }
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                        == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        request.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    } else {
+                        pendingMicRequest?.deny()
+                        pendingMicRequest = request
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            }
+
+            override fun onPermissionRequestCanceled(request: android.webkit.PermissionRequest?) {
+                if (request != null && request === pendingMicRequest) pendingMicRequest = null
             }
 
             override fun onShowFileChooser(

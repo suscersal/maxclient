@@ -21,6 +21,7 @@ cp bridge.py "$DEST/bridge.py"
 echo "[sync] Копирую static/*.json и index.html и gifы -> $DEST/"
 cp static/index.html "$DEST/index.html"
 cp static/manifest.json "$DEST/manifest.json"
+cp static/calls.js "$DEST/calls.js"
 cp static/loading.gif "$DEST/loading.gif"
 cp -r static/assets/. "$DEST/assets"
 
