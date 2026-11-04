@@ -52,15 +52,43 @@
     } catch (e) { /* */ }
   }
 
+  // Текст ошибки по e.name: NotAllowedError — нет разрешения, NotReadableError — разрешение
+  // есть, но систему не удалось открыть микрофон (занят другим приложением, закрыт
+  // AppOps/«Конфиденциальностью» прошивки, не освободился после прошлого звонка).
+  function micError(e) {
+    var n = e && e.name ? e.name : '';
+    var msg;
+    if (n === 'NotReadableError') {
+      msg = 'Микрофон занят другим приложением или закрыт настройками системы';
+    } else if (n === 'NotAllowedError' || n === 'SecurityError') {
+      msg = 'Нет разрешения на микрофон: включите его в настройках приложения';
+    } else if (n === 'NotFoundError' || n === 'OverconstrainedError') {
+      msg = 'Микрофон не найден';
+    } else {
+      msg = 'Нет доступа к микрофону';
+    }
+    return new Error(msg + (n ? ' (' + n + ')' : ''));
+  }
+
   function getMic() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       return Promise.reject(new Error('Микрофон недоступен: нужен https или localhost'));
     }
-    return navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    }).catch(function (e) {
-      throw new Error('Нет доступа к микрофону' + (e && e.name ? ' (' + e.name + ')' : ''));
-    });
+    var gum = function (audio) { return navigator.mediaDevices.getUserMedia({ audio: audio }); };
+    var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var denied = function (e) { return e && (e.name === 'NotAllowedError' || e.name === 'SecurityError'); };
+    return gum({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+      .catch(function (e) {
+        if (denied(e)) throw e; // повтор ничего не изменит
+        // часть прошивок/WebView не открывает микрофон с расширенными ограничениями
+        log('getUserMedia с ограничениями не удался:', e && e.name, '— пробуем audio: true');
+        return gum(true).catch(function (e2) {
+          if (!e2 || e2.name !== 'NotReadableError') throw e2;
+          // микрофон мог ещё не освободиться после прошлого звонка/записи
+          return wait(700).then(function () { return gum(true); });
+        });
+      })
+      .catch(function (e) { throw micError(e); });
   }
 
   // ICE из notification connection: conversationParams.{stun,turn} (Komet _iceServersFrom)
