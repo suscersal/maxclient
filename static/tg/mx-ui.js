@@ -504,13 +504,14 @@
       }
       snd = mkSnd();
       tiles.appendChild(snd);
-      var canCall = !!window.MaxCalls && !a.group && !p.bot && !p.self;
+      var canCall = !a.group && !p.bot && !p.self;
       tiles.appendChild(tile('phone', 'Звонок', function () {
-        if (!window.MaxCalls) return toast('Модуль звонков не загружен');
         if (a.group) return toast('Групповые звонки не поддерживаются');
         if (p.bot || p.self) return toast('Этому контакту позвонить нельзя');
         var ph = p.photoSmall || p.photo;
-        window.MaxCalls.start(a.id, { name: p.name, avatarUrl: ph ? imgUrl(ph) : null });
+        ensureCalls().then(function (M) {
+          M.start(a.id, { name: p.name, avatarUrl: ph ? imgUrl(ph) : null });
+        }, function (e) { toast('Звонки: ' + e.message); });
       }, canCall ? '' : 'dim'));
       pg.body.appendChild(tiles);
 
@@ -1143,12 +1144,33 @@
 
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
   window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };
-  /* имя и фото звонящего для экрана входящего звонка (static/calls.js) */
-  if (window.MaxCalls) window.MaxCalls.setResolver(function (id) {
-    return rpc('contact', { id: id }).then(function (p) {
-      var ph = p && (p.photoSmall || p.photo);
-      return { name: p && p.name, avatarUrl: ph ? imgUrl(ph) : null };
+  /* Звонки (static/calls.js). В оболочке старого APK tg/index.html не содержит <script src="/calls.js"> и по OTA не обновляется,
+     поэтому, если модуля нет, подгружаем его сами (calls.js и mx-ui.js едут по OTA без пересборки). */
+  var callsP = null;
+  function wireCalls(M) {
+    if (M.__mxWired) return M;
+    M.__mxWired = true;
+    /* имя и фото звонящего для экрана входящего звонка */
+    M.setResolver(function (id) {
+      return rpc('contact', { id: id }).then(function (p) {
+        var ph = p && (p.photoSmall || p.photo);
+        return { name: p && p.name, avatarUrl: ph ? imgUrl(ph) : null };
+      });
     });
-  });
+    return M;
+  }
+  function ensureCalls() {
+    if (window.MaxCalls) return Promise.resolve(wireCalls(window.MaxCalls));
+    if (callsP) return callsP;
+    callsP = new Promise(function (res, rej) {
+      var sc = document.createElement('script');
+      sc.src = '/calls.js';
+      sc.onload = function () { window.MaxCalls ? res(wireCalls(window.MaxCalls)) : (callsP = null, rej(new Error('calls.js загружен, но модуль не создан'))); };
+      sc.onerror = function () { callsP = null; rej(new Error('не удалось загрузить /calls.js (обнови bridge.py и calls.js)')); };
+      document.head.appendChild(sc);
+    });
+    return callsP;
+  }
+  ensureCalls().catch(function () { });   /* входящие звонки нужны, даже если профиль не открывали */
   window.__mxUi = { open: open, closeAll: closeAll, rpc: rpc, screens: S };
 })();
