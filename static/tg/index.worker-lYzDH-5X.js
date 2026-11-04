@@ -78,7 +78,7 @@ function __mxPump(){
   __mx.busy=true;__mx.curP=job.p;var t1=Date.now();
   var done=function(){__mx.busy=false;if(job.p<2)__mx.lastNormal=Date.now();var tw=t1-job.t,tt=Date.now()-t1;if(tw>1000||tt>2000)__mxLog("call op",job.op,"ждал",tw,"мс, выполнялся",tt,"мс, в очереди",(__mx.qs||[]).length);__mxPump()};
   __mxConnect().then(function(){return new Promise(function(res,rej){
-    var w={op:job.op,seq:null,go:function(seq){job.acked=true;__mx.pend.set(seq,{res:res,rej:rej});setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},job.op===19?(__mx.t19||25000):20000)}};
+    var w={op:job.op,seq:null,go:function(seq){job.acked=true;__mx.pend.set(seq,{res:res,rej:rej});var tmo=job.op===19?(__mx.t19||25000):20000;if(job.op===19)__mxLog("op 19: ack получен, жду ответ до",tmo,"мс");setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},tmo)}};
     __mx.waitAck=w;__mx.ws.send(JSON.stringify({opcode:job.op,payload:job.payload}));
     setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?(__mx.a19||10000):(job.op===64?4000:8000))})}).then(function(v){if(job.op===19)__mx.on19=__mx.ws;job.res(v);done()},function(e){
     var m=e&&e.message;
@@ -240,6 +240,7 @@ function __mxLoad(key,offsetId){
   return Promise.resolve()}
 function __mxPush(pl){
   var m=pl.message||pl,cid=pl.chatId!=null?pl.chatId:m.chatId,key=__mx.chatKey[cid];
+  if(String(m.status||"").toUpperCase()==="REMOVED"&&m.id!=null){__mxLog("push 128 REMOVED: чат",cid,"сообщение",String(m.id).slice(-6));__mxDeletePush({chatId:cid,messageIds:[m.id]});return}
   if(!key||!jd[key])return;
   var out=String(m.sender)===String(__mx.self);
   if(out&&__mx.sentOut[key]&&__mx.sentOut[key].length){var i=__mx.sentOut[key].findIndex(function(s){return s.text===(m.text||"")});if(i>=0){var s=__mx.sentOut[key].splice(i,1)[0];__mx.seen[key][String(m.id)]=1;s.o.__mxid=String(m.id);__mx.tgIdOf[String(m.id)]=s.o.id;__mx.maxIdOf[s.o.id]=String(m.id);try{Vd({_:"updateEditMessage",message:s.o,pts:++xd,pts_count:1})}catch(x){}return}}
@@ -1122,7 +1123,8 @@ function __mxRawFlush(){Object.keys(__mx.rawDirty).forEach(function(cs){try{__mx
 function __mxDelRawSave(){clearTimeout(__mx.drT);__mx.drT=setTimeout(function(){try{__mxIdbPut("delraw:"+__mxAcc,JSON.stringify(__mx.delraw))}catch(e){}},500)}
 /* что осталось от удалённого сообщения: его сырое тело и (по возможности) байты вложений */
 function __mxDeletePush(pl){
-  var cid=pl.chatId!=null?pl.chatId:(pl.chat&&pl.chat.id),key=cid!=null?__mx.chatKey[cid]:null;if(!key)return;
+  var cid=pl.chatId!=null?pl.chatId:(pl.chat&&pl.chat.id),key=cid!=null?__mx.chatKey[cid]:null;
+  if(!key){__mxLog("deleted: чат",cid,"неизвестен воркеру — пропуск");return}
   var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String).filter(function(i){return !__mx.selfDel[i]});if(!ids.length)return;
   var cs=String(cid),set=__mx.del[cs]||(__mx.del[cs]={}),ups=[];ids.forEach(function(i){set[i]=1});__mxDelSave();
   ids.forEach(function(mid){var tg=__mx.tgIdOf[mid];if(tg==null)return;var o=(jd[key]||[]).filter(function(x){return x.id===tg})[0];if(o&&__mxDelMark(o))ups.push(o)});
