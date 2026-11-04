@@ -90,6 +90,31 @@ function __mxPump(){
     /* без ack запрос до MAX не дошёл — повтор безопасен (дубля сообщения не будет) */
     if(!job.acked&&!job.retried&&(m==="no ack"||m==="closed")){job.retried=1;(__mx.qs||(__mx.qs=[])).unshift(job);done();return}
     job.rej(e);done()})}
+/* ---- подписи вложений без своего вида в Web K (раньше везде «📎 CALL», «📎 CONTROL»...); список и тексты — по Komet (chat_preview.dart) ---- */
+function __mxDur(ms){var s=Math.round((Number(ms)||0)/1000),m=Math.floor(s/60);s=s%60;return m+":"+(s<10?"0":"")+s}
+function __mxAttachText(m,out){
+  var at=m.attaches||[],a=at.filter(function(x){return x&&x._type!=="INLINE_KEYBOARD"&&x._type!=="KEYBOARD"})[0]||at[0],t=String((a&&a._type)||"").toUpperCase();
+  try{
+    if(t==="CALL"){
+      var vid=String(a.callType||"").toUpperCase()==="VIDEO",ic=vid?"📹 ":"📞 ",dur=Number(a.duration)||0,hu=String(a.hangupType||"").toUpperCase();
+      if(a.joinLink)return ic+(vid?"Групповой видеозвонок":"Групповой звонок");
+      var kind=vid?"видеозвонок":"звонок",K=kind.charAt(0).toUpperCase()+kind.slice(1);
+      if(hu==="REJECTED")return ic+(out?K+" отклонён":"Вы отклонили "+kind);
+      if(hu==="CANCELED")return ic+(out?K+" отменён":"Пропущенный "+kind);
+      if(hu==="MISSED"||!dur)return ic+(out?"Нет ответа":"Пропущенный "+kind);
+      return ic+(out?"Исходящий ":"Входящий ")+kind+" · "+__mxDur(dur)}
+    if(t==="CONTROL"){
+      var ev=String(a.event||""),ttl=a.title?" «"+a.title+"»":"",M={add:"Новый участник",joinByLink:"Новый участник",leave:"Участник вышел",remove:"Участник удалён",pin:"Закреплённое сообщение",changeIcon:"Фото чата обновлено"};
+      if(ev==="new")return"ℹ️ Чат создан"+ttl;
+      if(ev==="changeTitle")return"ℹ️ Название чата изменено"+ttl;
+      if(M[ev])return"ℹ️ "+M[ev];
+      return"ℹ️ "+(a.shortMessage||"Системное сообщение")}
+    if(t==="SHARE")return"🔗 "+(a.title||a.url||"Ссылка");
+    if(t==="POLL")return"📊 Опрос"+(a.title?": "+a.title:"");
+    if(t==="LOCATION")return"📍 Геопозиция";
+    if(t==="CONTACT")return"👤 Контакт"+(a.name?": "+a.name:"")
+  }catch(e){}
+  return"📎 "+String((m.attaches&&m.attaches[0]&&m.attaches[0]._type)||"Вложение")}
 function __mxAddMsgs(key,msgs){
   var list=msgs.slice().sort(function(a,b){return(a.time||0)-(b.time||0)}),made=[];
   var seen=__mx.seen[key]||(__mx.seen[key]={}),lim=__mx.lim[key];
@@ -97,7 +122,7 @@ function __mxAddMsgs(key,msgs){
   list.forEach(function(m){
     var id=String(m.id);if(seen[id]||m.deleted)return;
     var out=String(m.sender)===String(__mx.self),text=m.text||"";
-    if(!text&&m.attaches&&m.attaches.length)text="📎 "+String(m.attaches[0]._type||"Вложение");
+    if(!text&&m.attaches&&m.attaches.length)text=__mxAttachText(m,out);
     var sid=m.sender,noFrom=!out&&key[0]==="c"&&(!(Number(sid)>0)||__mx.chType[key]==="CHANNEL");
     var from=out?100:(key[0]==="u"?+key.slice(1):(noFrom?100:__mxTgUser(sid)));
     if(!out&&key[0]==="c"&&!noFrom){__mxUser(sid);__mxFetchUsers([sid])}
