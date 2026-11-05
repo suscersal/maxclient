@@ -77,7 +77,7 @@
     var gum = function (audio) { return navigator.mediaDevices.getUserMedia({ audio: audio }); };
     var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
     var denied = function (e) { return e && (e.name === 'NotAllowedError' || e.name === 'SecurityError'); };
-    return gum({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+    return gum({ echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 })
       .catch(function (e) {
         if (denied(e)) throw e; // повтор ничего не изменит
         // часть прошивок/WebView не открывает микрофон с расширенными ограничениями
@@ -411,6 +411,103 @@
 
   var ui = (function () {
     var root, el = {}, tick = null, hideT = null, built = false;
+    var api = null, qT = null, qPrev = { lost: 0, recv: 0, conc: 0, tot: 0 };
+    var sheetOpen = false, remote = null, actx = null, bnodes = null, sinks = [], sinkIdx = 0;
+    function lsGet(k, d) { try { var v = localStorage.getItem('maxclient_call_' + k); return v == null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem('maxclient_call_' + k, String(v)); } catch (e) { /* */ } }
+    var volume = Math.min(1, Math.max(0, parseFloat(lsGet('vol', '1')) || 1)), boost = lsGet('boost', '0') === '1';
+
+    // Громкость собеседника: 0–100% через audio.volume; «усиление» — Web Audio (×2.2 + компрессор, чтобы не хрипело)
+    function applyAudio() {
+      if (!el.audio) return;
+      el.audio.volume = volume;
+      if (boost && remote) {
+        try {
+          if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+          if (actx.resume) actx.resume().catch(noop);
+          if (!bnodes || bnodes.stream !== remote) {
+            dropBoost();
+            var src = actx.createMediaStreamSource(remote), g = actx.createGain(), c = actx.createDynamicsCompressor();
+            src.connect(g); g.connect(c); c.connect(actx.destination);
+            bnodes = { stream: remote, src: src, g: g, c: c };
+          }
+          bnodes.g.gain.value = 2.2 * volume;
+          el.audio.muted = true; // звук идёт через Web Audio; элемент нужен, чтобы Chrome отдавал поток
+          return;
+        } catch (e) { log('усиление не включилось', e && e.message); boost = false; lsSet('boost', 0); }
+      }
+      dropBoost();
+      el.audio.muted = false;
+    }
+    function dropBoost() {
+      if (!bnodes) return;
+      try { bnodes.src.disconnect(); bnodes.g.disconnect(); bnodes.c.disconnect(); } catch (e) { /* */ }
+      bnodes = null;
+    }
+    function loadSinks() {
+      if (!el.audio || !el.audio.setSinkId || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      navigator.mediaDevices.enumerateDevices().then(function (d) {
+        sinks = d.filter(function (x) { return x.kind === 'audiooutput'; });
+        if (cur && root && !root.hidden) api.render();
+      }).catch(noop);
+    }
+    function cycleSink() {
+      if (sinks.length < 2) return;
+      sinkIdx = (sinkIdx + 1) % sinks.length;
+      var d = sinks[sinkIdx], name = d.label || ('устройство ' + (sinkIdx + 1));
+      el.audio.setSinkId(d.deviceId).then(function () {
+        if (actx && actx.setSinkId) actx.setSinkId(d.deviceId).catch(noop);
+        api.note('Вывод: ' + name); setTimeout(function () { api.note(''); }, 3000);
+      }).catch(function (e) { log('setSinkId', e && e.message); api.note('Не удалось сменить вывод'); });
+    }
+
+    // Качество связи по getStats: потери, джиттер, «скрытые» семплы (рваный/роботный голос), RTT
+    function pollQ() {
+      var s = cur;
+      if (!s || !s.pc || s.state !== 'active' || !el.q) { if (el.q) el.q.textContent = ''; return; }
+      s.pc.getStats().then(function (rep) {
+        var lost = 0, recv = 0, jit = 0, conc = 0, tot = 0, rtt = null;
+        rep.forEach(function (r) {
+          if (r.type === 'inbound-rtp' && (r.kind || r.mediaType) === 'audio') {
+            lost = r.packetsLost || 0; recv = r.packetsReceived || 0; jit = (r.jitter || 0) * 1000;
+            conc = r.concealedSamples || 0; tot = r.totalSamplesReceived || 0;
+          }
+          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && r.currentRoundTripTime != null) rtt = r.currentRoundTripTime * 1000;
+        });
+        var dl = Math.max(0, lost - qPrev.lost), dr = Math.max(0, recv - qPrev.recv);
+        var dc = Math.max(0, conc - qPrev.conc), dt = Math.max(0, tot - qPrev.tot);
+        qPrev = { lost: lost, recv: recv, conc: conc, tot: tot };
+        var loss = dl + dr > 0 ? dl / (dl + dr) * 100 : 0, cp = dt > 0 ? dc / dt * 100 : 0;
+        var bad = loss > 8 || jit > 80 || cp > 15 || (rtt != null && rtt > 500);
+        var mid = loss > 2 || jit > 40 || cp > 5 || (rtt != null && rtt > 250);
+        var lvl = bad ? 'плохая' : mid ? 'средняя' : 'хорошая';
+        el.q.textContent = 'Связь: ' + lvl + ' · потери ' + loss.toFixed(0) + '% · рвётся ' + cp.toFixed(0) + '% · джиттер ' + jit.toFixed(0) + ' мс' + (rtt != null ? ' · ' + rtt.toFixed(0) + ' мс' : '');
+        el.q.className = 'mxc-q' + (bad || mid ? ' bad' : '');
+        if (bad || mid) log('quality', lvl, 'loss%', loss.toFixed(1), 'conceal%', cp.toFixed(1), 'jitter', jit.toFixed(0), 'rtt', rtt);
+      }).catch(noop);
+    }
+
+    function renderSheet() {
+      if (!el.sheet) return;
+      el.sheet.textContent = '';
+      el.sheet.hidden = !sheetOpen;
+      if (!sheetOpen) return;
+      var lab = document.createElement('label');
+      var t = document.createElement('span'); t.textContent = 'Громкость собеседника';
+      var v = document.createElement('span'); v.textContent = Math.round(volume * 100) + '%';
+      lab.appendChild(t); lab.appendChild(v);
+      var r = document.createElement('input'); r.type = 'range'; r.min = 0; r.max = 100; r.step = 5; r.value = Math.round(volume * 100);
+      r.oninput = function () { volume = r.value / 100; v.textContent = r.value + '%'; lsSet('vol', volume); applyAudio(); };
+      var chip = document.createElement('button'); chip.type = 'button'; chip.className = 'mxc-chip' + (boost ? ' on' : '');
+      chip.textContent = boost ? 'Усиление ×2 включено' : 'Усилить звук ×2';
+      chip.onclick = function () {
+        boost = !boost; lsSet('boost', boost ? 1 : 0); applyAudio();
+        chip.className = 'mxc-chip' + (boost ? ' on' : ''); chip.textContent = boost ? 'Усиление ×2 включено' : 'Усилить звук ×2';
+      };
+      var h = document.createElement('div'); h.className = 'mxc-hint';
+      h.textContent = 'Если голос тихий или глухой — включите усиление. Строка «Связь» выше показывает, рвётся ли звук по сети.';
+      el.sheet.appendChild(lab); el.sheet.appendChild(r); el.sheet.appendChild(chip); el.sheet.appendChild(h);
+    }
 
     function build() {
       if (built) return;
@@ -427,17 +524,27 @@
         '.mxc-btns{display:flex;gap:28px;justify-content:center;margin-top:44px}.mxc-b{border:0;border-radius:50%;width:68px;height:68px;' +
         'font-size:26px;color:#fff;cursor:pointer;background:#3a4452}.mxc-b.on{background:#fff;color:#1b1f26}' +
         '.mxc-b.red{background:#e5484d}.mxc-b.green{background:#30a46c}.mxc-l{display:block;font-size:12px;margin-top:6px;color:#aab3bf}' +
-        '.mxc-w{display:flex;flex-direction:column;align-items:center}';
+        '.mxc-w{display:flex;flex-direction:column;align-items:center}' +
+        '.mxc-card{width:min(94vw,360px)}.mxc-btns{gap:22px;margin-top:36px}.mxc-b.big{width:76px;height:76px;font-size:30px}' +
+        '.mxc-end{display:flex;justify-content:center;margin-top:28px}.mxc-end:empty{display:none}' +
+        '.mxc-q{margin-top:6px;font-size:12px;color:#8f99a6;min-height:16px}.mxc-q.bad{color:#f0b44c}' +
+        '.mxc-sheet{margin:22px auto 0;padding:14px;border-radius:16px;background:#1f252d;text-align:left}.mxc-sheet[hidden]{display:none}' +
+        '.mxc-sheet label{display:flex;justify-content:space-between;font-size:13px;color:#aab3bf}' +
+        '.mxc-sheet input[type=range]{width:100%;margin:12px 0 8px}' +
+        '.mxc-chip{border:0;border-radius:14px;padding:8px 12px;background:#3a4452;color:#fff;font-size:13px;cursor:pointer}' +
+        '.mxc-chip.on{background:#fff;color:#1b1f26}.mxc-hint{margin-top:8px;font-size:12px;color:#8f99a6}';
       document.head.appendChild(st);
       root = document.createElement('div');
       root.className = 'mxc'; root.hidden = true;
       root.innerHTML = '<div class="mxc-card"><div class="mxc-ava"></div><div class="mxc-name"></div>' +
-        '<div class="mxc-status"></div><div class="mxc-note"></div><div class="mxc-btns"></div>' +
+        '<div class="mxc-status"></div><div class="mxc-q"></div><div class="mxc-note"></div><div class="mxc-btns"></div>' +
+        '<div class="mxc-sheet" hidden></div><div class="mxc-end"></div>' +
         '<audio autoplay playsinline></audio></div>';
       document.body.appendChild(root);
       el.ava = root.querySelector('.mxc-ava'); el.name = root.querySelector('.mxc-name');
       el.status = root.querySelector('.mxc-status'); el.note = root.querySelector('.mxc-note');
       el.btns = root.querySelector('.mxc-btns'); el.audio = root.querySelector('audio');
+      el.q = root.querySelector('.mxc-q'); el.sheet = root.querySelector('.mxc-sheet'); el.end = root.querySelector('.mxc-end');
     }
 
     function btn(cls, icon, label, fn) {
@@ -473,9 +580,10 @@
         : s.state === 'ringing' ? (s.role === 'caller' ? 'Вызов…' : 'Соединение…') : 'Соединение…';
     }
 
-    return {
+    api = {
       showIncoming: function (ev, peer) {
         build(); clearTimeout(hideT);
+        sheetOpen = false; el.sheet.hidden = true; el.end.textContent = ''; el.q.textContent = '';
         setPeer(peer);
         el.status.textContent = ev.isVideo ? 'Входящий видеозвонок (будет только звук)' : 'Входящий звонок';
         el.note.textContent = '';
@@ -489,31 +597,41 @@
         build(); clearTimeout(hideT);
         setPeer(peer);
         root.hidden = false;
+        sheetOpen = false; qPrev = { lost: 0, recv: 0, conc: 0, tot: 0 };
         this.render();
         clearInterval(tick); tick = setInterval(paint, 500);
+        clearInterval(qT); qT = setInterval(pollQ, 2000);
+        loadSinks();
       },
       render: function () {
         if (!cur || !root) return;
         paint();
-        el.btns.textContent = '';
+        el.btns.textContent = ''; el.end.textContent = '';
         var s = cur;
-        el.btns.appendChild(btn(s.muted ? 'on' : '', s.muted ? '🔇' : '🎤', s.muted ? 'Включить' : 'Без звука', function () { s.setMuted(!s.muted); }));
-        el.btns.appendChild(btn('red', '✕', s.state === 'active' ? 'Завершить' : 'Отмена', function () { s.hangup(); }));
+        el.btns.appendChild(btn(s.muted ? 'on' : '', s.muted ? '🔇' : '🎤', s.muted ? 'Включить' : 'Микрофон', function () { s.setMuted(!s.muted); }));
+        el.btns.appendChild(btn(sheetOpen ? 'on' : '', '🔊', 'Звук', function () { sheetOpen = !sheetOpen; api.render(); }));
+        if (sinks.length > 1) el.btns.appendChild(btn('', '🎧', 'Вывод', cycleSink));
+        el.end.appendChild(btn('red big', '✕', s.state === 'active' ? 'Завершить' : 'Отмена', function () { s.hangup(); }));
+        renderSheet();
       },
       note: function (t) { if (el.note) el.note.textContent = t || ''; },
       attachRemote: function (e) {
         build();
         var stream = (e.streams && e.streams[0]) || new MediaStream([e.track]);
         if (e.track.kind === 'audio') {
+          remote = stream;
           el.audio.srcObject = stream;
+          applyAudio();
           var p = el.audio.play(); if (p && p.catch) p.catch(noop);
         }
         // видео собеседника не показываем: свою камеру мы не отправляем, экрана для него в этом UI нет
       },
       finish: function (why) {
-        clearInterval(tick); tick = null;
+        clearInterval(tick); tick = null; clearInterval(qT); qT = null;
         if (!root) return;
         if (el.audio) el.audio.srcObject = null;
+        remote = null; dropBoost(); try { if (actx) actx.close(); } catch (e) { /* */ } actx = null;
+        sheetOpen = false; el.sheet.hidden = true; el.q.textContent = ''; el.end.textContent = '';
         el.status.textContent = why; el.note.textContent = '';
         el.btns.textContent = '';
         clearTimeout(hideT);
@@ -521,6 +639,7 @@
       },
       hide: function () { if (root) root.hidden = true; }
     };
+    return api;
   })();
 
   /* ------------------------------------------------------------ публичный API */

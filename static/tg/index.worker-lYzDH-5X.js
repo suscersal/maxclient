@@ -78,13 +78,13 @@ function __mxPump(){
   __mx.busy=true;__mx.curP=job.p;var t1=Date.now();
   var done=function(){__mx.busy=false;if(job.p<2)__mx.lastNormal=Date.now();var tw=t1-job.t,tt=Date.now()-t1;if(tw>1000||tt>2000)__mxLog("call op",job.op,"ждал",tw,"мс, выполнялся",tt,"мс, в очереди",(__mx.qs||[]).length);__mxPump()};
   __mxConnect().then(function(){return new Promise(function(res,rej){
-    var w={op:job.op,seq:null,go:function(seq){job.acked=true;__mx.pend.set(seq,{res:res,rej:rej});var tmo=job.op===19?(__mx.t19||25000):20000;if(job.op===19)__mxLog("op 19: ack получен, жду ответ до",tmo,"мс");setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},tmo)}};
+    var w={op:job.op,seq:null,go:function(seq){job.acked=true;__mx.pend.set(seq,{res:res,rej:rej});var tmo=job.op===19?(__mx.t19||6000):20000;if(job.op===19)__mxLog("op 19: ack получен, жду ответ до",tmo,"мс");setTimeout(function(){if(__mx.pend.delete(seq))rej(new Error("timeout"))},tmo)}};
     __mx.waitAck=w;__mx.ws.send(JSON.stringify({opcode:job.op,payload:job.payload}));
-    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?(__mx.a19||10000):(job.op===64?4000:8000))})}).then(function(v){if(job.op===19)__mx.on19=__mx.ws;job.res(v);done()},function(e){
+    setTimeout(function(){if(w.seq==null)rej(new Error("no ack"))},job.op===19?(__mx.a19||4000):(job.op===64?4000:8000))})}).then(function(v){if(job.op===19)__mx.on19=__mx.ws;job.res(v);done()},function(e){
     var m=e&&e.message;
     /* r18: MAX отклонил вызов (сессия не ONLINE) — он не выполнялся, повтор безопасен: сначала sync (op 19), затем этот вызов */
     if(job.op!==19&&!job.stRetry&&e&&e.error==="proto.state"){job.stRetry=1;__mx.on19=null;var q9=__mx.qs||(__mx.qs=[]);q9.unshift(job);
-      if(!q9.some(function(j){return j.op===19}))__mxCall(19,{chatsSync:0,contactsSync:0,interactive:true}).catch(function(){});
+      if(!q9.some(function(j){return j.op===19}))__mxRetry19(0).catch(function(){});
       done();return}
     if(m==="no ack"||(m==="timeout"&&Date.now()-(__mx.lastRx||0)>15000))__mxResetWs(m);
     /* без ack запрос до MAX не дошёл — повтор безопасен (дубля сообщения не будет) */
@@ -139,7 +139,7 @@ function __mxAddMsgs(key,msgs){
   jd[key]=(jd[key]||[]).concat(fresh).sort(function(a,b){return a.id-b.id});
   return fresh}
 /* первый op 19 иногда остаётся без ответа, а повтор проходит сразу — повторяем сами (до 3 попыток) */
-function __mxRetry19(n){__mx.t19=[3000,15000,40000][n]||40000;__mx.a19=[3000,8000,10000][n]||10000;
+function __mxRetry19(n){__mx.t19=[2000,6000,20000][n]||20000;__mx.a19=[2000,4000,8000][n]||8000;
   return __mxCall(19,{chatsSync:0,contactsSync:0,interactive:true}).catch(function(e){if(n>=2)throw e;__mxLog("sync retry",n+1,e&&e.message,"— новое WS");
     /* зависшее соединение с relay не оживает, а свежее отвечает за секунды (по логам) — переоткрываем */
     var w=__mx.ws;__mx.ready=null;__mx.ws=null;try{w&&w.close()}catch(x){}
@@ -907,7 +907,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-11-03-r18")}catch(e){}
+try{__mxLog("worker build 2026-11-05-r19")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
