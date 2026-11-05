@@ -3186,6 +3186,22 @@ def _tg_nocache(resp, rel, live=False):
     return resp
 
 
+_STATIC_FALLBACK_NAMES = {"calls.js", "index.html", "manifest.json", "loading.gif", "avatars.json"}
+
+
+def _baked_static_dirs():
+    """Папки из sys.path, где лежит запечённый в APK index.html (кроме текущего STATIC_DIR)."""
+    out = []
+    cur = os.path.abspath(STATIC_DIR)
+    for p in sys.path:
+        try:
+            if p and os.path.abspath(p) != cur and os.path.isfile(os.path.join(p, "index.html")):
+                out.append(p)
+        except Exception:
+            pass
+    return out
+
+
 @app.route("/<path:filename>")
 def static_files(filename):
     # Файлы /tg/* берём из TG_DIR (на Android после OTA они не в STATIC_DIR).
@@ -3203,6 +3219,14 @@ def static_files(filename):
             # Отдаём пустую, но валидную Lottie-анимацию.
             return Response(_EMPTY_TGS, mimetype="application/json")
         return _tg_nocache(send_from_directory(TG_DIR, rel), rel)
+    # Android: STATIC_DIR = папка hotpatch, а в ней лежит только то, что скачал OTA. Если там нет файла
+    # (например, calls.js), берём его из копии, запечённой в APK (папка Chaquopy из sys.path).
+    if filename in _STATIC_FALLBACK_NAMES and not os.path.isfile(os.path.join(STATIC_DIR, filename)):
+        for d in _baked_static_dirs():
+            if os.path.isfile(os.path.join(d, filename)):
+                logger.info(f"[static] {filename}: нет в {STATIC_DIR}, отдаю из {d}")
+                return send_from_directory(d, filename)
+        logger.warning(f"[static] {filename}: не найден ни в {STATIC_DIR}, ни в запечённой копии APK")
     return send_from_directory(STATIC_DIR, filename)
 
 
