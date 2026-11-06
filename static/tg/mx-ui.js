@@ -1171,6 +1171,31 @@
     });
     return callsP;
   }
+  /* ------------------------------------------------------------ уведомление о новой версии (как showUpdatePrompt в roblox-studio-web)
+     Сервер (/api/update-check) сравнивает versionCode установленного APK с последним stable-релизом на GitHub; hot-релизы не в счёт.
+     Показываем один раз за сессию; «Позже» просто закрывает окно, при следующем запуске приложения напомним снова. */
+  function showUpdatePrompt(rel) {
+    if (document.getElementById('mx-upd')) return;
+    var label = rel.versionName ? 'v' + rel.versionName : rel.tag;
+    function close() { dim.remove(); }
+    function go() { close(); window.open(rel.url, '_blank', 'noopener'); }
+    var dim = h('div', { id: 'mx-upd', style: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px' },
+      h('div', { style: 'width:min(92vw,360px);box-sizing:border-box;border-radius:20px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.5)' },
+        h('div', { style: 'font-size:18px;font-weight:600' }, '🚀 Вышла новая версия'),
+        h('div', { style: 'margin-top:10px;font-size:14px;line-height:1.45;opacity:.85' }, 'Вышла версия ' + label + '. Обновите приложение, чтобы получить новые функции и исправления.'),
+        h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' }, btn('Перейти', '', go), btn('Позже', 'ghost', close))));
+    dim.addEventListener('click', function (e) { if (e.target === dim) close(); });
+    document.body.appendChild(dim);
+  }
+  function checkUpdate() {
+    try { if (sessionStorage.getItem('mx_upd_shown')) return; } catch (e) { }
+    jget('/api/update-check').then(function (d) {
+      if (!d || !d.available || !d.latest) return;
+      try { sessionStorage.setItem('mx_upd_shown', '1'); } catch (e) { }
+      showUpdatePrompt(d.latest);
+    }, function () { /* нет сети — молча: обновление не критично */ });
+  }
+  setTimeout(checkUpdate, 6000);
   ensureCalls().catch(function () { });   /* входящие звонки нужны, даже если профиль не открывали */
   /* ------------------------------------------------------------ мост мини-приложений MAX (по Komet: lib/frontend/screens/webapp/web_app_bridge.dart)
      Web K сам понимает события в стиле Telegram (web_app_ready, device/secure storage, biometry …). Здесь — то, что у MAX по-своему:

@@ -4031,6 +4031,66 @@ def get_hotfix_version():
     })
 
 
+# --- Уведомление о новой версии APK (как showUpdatePrompt в roblox-studio-web, но проверка на стороне сервера).
+# Берём только stable-релизы (не draft/prerelease): hot-update релизы помечены prerelease и ставятся сами (OtaUpdater).
+# versionCode APK = номер запуска CI; в названии релиза он есть как «MAX Client <tag> (v1.N)», иначе — в теге build-N. ---
+
+_UPDATE_RELEASES_URL = "https://api.github.com/repos/suscersal/maxclient/releases?per_page=30"
+_update_cache = {"latest": None, "checkedAt": 0.0}
+_UPDATE_CACHE_TTL = 600   # у GitHub API жёсткий лимит для анонимных запросов
+
+
+def _release_version(rel):
+    """(versionCode, versionName|None) из stable-релиза или None, если номер понять нельзя."""
+    m = re.search(r"\(v(\d+\.(\d+))\)", rel.get("name") or "")
+    if m:
+        return int(m.group(2)), m.group(1)
+    m = re.match(r"^build-(\d+)$", rel.get("tag_name") or "")
+    if m:
+        return int(m.group(1)), None
+    return None
+
+
+def _pick_latest_stable(releases):
+    best = None
+    for rel in releases if isinstance(releases, list) else []:
+        if not isinstance(rel, dict) or rel.get("draft") or rel.get("prerelease"):
+            continue
+        ver = _release_version(rel)
+        if ver is None:
+            continue
+        if best is None or ver[0] > best["versionCode"]:
+            best = {"tag": rel.get("tag_name"), "versionCode": ver[0], "versionName": ver[1],
+                    "url": rel.get("html_url") or "https://github.com/suscersal/maxclient/releases/latest"}
+    return best
+
+
+def _get_latest_stable_release():
+    now = time.time()
+    if now - _update_cache["checkedAt"] < _UPDATE_CACHE_TTL:
+        return _update_cache["latest"]
+    try:
+        req = urllib.request.Request(_UPDATE_RELEASES_URL, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            releases = json.loads(resp.read().decode("utf-8"))
+        _update_cache["latest"] = _pick_latest_stable(releases)
+        _update_cache["checkedAt"] = now
+    except Exception as e:
+        logger.warning(f"[update-check] не удалось получить релизы: {e}")
+        _update_cache["checkedAt"] = now - _UPDATE_CACHE_TTL + 60   # повторим через минуту
+    return _update_cache["latest"]
+
+
+@app.route("/api/update-check", methods=["GET"])
+def update_check():
+    """Есть ли stable-релиз новее установленного APK. На десктопе versionCode нет — сравнивать не с чем."""
+    cur = _get_own_app_version()
+    latest = _get_latest_stable_release()
+    code = cur.get("versionCode")
+    available = bool(latest and code is not None and latest["versionCode"] > code)
+    return jsonify({"current": cur, "latest": latest, "available": available})
+
+
 @app.route("/api/device-settings", methods=["GET"])
 def get_device_settings():
     sess = load_session()
