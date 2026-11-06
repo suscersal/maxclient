@@ -243,6 +243,11 @@ class MainActivity : AppCompatActivity() {
         webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.webViewClient = object : WebViewClient() {
+            // Мини-приложения *.max.ru запрещают встраивание в iframe (X-Frame-Options / frame-ancestors) —
+            // отдаём документы фреймов без этих заголовков, см. MiniAppFrameFix.kt.
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? =
+                MiniAppFrameFix.intercept(request)
+
             // onPageCommitVisible срабатывает, как только WebView отрисовал
             // первый видимый кадр страницы — раньше, чем onPageFinished
             // (который ждёт полной догрузки всех ресурсов). Благодаря этому
@@ -277,6 +282,17 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): Boolean {
                 val url = request?.url ?: return false
+                // Мини-приложения живут в iframe. Как в Komet (web_app_screen.dart): сайт остаётся в окне,
+                // возврат с externalCallback=1 перехватываем, схемы вроде tel:/mailto: уводим наружу.
+                if (request?.isForMainFrame == false) {
+                    if (isExternalCallbackUri(url)) {
+                        deliverExternalCallback(url.toString())
+                        return true
+                    }
+                    val sch = url.scheme?.lowercase()
+                    if (sch == "http" || sch == "https" || sch == "about" || sch == "data" || sch == "blob" || sch == "javascript") return false
+                    return openOutside(url)
+                }
                 return openExternallyIfNeeded(url)
             }
         }
@@ -436,6 +452,8 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(AndroidDownloadBridge(this), "AndroidDownload")
         // Мост JS -> нативные настройки «Код-пароль».
         webView.addJavascriptInterface(AndroidAppLockBridge(this), "AndroidAppLock")
+        // Мост JS -> встроенный браузер для ссылок из мини-приложений.
+        webView.addJavascriptInterface(AndroidInAppBrowserBridge(), "AndroidInAppBrowser")
         publishAppLockShortcut()
         requestLegacyStoragePermissionIfNeeded()
 
@@ -679,6 +697,114 @@ class MainActivity : AppCompatActivity() {
             // ничего не делаем, просто не даём ей загрузиться в WebView.
             Toast.makeText(this, "Не удалось открыть ссылку: ${e.message}", Toast.LENGTH_SHORT).show()
             true
+        }
+    }
+
+    // ---- Встроенный браузер для мини-приложений (по Komet: lib/frontend/screens/webapp/web_app_screen.dart) ----
+    // Ссылки из мини-приложения открываются внутри приложения, а не в системном браузере. Переход на адрес с
+    // externalCallback=1 (возврат из Цифрового ID и т.п.) перехватывается и отдаётся в JS (__mxExternalCallback).
+    private var inAppBrowser: android.app.Dialog? = null
+
+    private fun isExternalCallbackUri(uri: Uri): Boolean =
+        try { uri.getQueryParameter("externalCallback") == "1" } catch (e: Exception) { false }
+
+    private fun deliverExternalCallback(url: String) {
+        val js = "window.__mxExternalCallback&&window.__mxExternalCallback(${jsStr(url)})"
+        runOnUiThread { webView.evaluateJavascript(js, null) }
+    }
+
+    // tel:, mailto:, intent: и другие не-веб схемы — наружу; true = переход отменён.
+    private fun openOutside(uri: Uri): Boolean {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (e: Exception) {
+            // нет приложения под эту схему — просто отменяем переход
+        }
+        return true
+    }
+
+    private fun openInAppBrowser(url: String) {
+        val uri = Uri.parse(url)
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "https" && scheme != "http") return
+        runOnUiThread {
+            inAppBrowser?.dismiss()
+            val dialog = android.app.Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar)
+            val root = android.widget.LinearLayout(this)
+            root.orientation = android.widget.LinearLayout.VERTICAL
+            val bar = android.widget.LinearLayout(this)
+            bar.orientation = android.widget.LinearLayout.HORIZONTAL
+            bar.gravity = android.view.Gravity.CENTER_VERTICAL
+            val pad = (8 * resources.displayMetrics.density).toInt()
+            bar.setPadding(pad, pad, pad, pad)
+            val title = TextView(this)
+            title.text = uri.host ?: ""
+            title.maxLines = 1
+            title.ellipsize = android.text.TextUtils.TruncateAt.END
+            bar.addView(title, android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val outBtn = android.widget.Button(this)
+            outBtn.text = "Снаружи"
+            val closeBtn = android.widget.Button(this)
+            closeBtn.text = "Закрыть"
+            bar.addView(outBtn)
+            bar.addView(closeBtn)
+
+            // Отдельный WebView без JS-мостов приложения и без выдачи разрешений (камера/микрофон/гео не запрашиваются).
+            val web = WebView(this)
+            web.settings.javaScriptEnabled = true
+            web.settings.domStorageEnabled = true
+            web.settings.allowFileAccess = false
+            web.settings.allowContentAccess = false
+            web.webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                    val u = request?.url ?: return false
+                    if (isExternalCallbackUri(u)) {
+                        dialog.dismiss()
+                        deliverExternalCallback(u.toString())
+                        return true
+                    }
+                    val sch = u.scheme?.lowercase()
+                    if (sch == "http" || sch == "https" || sch == "about" || sch == "data" || sch == "blob") return false
+                    if (sch == "javascript" || sch == "file" || sch == "content") return true
+                    return openOutside(u)
+                }
+
+                override fun onPageFinished(v: WebView?, u: String?) {
+                    val t = v?.title
+                    if (!t.isNullOrEmpty()) title.text = t
+                }
+            }
+            outBtn.setOnClickListener { openOutside(Uri.parse(web.url ?: url)) }
+            closeBtn.setOnClickListener { dialog.dismiss() }
+            dialog.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
+                    if (web.canGoBack()) web.goBack() else dialog.dismiss()
+                    true
+                } else {
+                    false
+                }
+            }
+            dialog.setOnDismissListener {
+                if (inAppBrowser === dialog) inAppBrowser = null
+                // destroy() нельзя вызывать внутри колбэка самого WebView — откладываем на следующий тик
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try {
+                        web.stopLoading()
+                        web.destroy()
+                    } catch (e: Exception) {
+                    }
+                }
+            }
+
+            root.addView(bar, android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+            root.addView(web, android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            dialog.setContentView(root)
+            dialog.window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+            inAppBrowser = dialog
+            dialog.show()
+            web.loadUrl(url)
         }
     }
 
@@ -1096,6 +1222,18 @@ class MainActivity : AppCompatActivity() {
                     "window.onAndroidModelImportResult && window.onAndroidModelImportResult({ok:false,error:${jsStr(err)}});"
                 runOnUiThread { webView.evaluateJavascript(js, null) }
             }.start()
+        }
+    }
+
+    /** Мост JS -> встроенный браузер (мини-приложения: web_app_open_link / open_max_link после подтверждения). */
+    inner class AndroidInAppBrowserBridge {
+
+        @JavascriptInterface
+        fun isAvailable(): Boolean = true
+
+        @JavascriptInterface
+        fun open(url: String?) {
+            if (!url.isNullOrEmpty()) openInAppBrowser(url)
         }
     }
 }

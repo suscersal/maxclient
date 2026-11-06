@@ -5299,6 +5299,100 @@ def web_app_init():
     return jsonify({"url": url})
 
 
+@app.route("/api/external-callback", methods=["POST"])
+def external_callback():
+    """Завершение внешнего сценария мини-приложения (Цифровой ID и т.п.), как webAppModule.handleExternalCallback в Komet:
+    opcode 105 {url} -> {botId, startParam} -> opcode 160 -> новый адрес мини-приложения."""
+    from urllib.parse import urlparse, parse_qs
+    data = request.get_json(force=True)
+    cb_url = str(data.get("url") or "")
+    try:
+        qs = parse_qs(urlparse(cb_url).query)
+    except Exception:
+        qs = {}
+    if qs.get("externalCallback") != ["1"]:
+        return jsonify({"error": "Некорректный callback"}), 400
+
+    logger.info("[external-callback] получен возврат из внешнего сценария")
+    try:
+        packet = fetch_once(105, {"url": cb_url}, wait_opcode=105, timeout=15)
+    except Exception as e:
+        logger.warning(f"[external-callback] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+    if not packet or packet.get("cmd") != 256:
+        return jsonify({"error": "Сервер не принял callback"}), 502
+
+    def _find(v):
+        if not isinstance(v, dict):
+            return None
+        if "botId" in v or "bot_id" in v:
+            return v
+        for k in ("data", "result", "response"):
+            r = _find(v.get(k))
+            if r:
+                return r
+        return None
+
+    info = _find(packet.get("payload"))
+    try:
+        bot_id = int((info or {}).get("botId", (info or {}).get("bot_id")))
+    except (TypeError, ValueError):
+        bot_id = None
+    if bot_id is None:
+        return jsonify({"error": "Сервер не вернул данные для завершения входа"}), 502
+
+    payload = {"botId": bot_id}
+    start_param = (info or {}).get("startParam", (info or {}).get("start_param"))
+    if start_param:
+        payload["startParam"] = str(start_param)
+    try:
+        packet = fetch_once(160, payload, wait_opcode=160, timeout=15)
+    except Exception as e:
+        logger.warning(f"[external-callback] web-app-init failed: {e}")
+        return jsonify({"error": str(e)}), 500
+    pl = packet.get("payload") if packet else None
+    url = pl.get("url") if isinstance(pl, dict) else None
+    if not packet or packet.get("cmd") != 256 or not url:
+        return jsonify({"error": "Сервер не вернул адрес приложения"}), 502
+    return jsonify({"url": url})
+
+
+@app.route("/api/web-app-phone", methods=["POST"])
+def web_app_phone():
+    """Номер телефона для мини-приложения (opcode 106 PHONE_WEBAPP_SHARE, как в Komet: webAppModule.requestPhone).
+    Вызывать ТОЛЬКО после явного подтверждения пользователя — ответ уходит стороннему приложению."""
+    data = request.get_json(force=True)
+    bot_id = data.get("botId")
+    if bot_id is None:
+        return jsonify({"error": "botId обязателен"}), 400
+
+    logger.info(f"[web-app-phone] botId={bot_id}")
+    try:
+        packet = fetch_once(106, {"botId": int(bot_id)},
+                            wait_opcode=106, timeout=15)
+    except Exception as e:
+        logger.warning(f"[web-app-phone] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+    payload = packet.get("payload")
+    if packet.get("cmd") != 256 or not isinstance(payload, dict):
+        return jsonify({"error": "Не удалось передать номер телефона"}), 502
+
+    phone = payload.get("phone")
+    phone_hash = payload.get("hash")
+    auth_date = payload.get("authDate", payload.get("auth_date"))
+    try:
+        auth_date = int(auth_date)
+    except (TypeError, ValueError):
+        auth_date = 0
+    if not phone or not phone_hash or not auth_date:
+        return jsonify({"error": "Сервер не вернул номер телефона"}), 502
+    return jsonify({"phone": str(phone), "hash": str(phone_hash),
+                    "authDate": auth_date})
+
+
 @app.route("/api/button-callback", methods=["POST"])
 def button_callback():
     """Отправляет нажатие inline-кнопки боту (opcode 118, MSG_SEND_CALLBACK)."""

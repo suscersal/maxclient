@@ -1172,5 +1172,195 @@
     return callsP;
   }
   ensureCalls().catch(function () { });   /* входящие звонки нужны, даже если профиль не открывали */
+  /* ------------------------------------------------------------ мост мини-приложений MAX (по Komet: lib/frontend/screens/webapp/web_app_bridge.dart)
+     Web K сам понимает события в стиле Telegram (web_app_ready, device/secure storage, biometry …). Здесь — то, что у MAX по-своему:
+     телефон (op 106), «поделиться», ссылки max.ru, скачивание, тактильный отклик, launch_context, viewport, NFC.
+     Всё, что отдаёт данные наружу или открывает что-то на устройстве, выполняется ТОЛЬКО после подтверждения пользователя
+     (вместо «жеста» из Komet — мы не видим касаний внутри чужого iframe). Имена WebAppXxx из Komet приводятся к web_app_xxx;
+     ответ уходит под тем же именем события, что и запрос. Не подтверждено живым мини-приложением: формат сообщений iframe→родитель. */
+  var WA = (function () {
+    /* slug'и кодов ошибок — как _methodSlugs в Komet; для всего остального — unsupported_method */
+    var SLUG = { request_phone: 'request_phone', open_max_link: 'open_max_link', share: 'web_app_share', max_share: 'web_app_max_share', download_file: 'download_file',
+      open_code_reader: 'open_code_reader', change_screen_brightness: 'change_screen_brightness', nfc_emulate_nfc_tag: 'nfc_emulate_nfc_tag',
+      nfc_open_system_settings: 'nfc_open_system_settings', verify_mobile_id: 'verify_mobile_id', get_launch_context: 'launch_context', get_viewport_size: 'get_viewport_size' };
+    var SILENT = { WebAppReady: 1, WebAppStat: 1, WebAppUrlInterceptor: 1, WebAppBackButtonPressed: 1 };
+    var deny = {};
+
+    function isAppFrame(src) {
+      if (!src || src === window) return false;
+      var fr = document.getElementsByTagName('iframe');
+      for (var i = 0; i < fr.length; i++) { try { if (fr[i].contentWindow === src) return true; } catch (e) { } }
+      return false;
+    }
+    function frameEl(src) {
+      var fr = document.getElementsByTagName('iframe');
+      for (var i = 0; i < fr.length; i++) { try { if (fr[i].contentWindow === src) return fr[i]; } catch (e) { } }
+      return null;
+    }
+    function parse(d) {
+      var m = d;
+      if (typeof d === 'string') { try { m = JSON.parse(d); } catch (e) { return null; } }
+      if (!m || typeof m !== 'object') return null;
+      var type = m.eventType || m.method || m.name || m.event;
+      if (typeof type !== 'string') return null;
+      var data = m.eventData !== undefined ? m.eventData : (m.data !== undefined ? m.data : m.payload);
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { data = {}; } }
+      if (!data || typeof data !== 'object') data = {};
+      return { type: type, data: data };
+    }
+    function norm(t) {
+      if (/^WebApp[A-Z]/.test(t)) return 'web_app_' + t.slice(6).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+      return t;
+    }
+    function slug(n) { return SLUG[n.replace(/^web_app_/, '')] || 'unsupported_method'; }
+    function rid(d) { return d.requestId != null ? String(d.requestId) : undefined; }
+    function reply(src, type, data) {
+      try { src.postMessage(JSON.stringify({ eventType: type, eventData: data || {} }), '*'); } catch (e) { }
+    }
+    function ok(src, type, d, status) { var o = { status: status }; if (rid(d)) o.requestId = rid(d); reply(src, type, o); }
+    function fail(src, type, n, d, reason) {
+      var id = rid(d); if (!id) return;
+      reply(src, type, { requestId: id, error: { code: 'client.' + slug(n) + '.' + reason } });
+    }
+    function ask(kind, text) {
+      var now = Date.now();
+      if (deny[kind] && now - deny[kind] < 10000) return false;   /* после отказа не засыпаем окнами подтверждения */
+      var yes = false; try { yes = confirm(text); } catch (e) { }
+      if (!yes) deny[kind] = now;
+      return yes;
+    }
+    function cut(t, n) { t = String(t == null ? '' : t); return t.length > n ? t.slice(0, n) + '…' : t; }
+    function safeUrl(u) {
+      u = String(u || '').trim();
+      if (u.charAt(0) === '/') u = 'https://max.ru' + u;
+      try { var x = new URL(u); return (x.protocol === 'https:' || x.protocol === 'http:') ? x.href : null; } catch (e) { return null; }
+    }
+    function hostOf(u) { try { return new URL(u).host; } catch (e) { return ''; } }
+    function shareText(d) {
+      var parts = [];
+      if (d.text != null && String(d.text) !== '') parts.push(String(d.text));
+      if (d.link != null && String(d.link) !== '') parts.push(String(d.link));
+      return parts.length ? parts.join('\n') : null;
+    }
+    /* Ссылка из мини-приложения: в APK — встроенный браузер (сайт остаётся внутри приложения, возврат externalCallback=1 перехватывается),
+       в обычном браузере — новая вкладка. */
+    function openInApp(u) {
+      try { if (window.AndroidInAppBrowser && window.AndroidInAppBrowser.open) { window.AndroidInAppBrowser.open(u); return; } } catch (e) { }
+      window.open(u, '_blank', 'noopener');
+    }
+    function vib(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) { } }
+
+    var H = {
+      /* номер телефона → op 106 (после подтверждения) */
+      web_app_request_phone: function (src, type, n, d) {
+        var bot = currentPeer();
+        if (bot == null || bot <= 0) return fail(src, type, n, d, 'request_error');
+        if (!ask('phone', 'Передать номер телефона?\n\nМини-приложение получит ваш номер телефона.')) return fail(src, type, n, d, 'user_refused_provide_phone_number');
+        jpost('/api/web-app-phone', { botId: bot }).then(function (r) {
+          var o = { phone: r.phone, hash: r.hash, authDate: r.authDate }; if (rid(d)) o.requestId = rid(d);
+          reply(src, type, o);
+        }, function () { fail(src, type, n, d, 'request_error'); });
+      },
+      /* ссылка max.ru / внешняя */
+      web_app_open_max_link: function (src, type, n, d) {
+        var u = safeUrl(d.url || d.path_full);
+        if (!u) return;
+        if (!ask('link', 'Мини-приложение хочет открыть ссылку:\n\n' + cut(u, 200) + '\n\nОткрыть?')) return;
+        openInApp(u);
+      },
+      /* поделиться текстом */
+      web_app_share: function (src, type, n, d) { share(src, type, n, d, false); },
+      web_app_max_share: function (src, type, n, d) { share(src, type, n, d, true); },
+      /* скачать файл */
+      web_app_download_file: function (src, type, n, d) {
+        var u = safeUrl(d.url);
+        if (!u || u.indexOf('https:') !== 0) return fail(src, type, n, d, 'invalid_request');
+        var name = String(d.file_name || d.fileName || '') || ('webapp_' + Date.now());
+        if (!ask('download', 'Мини-приложение хочет скачать файл «' + cut(name, 80) + '» с ' + hostOf(u) + '.\n\nСкачать?')) return ok(src, type, d, 'cancelled');
+        var a = document.createElement('a'); a.href = u; a.download = name; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+        ok(src, type, d, 'success');
+      },
+      /* тактильный отклик (данных наружу не отдаёт — без подтверждения) */
+      web_app_haptic_feedback_impact: function (src, type, n, d) {
+        var s = String(d.impactStyle || ''); vib(s === 'heavy' || s === 'rigid' ? 35 : s === 'medium' ? 20 : 10); ok(src, type, d, 'impactOccured');
+      },
+      web_app_haptic_feedback_notification: function (src, type, n, d) {
+        vib(d.notificationType === 'error' ? [40, 40, 40] : [15, 40, 15]); ok(src, type, d, 'notificationOccured');
+      },
+      web_app_haptic_feedback_selection_change: function (src, type, n, d) { vib(8); ok(src, type, d, 'selectionChanged'); },
+      /* справочные ответы */
+      web_app_get_launch_context: function (src, type, n, d) { var o = { entryPoint: 'web_app' }; if (rid(d)) o.requestId = rid(d); reply(src, type, o); },
+      web_app_get_viewport_size: function (src, type, n, d) {
+        var el = frameEl(src), o = { height: Math.round(el ? el.clientHeight : window.innerHeight), width: Math.round(el ? el.clientWidth : window.innerWidth), isStateStable: true };
+        if (rid(d)) o.requestId = rid(d); reply(src, type, o);
+      },
+      web_app_setup_screen_capture_behavior: function (src, type, n, d) { var o = { isScreenCaptureEnabled: d.isScreenCaptureEnabled === true }; if (rid(d)) o.requestId = rid(d); reply(src, type, o); },
+      web_app_nfc_get_info: function (src, type, n, d) { var o = { available: false, enabled: false }; if (rid(d)) o.requestId = rid(d); reply(src, type, o); }
+    };
+    H.web_app_open_link = H.web_app_open_max_link;   /* у Web K open_link молча не работает (пустой web_app_allowed_protocols) */
+    ['web_app_change_screen_brightness', 'web_app_nfc_emulate_nfc_tag', 'web_app_nfc_open_system_settings', 'web_app_open_code_reader', 'web_app_verify_mobile_id'].forEach(function (k) {
+      H[k] = function (src, type, n, d) { fail(src, type, n, d, 'not_supported'); };
+    });
+
+    function share(src, type, n, d, toChat) {
+      var txt = shareText(d);
+      if (!txt) return fail(src, type, n, d, 'invalid_request');
+      var q = 'Мини-приложение хочет поделиться:\n\n«' + cut(txt, 300) + '»\n\n' + (toChat ? 'Скопировать текст, чтобы отправить его в нужный чат?' : 'Открыть меню «Поделиться»?');
+      if (!ask('share', q)) return ok(src, type, d, 'cancelled');
+      if (toChat) {   /* в Komet тут выбор чата и отправка; в Web K выбора чата из этого кода нет — отдаём текст через буфер */
+        copy(txt, 'Текст'); return ok(src, type, d, 'cancelled');
+      }
+      var done = function () { ok(src, type, d, 'shared'); };
+      if (navigator.share) {
+        navigator.share({ text: txt }).then(done, function (e) {
+          if (e && e.name === 'AbortError') return ok(src, type, d, 'cancelled');
+          copy(txt, 'Текст'); done();
+        });
+      } else { copy(txt, 'Текст'); done(); }
+    }
+
+    function onMessage(ev) {
+      if (ev.__mxWa || !isAppFrame(ev.source)) return;
+      var m = parse(ev.data); if (!m) return;
+      var n = norm(m.type), h = H[n];
+      if (h) {
+        ev.stopImmediatePropagation();   /* у Web K для этих имён другая (Telegram) семантика */
+        try { h(ev.source, m.type, n, m.data); } catch (e) { fail(ev.source, m.type, n, m.data, 'request_error'); }
+        return;
+      }
+      /* незнакомое имя в стиле Komet (WebAppXxx): Web K его не понимает — отвечаем ошибкой, как Komet */
+      if (/^WebApp[A-Z]/.test(m.type) && !SILENT[m.type]) fail(ev.source, m.type, n, m.data, 'unsupported_method');
+    }
+    window.addEventListener('message', onMessage, true);
+    return { norm: norm, parse: parse, handlers: H };
+  })();
+  /* Возврат из внешнего сценария (Цифровой ID и т.п.): APK перехватывает переход на адрес с externalCallback=1 (как web_app_screen.dart в Komet)
+     и вызывает эту функцию. Дальше: opcode 105 -> opcode 160 -> окно мини-приложения перезагружается новым адресом. */
+  function appOverlay(url) {
+    var old = document.getElementById('mx-wa-overlay'); if (old) old.remove();
+    var box = document.createElement('div'); box.id = 'mx-wa-overlay';
+    box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#0f1216;display:flex;flex-direction:column';
+    var bar = document.createElement('div'); bar.style.cssText = 'display:flex;justify-content:flex-end;padding:8px';
+    var x = document.createElement('button'); x.textContent = 'Закрыть';
+    x.style.cssText = 'padding:8px 14px;border:0;border-radius:10px;background:#3a4452;color:#fff;font-size:14px';
+    x.onclick = function () { box.remove(); };
+    var f = document.createElement('iframe'); f.src = url; f.style.cssText = 'flex:1;border:0;width:100%'; f.setAttribute('allow', 'clipboard-write');
+    bar.appendChild(x); box.appendChild(bar); box.appendChild(f); document.body.appendChild(box);
+  }
+  window.__mxExternalCallback = function (url) {
+    var ok = false; try { ok = new URL(url).searchParams.get('externalCallback') === '1'; } catch (e) { }
+    if (!ok) return;
+    toast('Завершаем вход…');
+    jpost('/api/external-callback', { url: url }).then(function (r) {
+      if (!r || !r.url) throw new Error('сервер не вернул адрес');
+      var fr = document.getElementsByTagName('iframe'), target = null;
+      for (var i = 0; i < fr.length; i++) {
+        var h = ''; try { h = new URL(fr[i].src).hostname; } catch (e) { }
+        if (h && h !== '127.0.0.1' && h !== 'localhost') target = fr[i];   /* окно мини-приложения (не наш legacy-iframe) */
+      }
+      if (target) target.src = r.url; else appOverlay(r.url);
+    }, function (e) { toast('Не удалось завершить вход: ' + (e && e.message || e)); });
+  };
   window.__mxUi = { open: open, closeAll: closeAll, rpc: rpc, screens: S };
 })();

@@ -91,3 +91,14 @@
 - `[WS-2] handleError` в консоли каждые 10 с — встроенный MTProto-транспорт Web K стучится в несуществующий эндпоинт; не относится к MAX.
 - Нет данных по историям/реакциям/стикерам в `/tg/` — часто это ответ MAX без поля, а не баг отрисовки; проверять сырой пакет в логах воркера.
 - Скрытый экран списка чатов не должен ловить тапы под открытыми вкладками сайдбара — это закрыто CSS в `mx-ui.js`, не откатывать.
+
+## Мини-приложения ботов (по Komet)
+
+Источник: `lib/backend/modules/webapp.dart`, `lib/frontend/screens/webapp/web_app_bridge.dart`, `chat_screen.dart` в Komet.
+
+- Запуск: opcode 160 `{botId, startParam?, chatId?}` → `url` (`/api/web-app-init`). В `/tg/` его вызывают `messages.requestWebView` / `requestSimpleWebView` / `requestMainWebView` в `index.worker-*.js`. Окно рисует сам Web K.
+- Кнопка меню бота (`bot_info.menu_button` у `users.getFullUser`) показывается, только если в `options` контакта или чата есть `HAS_WEBAPP` / `HAS_WEB_APP` / `WEBAPP` (как `hasMiniAppOption` в Komet).
+- Мост событий — блок «мост мини-приложений MAX» в `static/tg/mx-ui.js`: телефон (opcode 106, `/api/web-app-phone`), поделиться, ссылки, скачивание, тактильный отклик, launch_context, viewport, NFC. Всё, что отдаёт данные наружу или открывает что-то на устройстве, — только после подтверждения пользователя (в Komet это «жест» + диалог, у нас жест внутри чужого iframe не виден).
+- **Не подтверждено живым мини-приложением:** формат сообщений iframe → родитель и имена ответных событий. Не перенесено из Komet: выбор чата для `WebAppMaxShare` (текст уходит в буфер), QR-сканер, Mobile ID, биометрия «по умолчанию разрешена» (у Web K своя реализация; настоящей биометрии в браузере нет).
+- Сайты внутри приложения (как `web_app_screen.dart` в Komet): ссылки из мини-приложения (`web_app_open_link`, `web_app_open_max_link`) после подтверждения открываются во встроенном браузере APK (`AndroidInAppBrowser.open`, диалог с отдельным WebView без JS-мостов и без разрешений); в обычном браузере — новая вкладка. Переходы внутри iframe мини-приложения не уводятся в системный браузер.
+- Перехват `externalCallback=1` (Цифровой ID): `shouldOverrideUrlLoading` в `MainActivity.kt` (iframe и встроенный браузер) → `window.__mxExternalCallback(url)` в `mx-ui.js` → `/api/external-callback` (opcode 105 `{url}` → `{botId, startParam}` → opcode 160) → окно мини-приложения перезагружается новым адресом (если окна нет — наш оверлей). **Не проверено:** вызывает ли Android `shouldOverrideUrlLoading` для навигации внутри iframe; Kotlin-код не компилировался. Возврат из внешнего браузера по ссылке `max.ru/...?externalCallback=1` не ловится: у APK нет intent-фильтра на max.ru.
