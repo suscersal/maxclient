@@ -454,6 +454,8 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(AndroidAppLockBridge(this), "AndroidAppLock")
         // Мост JS -> встроенный браузер для ссылок из мини-приложений.
         webView.addJavascriptInterface(AndroidInAppBrowserBridge(), "AndroidInAppBrowser")
+        // Мост JS -> скачивание и установка обновления APK (см. ApkUpdater.kt).
+        webView.addJavascriptInterface(AndroidApkInstallerBridge(this), "AndroidApkInstaller")
         publishAppLockShortcut()
         requestLegacyStoragePermissionIfNeeded()
 

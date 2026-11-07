@@ -787,6 +787,11 @@
       row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } }),
       row({ icon: 'bug', title: 'Отладка', chev: 1, onclick: function () { open('debug'); } })
     ));
+    pg.body.appendChild(sec('Сервисы MAX'));
+    pg.body.appendChild(card(
+      row({ icon: 'info', title: 'Сферум', sub: 'Школьная платформа MAX', chev: 1, onclick: function () { openEntryApp('sferum', 'Сферум'); } }),
+      row({ icon: 'link', title: 'Цифровой ID', sub: 'Документы и вход через Госуслуги', chev: 1, onclick: function () { openEntryApp('digital', 'Цифровой ID'); } })
+    ));
     pg.body.appendChild(sec('Только в классическом интерфейсе'));
     pg.body.appendChild(card(
       row({ icon: 'bot', title: 'Кастомные боты', sub: 'Чаты с локальными ботами живут в классическом чате', chev: 1, onclick: function () { legacyOpen('bots', 'Кастомные боты'); } }),
@@ -1269,11 +1274,19 @@
     var L = null;
     function close() { if (L) { var x = L; L = null; layerRelease(x); } dim.remove(); }
     function go() { close(); window.open(rel.url, '_blank', 'noopener'); }
+    var canInstall = !!(window.AndroidApkInstaller && window.AndroidApkInstaller.install && rel.apkUrl);
+    function install() {
+      close(); toast('Скачиваем обновление…');
+      try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { window.open(rel.url, '_blank', 'noopener'); }
+    }
+    var btnRow = h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' });
+    (canInstall ? [btn('Установить', '', install), btn('Релиз', 'ghost', go), btn('Позже', 'ghost', close)] : [btn('Перейти', '', go), btn('Позже', 'ghost', close)])
+      .forEach(function (b) { btnRow.appendChild(b); });
     var dim = h('div', { id: 'mx-upd', style: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px' },
       h('div', { style: 'width:min(92vw,360px);box-sizing:border-box;border-radius:20px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.5)' },
         h('div', { style: 'font-size:18px;font-weight:600' }, '🚀 Вышла новая версия'),
         h('div', { style: 'margin-top:10px;font-size:14px;line-height:1.45;opacity:.85' }, 'Вышла версия ' + label + '. Обновите приложение, чтобы получить новые функции и исправления.'),
-        h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' }, btn('Перейти', '', go), btn('Позже', 'ghost', close))));
+        btnRow));
     dim.addEventListener('click', function (e) { if (e.target === dim) close(); });
     document.body.appendChild(dim);
     L = layerPush(function () { L = null; dim.remove(); }, false);   /* системная «Назад» закрывает окно, а не уходит глубже по истории Web K */
@@ -1453,17 +1466,31 @@
   })();
   /* Возврат из внешнего сценария (Цифровой ID и т.п.): APK перехватывает переход на адрес с externalCallback=1 (как web_app_screen.dart в Komet)
      и вызывает эту функцию. Дальше: opcode 105 -> opcode 160 -> окно мини-приложения перезагружается новым адресом. */
+  /* «Сферум» и «Цифровой ID» — мини-приложения; их id приходят в конфиге входа (воркер: __mxNoteConfig), как в Komet (fetchSferum / fetchDigitalId) */
+  function openEntryApp(key, title) {
+    toast('Открываем «' + title + '»…');
+    rpc('entryApps').then(function (e) {
+      var id = e && e[key];
+      if (!id) throw new Error('сейчас недоступно, переподключитесь и попробуйте снова');
+      return jpost('/api/web-app-init', { botId: id });
+    }).then(function (r) {
+      if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
+      appOverlay(r.url);
+    }).catch(function (e) { toast(title + ': ' + (e && e.message || e)); });
+  }
   function appOverlay(url) {
     var old = document.getElementById('mx-wa-overlay'); if (old) old.remove();
     var box = document.createElement('div'), L = null; box.id = 'mx-wa-overlay';
     function close() { if (L) { var q = L; L = null; layerRelease(q); } box.remove(); }
     box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#0f1216;display:flex;flex-direction:column';
-    var bar = document.createElement('div'); bar.style.cssText = 'display:flex;justify-content:flex-end;padding:8px';
+    var bar = document.createElement('div'); bar.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;padding:8px';
     var x = document.createElement('button'); x.textContent = 'Закрыть';
     x.style.cssText = 'padding:8px 14px;border:0;border-radius:10px;background:#3a4452;color:#fff;font-size:14px';
     x.onclick = close;
+    var out = document.createElement('button'); out.textContent = 'Снаружи'; out.style.cssText = x.style.cssText;
+    out.onclick = function () { window.open(url, '_blank', 'noopener'); };
     var f = document.createElement('iframe'); f.src = url; f.style.cssText = 'flex:1;border:0;width:100%'; f.setAttribute('allow', 'clipboard-write');
-    bar.appendChild(x); box.appendChild(bar); box.appendChild(f); document.body.appendChild(box);
+    bar.appendChild(out); bar.appendChild(x); box.appendChild(bar); box.appendChild(f); document.body.appendChild(box);
     L = layerPush(function () { L = null; box.remove(); }, false);
   }
   window.__mxExternalCallback = function (url) {

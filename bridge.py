@@ -4051,6 +4051,14 @@ def _release_version(rel):
     return None
 
 
+def _pick_apk_asset(rel):
+    """APK из ассетов релиза (release-сборка предпочтительнее debug) или None."""
+    assets = [a for a in (rel.get("assets") or [])
+              if isinstance(a, dict) and str(a.get("name", "")).lower().endswith(".apk") and a.get("browser_download_url")]
+    assets.sort(key=lambda a: ("debug" in str(a["name"]).lower(), str(a["name"])))
+    return assets[0] if assets else None
+
+
 def _pick_latest_stable(releases):
     best = None
     for rel in releases if isinstance(releases, list) else []:
@@ -4060,8 +4068,10 @@ def _pick_latest_stable(releases):
         if ver is None:
             continue
         if best is None or ver[0] > best["versionCode"]:
+            apk = _pick_apk_asset(rel) or {}
             best = {"tag": rel.get("tag_name"), "versionCode": ver[0], "versionName": ver[1],
-                    "url": rel.get("html_url") or "https://github.com/suscersal/maxclient/releases/latest"}
+                    "url": rel.get("html_url") or "https://github.com/suscersal/maxclient/releases/latest",
+                    "apkUrl": apk.get("browser_download_url"), "apkName": apk.get("name"), "apkSize": apk.get("size")}
     return best
 
 

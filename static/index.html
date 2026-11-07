@@ -18658,6 +18658,33 @@
     }, 1200);
 })();
 </script>
+<script>
+/* Уведомление о новой версии в классическом интерфейсе (в /tg/ это делает mx-ui.js; флаг сессии общий, чтобы не показывать дважды).
+   /api/update-check сравнивает versionCode APK с последним stable-релизом GitHub. Во вложенных фреймах (legacy из /tg/) не запускается. */
+(function () {
+  if (window.top !== window) return;
+  try { if (sessionStorage.getItem('mx_upd_shown')) return; } catch (e) { }
+  setTimeout(function () {
+    fetch('/api/update-check').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.available || !d.latest) return;
+      try { if (sessionStorage.getItem('mx_upd_shown')) return; sessionStorage.setItem('mx_upd_shown', '1'); } catch (e) { }
+      var rel = d.latest, label = rel.versionName ? 'v' + rel.versionName : rel.tag;
+      var canInstall = !!(window.AndroidApkInstaller && window.AndroidApkInstaller.install && rel.apkUrl);
+      var box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;max-width:420px;margin:0 auto;padding:16px;border-radius:16px;background:#212121;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);font:14px/1.4 system-ui,sans-serif';
+      var t = document.createElement('div'); t.style.cssText = 'font-size:16px;font-weight:600'; t.textContent = '🚀 Вышла новая версия';
+      var m = document.createElement('div'); m.style.cssText = 'margin-top:6px;opacity:.85'; m.textContent = 'Вышла версия ' + label + '. Обновите приложение, чтобы получить новые функции и исправления.';
+      var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end';
+      function mk(text, primary, fn) { var b = document.createElement('button'); b.textContent = text; b.style.cssText = 'border:0;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer;color:#fff;background:' + (primary ? '#3390ec' : '#3a4452'); b.onclick = fn; row.appendChild(b); }
+      function close() { box.remove(); }
+      if (canInstall) mk('Установить', true, function () { close(); try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { window.open(rel.url, '_blank', 'noopener'); } });
+      mk(canInstall ? 'Релиз' : 'Перейти', !canInstall, function () { close(); window.open(rel.url, '_blank', 'noopener'); });
+      mk('Позже', false, close);
+      box.appendChild(t); box.appendChild(m); box.appendChild(row); document.body.appendChild(box);
+    }).catch(function () { });
+  }, 7000);
+})();
+</script>
 </body>
 
 </html>

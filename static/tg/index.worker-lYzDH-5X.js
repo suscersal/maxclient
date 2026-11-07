@@ -139,8 +139,16 @@ function __mxAddMsgs(key,msgs){
   jd[key]=(jd[key]||[]).concat(fresh).sort(function(a,b){return a.id-b.id});
   return fresh}
 /* первый op 19 иногда остаётся без ответа, а повтор проходит сразу — повторяем сами (до 3 попыток) */
+/* Komet (account.dart _persistEntryBannerApps): config.server["settings-entry-banners"][].items[] {appid, icon}; «sferum»/«digital» в icon */
+function __mxNoteConfig(p){try{
+  var eb=p&&p.config&&p.config.server&&p.config.server["settings-entry-banners"];if(!Array.isArray(eb))return;
+  var ea={};eb.forEach(function(b){((b&&b.items)||[]).forEach(function(it){
+    if(!it||typeof it.appid!=="number")return;var ic=String(it.icon||"").toLowerCase();
+    if(!ea.sferum&&ic.indexOf("sferum")>=0)ea.sferum=it.appid;if(!ea.digital&&ic.indexOf("digital")>=0)ea.digital=it.appid})});
+  if(ea.sferum||ea.digital){__mx.entryApps=ea;__mxLog("entry apps",JSON.stringify(ea))}
+}catch(e){}}
 function __mxRetry19(n){__mx.t19=[2000,6000,20000][n]||20000;__mx.a19=[2000,4000,8000][n]||8000;
-  return __mxCall(19,{chatsSync:0,contactsSync:0,interactive:true}).catch(function(e){if(n>=2)throw e;__mxLog("sync retry",n+1,e&&e.message,"— новое WS");
+  return __mxCall(19,{chatsSync:0,contactsSync:0,interactive:true}).then(function(p){__mxNoteConfig(p);return p}).catch(function(e){if(n>=2)throw e;__mxLog("sync retry",n+1,e&&e.message,"— новое WS");
     /* зависшее соединение с relay не оживает, а свежее отвечает за секунды (по логам) — переоткрываем */
     var w=__mx.ws;__mx.ready=null;__mx.ws=null;try{w&&w.close()}catch(x){}
     return __mxRetry19(n+1)})}
@@ -1378,6 +1386,7 @@ function __mxUiProf(c,id){
   return{id:Number(id),name:__mxName(c)||"",first:on.firstName||"",last:on.lastName||"",phone:c.phone?String(c.phone):"",photo:c.baseRawUrl||c.baseUrl||"",photoSmall:c.baseUrl||"",desc:c.description||"",link:c.link||"",options:Array.isArray(c.options)?c.options:[],accountStatus:c.accountStatus||0,registrationTime:c.registrationTime||0,updateTime:c.updateTime||0,country:c.country||"",gender:c.gender}}
 async function __mxUiRpc(m,a){
   await __mxSync();
+  if(m==="entryApps")return __mx.entryApps||{};
   if(m==="me"){var sid=__mx.self;return __mxUiProf(__mx.contacts[sid],sid)}
   if(m==="contact"){
     var id=String(a.id);if(Number(id)===100)return __mxUiRpc("me",{});

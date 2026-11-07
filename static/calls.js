@@ -415,6 +415,8 @@
     /* Пока виден экран звонка, системная «Назад» не должна уходить по истории Web K (раньше закрывала чат под звонком).
        Слой из mx-ui.js (/tg/) поглощает «Назад» и подсказывает, как выйти; в классическом UI __mxBackLayer нет — ничего не делаем. */
     var guardRel = null;
+    /* «Свернуть»: экран звонка прячется, сверху остаётся плавающий бейдж (имя + таймер), по нажатию звонок разворачивается (как floating_call_badge в Komet) */
+    var mini = false, pill = null;
     function guardOn() {
       if (guardRel || typeof window.__mxBackLayer !== 'function') return;
       guardRel = window.__mxBackLayer(function () {
@@ -543,19 +545,34 @@
         '.mxc-sheet label{display:flex;justify-content:space-between;font-size:13px;color:#aab3bf}' +
         '.mxc-sheet input[type=range]{width:100%;margin:12px 0 8px}' +
         '.mxc-chip{border:0;border-radius:14px;padding:8px 12px;background:#3a4452;color:#fff;font-size:13px;cursor:pointer}' +
-        '.mxc-chip.on{background:#fff;color:#1b1f26}.mxc-hint{margin-top:8px;font-size:12px;color:#8f99a6}';
+        '.mxc-chip.on{background:#fff;color:#1b1f26}.mxc-hint{margin-top:8px;font-size:12px;color:#8f99a6}' +
+        '.mxc-min{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:12px;border:0;border-radius:18px;padding:8px 14px;background:rgba(255,255,255,.14);color:#fff;font-size:14px;cursor:pointer}.mxc-min[hidden]{display:none}' +
+        '.mxc-pill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);z-index:2147483000;max-width:92vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+        'padding:8px 16px;border:0;border-radius:22px;background:#30a46c;color:#fff;font:600 14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.4);cursor:pointer}.mxc-pill[hidden]{display:none}';
       document.head.appendChild(st);
       root = document.createElement('div');
       root.className = 'mxc'; root.hidden = true;
       root.innerHTML = '<div class="mxc-card"><div class="mxc-ava"></div><div class="mxc-name"></div>' +
         '<div class="mxc-status"></div><div class="mxc-q"></div><div class="mxc-note"></div><div class="mxc-btns"></div>' +
         '<div class="mxc-sheet" hidden></div><div class="mxc-end"></div>' +
-        '<audio autoplay playsinline></audio></div>';
+        '<audio autoplay playsinline></audio></div><button class="mxc-min" hidden>▾ Свернуть</button>';
       document.body.appendChild(root);
+      pill = document.createElement('button'); pill.className = 'mxc-pill'; pill.hidden = true;
+      pill.onclick = function () { restore(); };
+      document.body.appendChild(pill);
       el.ava = root.querySelector('.mxc-ava'); el.name = root.querySelector('.mxc-name');
       el.status = root.querySelector('.mxc-status'); el.note = root.querySelector('.mxc-note');
       el.btns = root.querySelector('.mxc-btns'); el.audio = root.querySelector('audio');
       el.q = root.querySelector('.mxc-q'); el.sheet = root.querySelector('.mxc-sheet'); el.end = root.querySelector('.mxc-end');
+      el.min = root.querySelector('.mxc-min'); el.min.onclick = function () { minimize(); };
+    }
+    function minimize() {
+      if (!cur || !root) return;
+      mini = true; root.hidden = true; pill.hidden = false; guardOff(); paint();
+    }
+    function restore() {
+      mini = false; if (pill) pill.hidden = true;
+      if (cur && root) { root.hidden = false; guardOn(); paint(); }
     }
 
     function btn(cls, icon, label, fn) {
@@ -589,12 +606,14 @@
       var s = cur;
       el.status.textContent = s.state === 'active' ? fmt(Date.now() - s.t0)
         : s.state === 'ringing' ? (s.role === 'caller' ? 'Вызов…' : 'Соединение…') : 'Соединение…';
+      if (mini && pill) pill.textContent = '📞 ' + (el.name.textContent || 'Звонок') + ' · ' + el.status.textContent;
     }
 
     api = {
       showIncoming: function (ev, peer) {
         build(); clearTimeout(hideT);
         sheetOpen = false; el.sheet.hidden = true; el.end.textContent = ''; el.q.textContent = '';
+        mini = false; pill.hidden = true; el.min.hidden = true;
         setPeer(peer);
         el.status.textContent = ev.isVideo ? 'Входящий видеозвонок (будет только звук)' : 'Входящий звонок';
         el.note.textContent = '';
@@ -617,6 +636,7 @@
       render: function () {
         if (!cur || !root) return;
         paint();
+        el.min.hidden = false;
         el.btns.textContent = ''; el.end.textContent = '';
         var s = cur;
         el.btns.appendChild(btn(s.muted ? 'on' : '', s.muted ? '🔇' : '🎤', s.muted ? 'Включить' : 'Микрофон', function () { s.setMuted(!s.muted); }));
@@ -641,6 +661,7 @@
         clearInterval(tick); tick = null; clearInterval(qT); qT = null;
         guardOff();
         if (!root) return;
+        mini = false; pill.hidden = true; el.min.hidden = true; root.hidden = false;   /* итог звонка показываем, даже если он был свёрнут */
         if (el.audio) el.audio.srcObject = null;
         remote = null; dropBoost(); try { if (actx) actx.close(); } catch (e) { /* */ } actx = null;
         sheetOpen = false; el.sheet.hidden = true; el.q.textContent = ''; el.end.textContent = '';
@@ -649,7 +670,7 @@
         clearTimeout(hideT);
         hideT = setTimeout(function () { if (!cur && !pending) root.hidden = true; }, 1800);
       },
-      hide: function () { guardOff(); if (root) root.hidden = true; }
+      hide: function () { guardOff(); mini = false; if (pill) pill.hidden = true; if (root) root.hidden = true; }
     };
     return api;
   })();
