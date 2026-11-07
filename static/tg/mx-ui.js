@@ -464,11 +464,12 @@
   }
   function showMenu(items) {
     ensureRoot();
-    var bg = h('div', { class: 'mxu-menu-bg' }), m = h('div', { class: 'mxu-menu' });
-    function close() { bg.remove(); m.remove(); }
+    var bg = h('div', { class: 'mxu-menu-bg' }), m = h('div', { class: 'mxu-menu' }), L = null;
+    function close() { if (L) { var x = L; L = null; layerRelease(x); } bg.remove(); m.remove(); }
     items.forEach(function (it) { m.appendChild(h('button', { onclick: function () { close(); it.run(); } }, icon(it.icon, 22), it.text)); });
     bg.addEventListener('click', close);
     root.appendChild(bg); root.appendChild(m);
+    L = layerPush(function () { L = null; bg.remove(); m.remove(); }, false);   /* системная «Назад» закрывает меню, а не экран под ним */
   }
   function viewer(url, title) {
     var pg = page({ title: title || 'Фото' });
@@ -773,7 +774,8 @@
     pg.body.appendChild(card(
       row({ icon: 'bug', title: 'Кнопка отладочной консоли', sub: 'Журнал воркера, синхронизации и сетевых вызовов', toggle: { on: on(), onchange: function (v) { try { localStorage.setItem('mx_dbg_btn', v ? '1' : '0'); } catch (e) { } applyDbg(); } } }),
       row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(function () { b.click(); }); } else toast('Консоль недоступна'); } }),
-      row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } })
+      row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } }),
+      row({ icon: 'bug', title: 'Проверка навигации', sub: 'Открывает все экраны MAX и проверяет кнопку «Назад»', chev: 1, onclick: function () { navSelfTest(); } })
     ));
     pg.body.appendChild(hint('Строки «sync: …», «stories: …», «deleted: …» и «e2e: …» в консоли показывают, где тратится время при старте и что происходит с историями и шифрованием.'));
   };
@@ -1171,13 +1173,101 @@
     });
     return callsP;
   }
+  /* ------------------------------------------------------------ самопроверка навигации («Отладка → Проверка навигации»)
+     Открывает экраны MAX, нажимает «Назад» как система (нативный history.back, без пометки «чужой») и сверяет слои, DOM и глубину истории.
+     Ловит «уход слишком глубоко назад»: незакрытые слои, лишние записи истории, зависшие меню и оверлеи.
+     Касания и свайпы внутри самого Web K (чаты, шторки) отсюда не проверяются. */
+  function navSelfTest() {
+    if (navSelfTest.running) return; navSelfTest.running = true;
+    var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features'];
+    var res = [], base = null;
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function snap() { return { layers: layers.length, dom: document.querySelectorAll('.mxu-page').length, idx: navIdx(), menu: document.querySelectorAll('.mxu-menu').length, ovl: document.querySelectorAll('#mx-upd,#mx-wa-overlay').length }; }
+    function rec(name, ok, note) { res.push({ name: name, ok: ok, note: note || '' }); }
+    function check(name, got, want) {
+      var bad = Object.keys(want).filter(function (k) { return want[k] !== undefined && got[k] !== want[k]; })
+        .map(function (k) { return k + ': ожидали ' + want[k] + ', стало ' + got[k]; });
+      rec(name, !bad.length, bad.join('; '));
+    }
+    function sysBack() { try { ownBack(); } catch (e) { } }
+    function nx(d) { return base.idx == null ? undefined : base.idx + d; }
+    var steps = [];
+    steps.push(function () {
+      closeAll(); return wait(500).then(function () { base = snap(); rec('Старт: нет открытых экранов и слоёв', base.layers === 0 && base.dom === 0, JSON.stringify(base)); });
+    });
+    SCREENS.forEach(function (k) {
+      steps.push(function () {
+        try { open(k); } catch (e) { rec(k + ': ошибка открытия', false, String(e && e.message || e)); return; }
+        return wait(450).then(function () {
+          check(k + ': экран открыт', snap(), { layers: base.layers + 1, dom: base.dom + 1, idx: nx(1) });
+          sysBack(); return wait(600);
+        }).then(function () { check(k + ': «Назад» закрыл ровно его', snap(), { layers: base.layers, dom: base.dom, idx: nx(0) }); });
+      });
+    });
+    steps.push(function () {
+      open('more'); open('themes');
+      return wait(450).then(function () {
+        check('Два экрана подряд: одна страховочная запись на оба', snap(), { layers: base.layers + 2, dom: base.dom + 2, idx: nx(1) });
+        sysBack(); return wait(600);
+      }).then(function () {
+        check('«Назад» №1 закрыл только верхний', snap(), { layers: base.layers + 1, dom: base.dom + 1, idx: nx(1) });
+        sysBack(); return wait(600);
+      }).then(function () { check('«Назад» №2 закрыл нижний, история на базе', snap(), { layers: base.layers, dom: base.dom, idx: nx(0) }); });
+    });
+    steps.push(function () {
+      open('about'); open('more');
+      return wait(450).then(function () { sysBack(); return wait(60); }).then(function () { sysBack(); return wait(800); })
+        .then(function () { check('Два быстрых «Назад» подряд (60 мс): всё закрыто, глубже не ушли', snap(), { layers: base.layers, dom: base.dom, idx: nx(0) }); });
+    });
+    steps.push(function () {
+      open('about');
+      return wait(450).then(function () { showMenu([{ icon: 'info', text: 'Тест', run: function () { } }]); return wait(150); })
+        .then(function () {
+          check('Меню открыто поверх экрана', snap(), { layers: base.layers + 2, menu: 1 });
+          sysBack(); return wait(500);
+        }).then(function () {
+          check('«Назад» закрыл МЕНЮ, а не экран под ним', snap(), { layers: base.layers + 1, dom: base.dom + 1, menu: 0 });
+          sysBack(); return wait(600);
+        }).then(function () { check('Следующий «Назад» закрыл экран', snap(), { layers: base.layers, dom: base.dom, menu: 0, idx: nx(0) }); });
+    });
+    steps.push(function () {
+      showUpdatePrompt({ tag: 'test', url: '#' });
+      return wait(300).then(function () {
+        check('Окно «новая версия» — слой «Назад»', snap(), { layers: base.layers + 1, ovl: 1, idx: nx(1) });
+        sysBack(); return wait(500);
+      }).then(function () { check('«Назад» закрыл окно «новая версия»', snap(), { layers: base.layers, ovl: 0, idx: nx(0) }); });
+    });
+    steps.push(function () {
+      appOverlay('about:blank');
+      return wait(300).then(function () {
+        check('Оверлей мини-приложения — слой «Назад»', snap(), { layers: base.layers + 1, ovl: 1, idx: nx(1) });
+        sysBack(); return wait(500);
+      }).then(function () { check('«Назад» закрыл оверлей мини-приложения', snap(), { layers: base.layers, ovl: 0, idx: nx(0) }); });
+    });
+    return steps.reduce(function (p, f) { return p.then(f); }, Promise.resolve())
+      .catch(function (e) { rec('Проверка прервана', false, String(e && e.message || e)); })
+      .then(function () { closeAll(); return wait(400); })
+      .then(function () {
+        navSelfTest.running = false;
+        var okN = res.filter(function (r) { return r.ok; }).length;
+        var text = 'Проверка навигации: ' + okN + '/' + res.length + ' ок (Navigation API: ' + (navIdx() == null ? 'нет' : 'есть') + ')\n' +
+          res.map(function (r) { return (r.ok ? '✔ ' : '✘ ') + r.name + (r.note ? ' — ' + r.note : ''); }).join('\n');
+        try { console.log(text); } catch (e) { }
+        var pg = page({ title: 'Проверка навигации' });
+        pg.body.appendChild(card.apply(null, res.map(function (r) { return row({ icon: 'info', title: (r.ok ? '✔ ' : '✘ ') + r.name, sub: r.note || '' }); })));
+        pg.body.appendChild(card(row({ icon: 'link', title: 'Скопировать отчёт', chev: 1, onclick: function () { copy(text, 'Отчёт'); } })));
+        toast(okN + '/' + res.length + ' проверок пройдено');
+      });
+  }
+  window.__mxNavSelfTest = navSelfTest;
   /* ------------------------------------------------------------ уведомление о новой версии (как showUpdatePrompt в roblox-studio-web)
      Сервер (/api/update-check) сравнивает versionCode установленного APK с последним stable-релизом на GitHub; hot-релизы не в счёт.
      Показываем один раз за сессию; «Позже» просто закрывает окно, при следующем запуске приложения напомним снова. */
   function showUpdatePrompt(rel) {
     if (document.getElementById('mx-upd')) return;
     var label = rel.versionName ? 'v' + rel.versionName : rel.tag;
-    function close() { dim.remove(); }
+    var L = null;
+    function close() { if (L) { var x = L; L = null; layerRelease(x); } dim.remove(); }
     function go() { close(); window.open(rel.url, '_blank', 'noopener'); }
     var dim = h('div', { id: 'mx-upd', style: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px' },
       h('div', { style: 'width:min(92vw,360px);box-sizing:border-box;border-radius:20px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.5)' },
@@ -1186,6 +1276,7 @@
         h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' }, btn('Перейти', '', go), btn('Позже', 'ghost', close))));
     dim.addEventListener('click', function (e) { if (e.target === dim) close(); });
     document.body.appendChild(dim);
+    L = layerPush(function () { L = null; dim.remove(); }, false);   /* системная «Назад» закрывает окно, а не уходит глубже по истории Web K */
   }
   function checkUpdate() {
     try { if (sessionStorage.getItem('mx_upd_shown')) return; } catch (e) { }
@@ -1364,14 +1455,16 @@
      и вызывает эту функцию. Дальше: opcode 105 -> opcode 160 -> окно мини-приложения перезагружается новым адресом. */
   function appOverlay(url) {
     var old = document.getElementById('mx-wa-overlay'); if (old) old.remove();
-    var box = document.createElement('div'); box.id = 'mx-wa-overlay';
+    var box = document.createElement('div'), L = null; box.id = 'mx-wa-overlay';
+    function close() { if (L) { var q = L; L = null; layerRelease(q); } box.remove(); }
     box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#0f1216;display:flex;flex-direction:column';
     var bar = document.createElement('div'); bar.style.cssText = 'display:flex;justify-content:flex-end;padding:8px';
     var x = document.createElement('button'); x.textContent = 'Закрыть';
     x.style.cssText = 'padding:8px 14px;border:0;border-radius:10px;background:#3a4452;color:#fff;font-size:14px';
-    x.onclick = function () { box.remove(); };
+    x.onclick = close;
     var f = document.createElement('iframe'); f.src = url; f.style.cssText = 'flex:1;border:0;width:100%'; f.setAttribute('allow', 'clipboard-write');
     bar.appendChild(x); box.appendChild(bar); box.appendChild(f); document.body.appendChild(box);
+    L = layerPush(function () { L = null; box.remove(); }, false);
   }
   window.__mxExternalCallback = function (url) {
     var ok = false; try { ok = new URL(url).searchParams.get('externalCallback') === '1'; } catch (e) { }

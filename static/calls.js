@@ -412,6 +412,17 @@
   var ui = (function () {
     var root, el = {}, tick = null, hideT = null, built = false;
     var api = null, qT = null, qPrev = { lost: 0, recv: 0, conc: 0, tot: 0 };
+    /* Пока виден экран звонка, системная «Назад» не должна уходить по истории Web K (раньше закрывала чат под звонком).
+       Слой из mx-ui.js (/tg/) поглощает «Назад» и подсказывает, как выйти; в классическом UI __mxBackLayer нет — ничего не делаем. */
+    var guardRel = null;
+    function guardOn() {
+      if (guardRel || typeof window.__mxBackLayer !== 'function') return;
+      guardRel = window.__mxBackLayer(function () {
+        guardRel = null; guardOn();
+        if (el.note) { el.note.textContent = 'Чтобы выйти, завершите звонок'; setTimeout(function () { if (el.note && el.note.textContent === 'Чтобы выйти, завершите звонок') el.note.textContent = ''; }, 2500); }
+      });
+    }
+    function guardOff() { if (guardRel) { var r = guardRel; guardRel = null; try { r(); } catch (e) { /* */ } } }
     var sheetOpen = false, remote = null, actx = null, bnodes = null, sinks = [], sinkIdx = 0;
     function lsGet(k, d) { try { var v = localStorage.getItem('maxclient_call_' + k); return v == null ? d : v; } catch (e) { return d; } }
     function lsSet(k, v) { try { localStorage.setItem('maxclient_call_' + k, String(v)); } catch (e) { /* */ } }
@@ -590,13 +601,13 @@
         el.btns.textContent = '';
         el.btns.appendChild(btn('red', '✕', 'Отклонить', function () { MaxCalls.reject(); }));
         el.btns.appendChild(btn('green', '✆', 'Принять', function () { MaxCalls.accept(); }));
-        root.hidden = false;
+        root.hidden = false; guardOn();
       },
       setPeer: function (peer) { if (built) setPeer(peer); },
       showCall: function (peer) {
         build(); clearTimeout(hideT);
         setPeer(peer);
-        root.hidden = false;
+        root.hidden = false; guardOn();
         sheetOpen = false; qPrev = { lost: 0, recv: 0, conc: 0, tot: 0 };
         this.render();
         clearInterval(tick); tick = setInterval(paint, 500);
@@ -628,6 +639,7 @@
       },
       finish: function (why) {
         clearInterval(tick); tick = null; clearInterval(qT); qT = null;
+        guardOff();
         if (!root) return;
         if (el.audio) el.audio.srcObject = null;
         remote = null; dropBoost(); try { if (actx) actx.close(); } catch (e) { /* */ } actx = null;
@@ -637,7 +649,7 @@
         clearTimeout(hideT);
         hideT = setTimeout(function () { if (!cur && !pending) root.hidden = true; }, 1800);
       },
-      hide: function () { if (root) root.hidden = true; }
+      hide: function () { guardOff(); if (root) root.hidden = true; }
     };
     return api;
   })();
