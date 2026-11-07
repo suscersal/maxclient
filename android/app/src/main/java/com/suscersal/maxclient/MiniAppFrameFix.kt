@@ -2,6 +2,7 @@ package com.suscersal.maxclient
 
 import android.net.Uri
 import android.util.Log
+import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -15,6 +16,8 @@ import java.net.URL
  * Chrome пишет «Сайт не позволяет установить соединение». У Komet такой проблемы нет: там мини-приложение
  * открывается в отдельном WebView. Здесь для документов во фреймах с хостов *.max.ru мы сами делаем GET
  * и отдаём ответ без этих заголовков. Скрипты, картинки и XHR страницы не трогаем.
+ * Хосты: экосистема MAX/Сферум (список ниже) плюс адреса, которые выдал сам MAX при запуске мини-приложения
+ * (JS регистрирует их через AndroidMiniApp.allowFrameHost) и хосты редиректов с уже разрешённых адресов.
  *
  * Диагностика: logcat, тег MiniAppFrameFix.
  */
@@ -31,9 +34,24 @@ object MiniAppFrameFix {
         }
     }
 
-    private fun isMaxHost(host: String?): Boolean {
+    // max.ru, oneme.ru — MAX; sferum.ru и sferum-dev.ru — «Сферум» (его адрес выдаёт сервер: frontend.sferum-dev.ru)
+    private val staticSuffixes = listOf("max.ru", "oneme.ru", "sferum.ru", "sferum-dev.ru")
+    private val dynamicHosts = LinkedHashSet<String>()
+
+    /** Разрешить обход для точного хоста (только https; список ограничен 64 хостами). */
+    fun allowHost(host: String?) {
+        val h = host?.lowercase() ?: return
+        if (h.isEmpty() || h.length > 253) return
+        synchronized(dynamicHosts) {
+            if (dynamicHosts.size >= 64) dynamicHosts.remove(dynamicHosts.first())
+            dynamicHosts.add(h)
+        }
+    }
+
+    private fun isAllowedHost(host: String?): Boolean {
         val h = host?.lowercase() ?: return false
-        return h == "max.ru" || h.endsWith(".max.ru")
+        if (staticSuffixes.any { h == it || h.endsWith(".$it") }) return true
+        return synchronized(dynamicHosts) { dynamicHosts.contains(h) }
     }
 
     private fun stripFrameAncestors(csp: String): String =
@@ -45,7 +63,7 @@ object MiniAppFrameFix {
     private fun fetch(request: WebResourceRequest): WebResourceResponse? {
         if (request.isForMainFrame || !request.method.equals("GET", ignoreCase = true)) return null
         val uri: Uri = request.url
-        if (uri.scheme?.lowercase() != "https" || !isMaxHost(uri.host)) return null
+        if (uri.scheme?.lowercase() != "https" || !isAllowedHost(uri.host)) return null
         val reqHeaders = request.requestHeaders ?: return null
         val accept = reqHeaders.entries.firstOrNull { it.key.equals("Accept", ignoreCase = true) }?.value ?: ""
         // только документы (iframe), не XHR/скрипты/картинки
@@ -82,6 +100,12 @@ object MiniAppFrameFix {
             } catch (e: Exception) {
                 return null
             }
+            // цепочка редиректов с уже разрешённого адреса остаётся в доверенной зоне
+            try {
+                val tu = Uri.parse(target)
+                if (tu.scheme?.lowercase() == "https") allowHost(tu.host)
+            } catch (e: Exception) {
+            }
             val html = "<!doctype html><meta charset=utf-8><script>location.replace(${org.json.JSONObject.quote(target)})</script>"
             return WebResourceResponse("text/html", "utf-8", 200, "OK", HashMap(), ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
         }
@@ -90,7 +114,7 @@ object MiniAppFrameFix {
         conn.headerFields?.forEach { (name, values) ->
             if (name == null || values.isNullOrEmpty()) return@forEach
             when (name.lowercase()) {
-                "x-frame-options", "content-security-policy-report-only", "set-cookie",
+                "x-frame-options", "cross-origin-resource-policy", "content-security-policy-report-only", "set-cookie",
                 "content-length", "content-encoding", "transfer-encoding", "connection", "keep-alive" -> {}
                 "content-security-policy" -> {
                     val c = values.map { stripFrameAncestors(it) }.filter { it.isNotEmpty() }.joinToString(", ")
@@ -106,5 +130,17 @@ object MiniAppFrameFix {
         val charset = Regex("charset=([^;]+)", RegexOption.IGNORE_CASE).find(ct)?.groupValues?.get(1)?.trim()?.trim('"') ?: "utf-8"
         val reason = conn.responseMessage?.takeIf { it.isNotEmpty() } ?: "OK"
         return WebResourceResponse(mime, charset, code, reason, out, stream)
+    }
+}
+
+/** Мост JS -> регистрация хоста мини-приложения для обхода запрета встраивания (см. MiniAppFrameFix). */
+class AndroidMiniAppBridge {
+
+    @JavascriptInterface
+    fun allowFrameHost(url: String?) {
+        if (url.isNullOrEmpty()) return
+        val u = Uri.parse(url)
+        if (u.scheme?.lowercase() != "https") return
+        MiniAppFrameFix.allowHost(u.host)
     }
 }

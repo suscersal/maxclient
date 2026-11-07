@@ -142,9 +142,10 @@ function __mxAddMsgs(key,msgs){
 /* Komet (account.dart _persistEntryBannerApps): config.server["settings-entry-banners"][].items[] {appid, icon}; «sferum»/«digital» в icon */
 function __mxNoteConfig(p){try{
   var eb=p&&p.config&&p.config.server&&p.config.server["settings-entry-banners"];if(!Array.isArray(eb))return;
-  var ea={};eb.forEach(function(b){((b&&b.items)||[]).forEach(function(it){
-    if(!it||typeof it.appid!=="number")return;var ic=String(it.icon||"").toLowerCase();
+  var ea={},all=[];eb.forEach(function(b){((b&&b.items)||[]).forEach(function(it){
+    if(!it||typeof it.appid!=="number")return;var ic=String(it.icon||"").toLowerCase();all.push({appid:it.appid,icon:ic.slice(-60)});
     if(!ea.sferum&&ic.indexOf("sferum")>=0)ea.sferum=it.appid;if(!ea.digital&&ic.indexOf("digital")>=0)ea.digital=it.appid})});
+  __mx.entryBanners=all;__mxLog("entry banners",JSON.stringify(all));
   if(ea.sferum||ea.digital){__mx.entryApps=ea;__mxLog("entry apps",JSON.stringify(ea))}
 }catch(e){}}
 function __mxRetry19(n){__mx.t19=[2000,6000,20000][n]||20000;__mx.a19=[2000,4000,8000][n]||8000;
@@ -924,6 +925,7 @@ function __mxWebView(method){return async function(e){
   try{r=await fetch("/api/web-app-init"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});j=await r.json()}catch(er){j={error:String(er&&er.message||er)}}
   if(!r||!r.ok||!j.url){__mxLog("web-app-init не удался",method,j&&j.error);throw{code:400,type:"BOT_WEBVIEW_FAILED",description:String(j&&j.error||""),handled:!0,method:method}}
   __mxLog("web-app-init ok",method,"bot",uid);
+  try{if(typeof __mxBc!=="undefined"&&__mxBc)__mxBc.postMessage({t:"webapp",url:j.url})}catch(e){}   /* главный поток разрешит обход X-Frame-Options для этого хоста */
   return{_:"webViewResultUrl",pFlags:{},url:j.url}}}
 __mxM["messages.requestWebView"]=__mxWebView("messages.requestWebView");
 __mxM["messages.requestSimpleWebView"]=__mxWebView("messages.requestSimpleWebView");
@@ -1386,7 +1388,7 @@ function __mxUiProf(c,id){
   return{id:Number(id),name:__mxName(c)||"",first:on.firstName||"",last:on.lastName||"",phone:c.phone?String(c.phone):"",photo:c.baseRawUrl||c.baseUrl||"",photoSmall:c.baseUrl||"",desc:c.description||"",link:c.link||"",options:Array.isArray(c.options)?c.options:[],accountStatus:c.accountStatus||0,registrationTime:c.registrationTime||0,updateTime:c.updateTime||0,country:c.country||"",gender:c.gender}}
 async function __mxUiRpc(m,a){
   await __mxSync();
-  if(m==="entryApps")return __mx.entryApps||{};
+  if(m==="entryApps"){var r0=Object.assign({},__mx.entryApps||{});r0.banners=__mx.entryBanners||null;return r0}
   if(m==="me"){var sid=__mx.self;return __mxUiProf(__mx.contacts[sid],sid)}
   if(m==="contact"){
     var id=String(a.id);if(Number(id)===100)return __mxUiRpc("me",{});

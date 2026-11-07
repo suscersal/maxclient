@@ -193,10 +193,16 @@
 
   /* ------------------------------------------------------------ RPC к воркеру */
   var bc = null, pend = {}, seq = 0;
+  /* APK: разрешаем обход X-Frame-Options/CSP frame-ancestors для хоста мини-приложения (MiniAppFrameFix.kt), иначе iframe покажет ERR_BLOCKED_BY_RESPONSE */
+  function miniHost(url) {
+    try { if (window.AndroidMiniApp && window.AndroidMiniApp.allowFrameHost) window.AndroidMiniApp.allowFrameHost(String(url)); } catch (e) { }
+  }
   try {
     bc = new BroadcastChannel('mx-ui');
     bc.onmessage = function (e) {
-      var d = e.data; if (!d || d.t !== 'res') return;
+      var d = e.data;
+      if (d && d.t === 'webapp') { miniHost(d.url); return; }   /* воркер выдал адрес мини-приложения (requestWebView) */
+      if (!d || d.t !== 'res') return;
       var p = pend[d.id]; if (!p) return;
       delete pend[d.id]; clearTimeout(p.t);
       if (d.e) p.rej(new Error(d.e)); else p.res(d.r);
@@ -1469,12 +1475,22 @@
   /* «Сферум» и «Цифровой ID» — мини-приложения; их id приходят в конфиге входа (воркер: __mxNoteConfig), как в Komet (fetchSferum / fetchDigitalId) */
   function openEntryApp(key, title) {
     toast('Открываем «' + title + '»…');
+    var KEY = 'mx_entry_apps';
     rpc('entryApps').then(function (e) {
-      var id = e && e[key];
-      if (!id) throw new Error('сейчас недоступно, переподключитесь и попробуйте снова');
+      var saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (x) { }
+      var cur = {}; if (e && e.sferum) cur.sferum = e.sferum; if (e && e.digital) cur.digital = e.digital;
+      if (cur.sferum || cur.digital) { try { localStorage.setItem(KEY, JSON.stringify(Object.assign(saved, cur))); } catch (x) { } }   /* запоминаем: после перезапуска воркера конфиг приходит не сразу */
+      var id = cur[key] || saved[key];
+      if (!id) {
+        var icons = e && e.banners ? e.banners.map(function (b) { return b.icon || b.appid; }).join(', ') : '';
+        throw new Error(e && e.banners
+          ? 'в конфиге этого аккаунта нет такого приложения' + (icons ? ' (есть: ' + icons + ')' : '')
+          : 'конфиг ещё не получен, переподключитесь и попробуйте снова');
+      }
       return jpost('/api/web-app-init', { botId: id });
     }).then(function (r) {
       if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
+      miniHost(r.url);
       appOverlay(r.url);
     }).catch(function (e) { toast(title + ': ' + (e && e.message || e)); });
   }
