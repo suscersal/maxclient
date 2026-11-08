@@ -455,7 +455,10 @@ class MainActivity : AppCompatActivity() {
         // Мост JS -> встроенный браузер для ссылок из мини-приложений.
         webView.addJavascriptInterface(AndroidInAppBrowserBridge(), "AndroidInAppBrowser")
         // Мост JS -> скачивание и установка обновления APK (см. ApkUpdater.kt).
-        webView.addJavascriptInterface(AndroidApkInstallerBridge(this), "AndroidApkInstaller")
+        webView.addJavascriptInterface(
+            AndroidApkInstallerBridge(this) { js -> runOnUiThread { webView.evaluateJavascript(js, null) } },
+            "AndroidApkInstaller"
+        )
         // Мост JS -> разрешение обхода X-Frame-Options для хоста мини-приложения (см. MiniAppFrameFix.kt).
         webView.addJavascriptInterface(AndroidMiniAppBridge(), "AndroidMiniApp")
         // Нативное окно мини-приложения (как в Komet): отдельный WebView + window.WebViewHandler (см. MiniAppWindow.kt).

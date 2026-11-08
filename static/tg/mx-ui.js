@@ -229,15 +229,35 @@
   history.go = function () { foreign = Date.now(); return nativeGo.apply(history, arguments); };
   function ownBack() { return nativeBack.call(history); }
   function navIdx() { try { return window.navigation && navigation.currentEntry ? navigation.currentEntry.index : null; } catch (e) { return null; } }
+  /* history.back() выполняется асинхронно. Если слой закрыли и тут же открыли новый (окно обновления → окно прогресса, меню → экран),
+     pushState до завершения прежнего ownBack() ставит запись не туда: sentIdx устаревает, и следующая «Назад» закрывает наш слой раньше экрана Web K.
+     Поэтому новую запись откладываем до popstate от ownBack (страховочный таймер — на случай, если событие не придёт). */
+  var pushAfterSkip = false, afterCbs = [], skipSeq = 0;
+  function flushAfterSkip() {
+    if (!pushAfterSkip) return;
+    pushAfterSkip = false;
+    var cbs = afterCbs.splice(0); syncSent();
+    cbs.forEach(function (c) { try { c(); } catch (e) { } });
+  }
   function syncSent(cb) {
-    if (layers.length && !sent) { try { history.pushState({ mxu: 1 }, ''); sent = true; sentIdx = navIdx(); } catch (e) { } if (cb) cb(); }
-    else if (!layers.length && sent) { sent = false; skipPop = cb || true; try { ownBack(); } catch (e) { skipPop = null; if (cb) cb(); } }
+    if (layers.length && !sent) {
+      if (skipPop !== null) { pushAfterSkip = true; if (cb) afterCbs.push(cb); return; }
+      try { history.pushState({ mxu: 1 }, ''); sent = true; sentIdx = navIdx(); } catch (e) { } if (cb) cb();
+    }
+    else if (!layers.length && sent) {
+      sent = false; skipPop = cb || true;
+      var seq = ++skipSeq;
+      try {
+        ownBack();
+        setTimeout(function () { if (skipSeq === seq && skipPop !== null) { var f = skipPop; skipPop = null; if (typeof f === 'function') f(); flushAfterSkip(); } }, 600);
+      } catch (e) { skipPop = null; if (cb) cb(); }
+    }
     else if (cb) cb();
   }
   function layerPush(close, isPage) { var L = { close: close, page: !!isPage }; layers.push(L); syncSent(); return L; }
   function layerRelease(L) { var i = layers.indexOf(L); if (i >= 0) layers.splice(i, 1); syncSent(); }
   window.addEventListener('popstate', function (e) {
-    if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); return; }
+    if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); flushAfterSkip(); return; }
     if (!sent) return;
     var idx = navIdx();
     if (idx != null && sentIdx != null && idx >= sentIdx) return;      // не откат назад (чужой hash/pushState) — не наше событие
@@ -1123,7 +1143,7 @@
       '.mxn button{flex:1;border:0;background:none;color:inherit;font:inherit;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px 7px;border-radius:28px;cursor:pointer;-webkit-tap-highlight-color:transparent}',
       '.mxn button.on{color:var(--primary-color,#8774e1);background:rgba(128,128,128,.2)}',
       '.mxn button:active{background:rgba(128,128,128,.28)}',
-      '@media (max-width:899px){body.is-left-column-shown .mxn{display:flex}',
+      '@media (max-width:899px){body.is-left-column-shown .mxn{display:flex}body.mx-fs .mxn{display:none!important}',
       'body.is-left-column-shown #column-left .chatlist-container{padding-bottom:96px}',
       'body.is-left-column-shown #column-left .btn-circle.btn-corner{bottom:92px!important}}'
     ].join('');
@@ -1172,6 +1192,14 @@
     set('chats');
     function mount() { if (document.body) document.body.appendChild(bar); else document.addEventListener('DOMContentLoaded', mount); }
     mount();
+    /* панель не должна рисоваться поверх полноэкранных просмотрщиков Web K: истории (#stories-viewer / .stories-viewer) и медиа (.media-viewer-whole) */
+    var fsPend = false;
+    function syncFs() {
+      fsPend = false;
+      if (!document.body) return;
+      document.body.classList.toggle('mx-fs', !!document.querySelector('#stories-viewer > *, .stories-viewer, .media-viewer-whole'));
+    }
+    new MutationObserver(function () { if (!fsPend) { fsPend = true; requestAnimationFrame(syncFs); } }).observe(document.documentElement, { childList: true, subtree: true });
     /* закрыли экран MAX / вернулись на список — подсветка «Чаты» */
     new MutationObserver(function () { if (cur === 'profile' && !document.querySelector('.mxu-root')) set('chats'); }).observe(document.documentElement, { childList: true, subtree: true });
   })();
@@ -1214,7 +1242,7 @@
     var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features', 'entryApps'];
     var res = [], base = null;
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-    function snap() { return { layers: layers.length, dom: document.querySelectorAll('.mxu-page').length, idx: navIdx(), menu: document.querySelectorAll('.mxu-menu').length, ovl: document.querySelectorAll('#mx-upd,#mx-wa-overlay').length }; }
+    function snap() { return { layers: layers.length, dom: document.querySelectorAll('.mxu-page').length, idx: navIdx(), menu: document.querySelectorAll('.mxu-menu').length, ovl: document.querySelectorAll('#mx-upd,#mx-wa-overlay,#mx-apk').length }; }
     function rec(name, ok, note) { res.push({ name: name, ok: ok, note: note || '' }); }
     function check(name, got, want) {
       var bad = Object.keys(want).filter(function (k) { return want[k] !== undefined && got[k] !== want[k]; })
@@ -1270,6 +1298,13 @@
       }).then(function () { check('«Назад» закрыл окно «новая версия»', snap(), { layers: base.layers, ovl: 0, idx: nx(0) }); });
     });
     steps.push(function () {
+      apkBegin();
+      return wait(300).then(function () {
+        check('Окно прогресса загрузки — слой «Назад»', snap(), { layers: base.layers + 1, ovl: 1, idx: nx(1) });
+        sysBack(); return wait(500);
+      }).then(function () { check('«Назад» скрыл окно прогресса', snap(), { layers: base.layers, ovl: 0, idx: nx(0) }); });
+    });
+    steps.push(function () {
       appOverlay('about:blank');
       return wait(300).then(function () {
         check('Оверлей мини-приложения — слой «Назад»', snap(), { layers: base.layers + 1, ovl: 1, idx: nx(1) });
@@ -1295,6 +1330,43 @@
   /* ------------------------------------------------------------ уведомление о новой версии (как showUpdatePrompt в roblox-studio-web)
      Сервер (/api/update-check) сравнивает versionCode установленного APK с последним stable-релизом на GitHub; hot-релизы не в счёт.
      Показываем один раз за сессию; «Позже» просто закрывает окно, при следующем запуске приложения напомним снова. */
+  /* Прогресс скачивания APK: Kotlin (ApkUpdater) раз в 0,5 с вызывает window.__mxApkProgress({s, done, total, reason}).
+     «Скрыть» / «Назад» прячут окно, загрузка продолжается (видна в шторке); «Отмена» её отменяет. */
+  var apkUi = null;
+  function apkMb(n) { return (n / 1048576).toFixed(1); }
+  function apkUiClose() {
+    if (!apkUi) return;
+    var u = apkUi; apkUi = null; clearTimeout(u.t);
+    if (u.L) { var x = u.L; u.L = null; layerRelease(x); }
+    u.dim.remove();
+  }
+  function apkBegin() {
+    apkUiClose();
+    var bar = h('div', { style: 'height:100%;width:0;border-radius:4px;background:var(--primary-color,#3390ec);transition:width .3s' });
+    var msg = h('div', { style: 'margin-top:10px;font-size:14px;opacity:.85' }, 'Подключаемся…');
+    var btns = h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' });
+    var dim = h('div', { id: 'mx-apk', style: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px' },
+      h('div', { style: 'width:min(92vw,360px);box-sizing:border-box;border-radius:20px;background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.5)' },
+        h('div', { style: 'font-size:18px;font-weight:600' }, 'Скачиваем обновление'),
+        h('div', { style: 'margin-top:14px;height:8px;border-radius:4px;background:rgba(128,128,128,.3);overflow:hidden' }, bar),
+        msg, btns));
+    var u = { dim: dim, bar: bar, msg: msg, btns: btns, L: null, t: 0 };
+    u.setButtons = function (list) { btns.innerHTML = ''; list.forEach(function (b) { btns.appendChild(btn(b[0], b[1], b[2])); }); };
+    u.setButtons([['Отмена', 'ghost', function () { try { window.AndroidApkInstaller.cancel(); } catch (e) { } apkUiClose(); }], ['Скрыть', 'ghost', apkUiClose]]);
+    apkUi = u;
+    document.body.appendChild(dim);
+    u.L = layerPush(function () { u.L = null; if (apkUi === u) { apkUi = null; clearTimeout(u.t); dim.remove(); } }, false);
+  }
+  window.__mxApkProgress = function (d) {
+    var u = apkUi; if (!u || !d) return;
+    if (d.s === 'perm' || d.s === 'cancel') { apkUiClose(); return; }
+    var total = d.total > 0 ? d.total : 0, pct = total ? Math.min(100, Math.round(d.done * 100 / total)) : 0;
+    u.bar.style.width = (d.s === 'ok' ? 100 : pct) + '%';
+    if (d.s === 'run') u.msg.textContent = total ? apkMb(d.done) + ' из ' + apkMb(total) + ' МБ · ' + pct + '%' : (d.done > 0 ? apkMb(d.done) + ' МБ' : 'Подключаемся…');
+    else if (d.s === 'pause') u.msg.textContent = 'Ждём сеть…' + (total ? ' ' + pct + '%' : '');
+    else if (d.s === 'ok') { u.msg.textContent = 'Загрузка завершена. Открываем установщик…'; u.setButtons([]); u.t = setTimeout(apkUiClose, 2500); }
+    else if (d.s === 'fail') { u.msg.textContent = 'Не удалось скачать обновление (код ' + d.reason + ')'; u.setButtons([['Закрыть', '', apkUiClose]]); }
+  };
   function showUpdatePrompt(rel) {
     if (document.getElementById('mx-upd')) return;
     var label = rel.versionName ? 'v' + rel.versionName : rel.tag;
@@ -1303,8 +1375,8 @@
     function go() { close(); window.open(rel.url, '_blank', 'noopener'); }
     var canInstall = !!(window.AndroidApkInstaller && window.AndroidApkInstaller.install && rel.apkUrl);
     function install() {
-      close(); toast('Скачиваем обновление…');
-      try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { window.open(rel.url, '_blank', 'noopener'); }
+      close(); apkBegin();
+      try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { apkUiClose(); window.open(rel.url, '_blank', 'noopener'); }
     }
     var btnRow = h('div', { class: 'mxu-btns', style: 'margin:16px 0 0' });
     (canInstall ? [btn('Установить', '', install), btn('Релиз', 'ghost', go), btn('Позже', 'ghost', close)] : [btn('Перейти', '', go), btn('Позже', 'ghost', close)])

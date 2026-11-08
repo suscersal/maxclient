@@ -18677,7 +18677,31 @@
       var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end';
       function mk(text, primary, fn) { var b = document.createElement('button'); b.textContent = text; b.style.cssText = 'border:0;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer;color:#fff;background:' + (primary ? '#3390ec' : '#3a4452'); b.onclick = fn; row.appendChild(b); }
       function close() { box.remove(); }
-      if (canInstall) mk('Установить', true, function () { close(); try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { window.open(rel.url, '_blank', 'noopener'); } });
+      /* прогресс скачивания: Kotlin вызывает window.__mxApkProgress({s, done, total, reason}) */
+      var pbox = null;
+      function pclose() { if (pbox) { pbox.remove(); pbox = null; } }
+      function pbegin() {
+        pclose();
+        pbox = document.createElement('div');
+        pbox.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;max-width:420px;margin:0 auto;padding:16px;border-radius:16px;background:#212121;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);font:14px/1.4 system-ui,sans-serif';
+        pbox.innerHTML = '<div style="font-size:16px;font-weight:600">Скачиваем обновление</div><div style="margin-top:12px;height:8px;border-radius:4px;background:rgba(128,128,128,.3);overflow:hidden"><div class="b" style="height:100%;width:0;border-radius:4px;background:#3390ec;transition:width .3s"></div></div><div class="m" style="margin-top:8px;opacity:.85">Подключаемся…</div><div class="r" style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end"></div>';
+        function pb(text, fn) { var b = document.createElement('button'); b.textContent = text; b.style.cssText = 'border:0;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer;color:#fff;background:#3a4452'; b.onclick = fn; pbox.querySelector('.r').appendChild(b); }
+        pb('Отмена', function () { try { window.AndroidApkInstaller.cancel(); } catch (e) { } pclose(); });
+        pb('Скрыть', pclose);
+        document.body.appendChild(pbox);
+      }
+      window.__mxApkProgress = function (d) {
+        if (!pbox || !d) return;
+        if (d.s === 'perm' || d.s === 'cancel') { pclose(); return; }
+        var total = d.total > 0 ? d.total : 0, pct = total ? Math.min(100, Math.round(d.done * 100 / total)) : 0, mb = function (n) { return (n / 1048576).toFixed(1); };
+        pbox.querySelector('.b').style.width = (d.s === 'ok' ? 100 : pct) + '%';
+        var m = pbox.querySelector('.m');
+        if (d.s === 'run') m.textContent = total ? mb(d.done) + ' из ' + mb(total) + ' МБ · ' + pct + '%' : (d.done > 0 ? mb(d.done) + ' МБ' : 'Подключаемся…');
+        else if (d.s === 'pause') m.textContent = 'Ждём сеть…' + (total ? ' ' + pct + '%' : '');
+        else if (d.s === 'ok') { m.textContent = 'Загрузка завершена. Открываем установщик…'; pbox.querySelector('.r').innerHTML = ''; setTimeout(pclose, 2500); }
+        else if (d.s === 'fail') { m.textContent = 'Не удалось скачать обновление (код ' + d.reason + ')'; var rr = pbox.querySelector('.r'); rr.innerHTML = ''; var cb = document.createElement('button'); cb.textContent = 'Закрыть'; cb.style.cssText = 'border:0;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer;color:#fff;background:#3a4452'; cb.onclick = pclose; rr.appendChild(cb); }
+      };
+      if (canInstall) mk('Установить', true, function () { close(); pbegin(); try { window.AndroidApkInstaller.install(rel.apkUrl, rel.apkName || ''); } catch (e) { pclose(); window.open(rel.url, '_blank', 'noopener'); } });
       mk(canInstall ? 'Релиз' : 'Перейти', !canInstall, function () { close(); window.open(rel.url, '_blank', 'noopener'); });
       mk('Позже', false, close);
       box.appendChild(t); box.appendChild(m); box.appendChild(row); document.body.appendChild(box);
