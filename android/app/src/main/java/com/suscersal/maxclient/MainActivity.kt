@@ -458,6 +458,13 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(AndroidApkInstallerBridge(this), "AndroidApkInstaller")
         // Мост JS -> разрешение обхода X-Frame-Options для хоста мини-приложения (см. MiniAppFrameFix.kt).
         webView.addJavascriptInterface(AndroidMiniAppBridge(), "AndroidMiniApp")
+        // Нативное окно мини-приложения (как в Komet): отдельный WebView + window.WebViewHandler (см. MiniAppWindow.kt).
+        webView.addJavascriptInterface(
+            AndroidMiniAppWinBridge(this) { js -> runOnUiThread { webView.evaluateJavascript(js, null) } },
+            "AndroidMiniAppWin"
+        )
+        // Как у Komet (thirdPartyCookiesEnabled): cookie мини-приложений в iframe не режутся как «сторонние».
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         publishAppLockShortcut()
         requestLegacyStoragePermissionIfNeeded()
 

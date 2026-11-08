@@ -1388,7 +1388,7 @@
     var H = {
       /* номер телефона → op 106 (после подтверждения) */
       web_app_request_phone: function (src, type, n, d) {
-        var bot = currentPeer();
+        var bot = src && src.__botId > 0 ? src.__botId : currentPeer();   /* нативное окно знает своего бота, iframe — по открытому чату */
         if (bot == null || bot <= 0) return fail(src, type, n, d, 'request_error');
         if (!ask('phone', 'Передать номер телефона?\n\nМини-приложение получит ваш номер телефона.')) return fail(src, type, n, d, 'user_refused_provide_phone_number');
         jpost('/api/web-app-phone', { botId: bot }).then(function (r) {
@@ -1467,6 +1467,21 @@
       /* незнакомое имя в стиле Komet (WebAppXxx): Web K его не понимает — отвечаем ошибкой, как Komet */
       if (/^WebApp[A-Z]/.test(m.type) && !SILENT[m.type]) fail(ev.source, m.type, n, m.data, 'unsupported_method');
     }
+    /* Нативное окно мини-приложения (MiniAppWindow.kt): WebViewHandler.postEvent приходит сюда; ответы идут через AndroidMiniAppWin.deliver. */
+    window.__mxWinEvent = function (winId, name, raw, botId) {
+      var d = {}; try { d = JSON.parse(raw || '{}') || {}; } catch (e) { }
+      var src = {
+        __botId: botId,
+        postMessage: function (json) {
+          try { var m = JSON.parse(json); window.AndroidMiniAppWin.deliver(winId, m.eventType, JSON.stringify(m.eventData || {})); } catch (e) { }
+        }
+      };
+      var n = norm(name), h = H[n];
+      try {
+        if (h) h(src, name, n, d);
+        else if (/^WebApp[A-Z]/.test(name) && !SILENT[name]) fail(src, name, n, d, 'unsupported_method');
+      } catch (e) { fail(src, name, n, d, 'request_error'); }
+    };
     window.addEventListener('message', onMessage, true);
     return { norm: norm, parse: parse, handlers: H };
   })();
@@ -1475,12 +1490,12 @@
   /* «Сферум» и «Цифровой ID» — мини-приложения; их id приходят в конфиге входа (воркер: __mxNoteConfig), как в Komet (fetchSferum / fetchDigitalId) */
   function openEntryApp(key, title) {
     toast('Открываем «' + title + '»…');
-    var KEY = 'mx_entry_apps';
+    var KEY = 'mx_entry_apps', usedId = 0;
     rpc('entryApps').then(function (e) {
       var saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (x) { }
       var cur = {}; if (e && e.sferum) cur.sferum = e.sferum; if (e && e.digital) cur.digital = e.digital;
       if (cur.sferum || cur.digital) { try { localStorage.setItem(KEY, JSON.stringify(Object.assign(saved, cur))); } catch (x) { } }   /* запоминаем: после перезапуска воркера конфиг приходит не сразу */
-      var id = cur[key] || saved[key];
+      var id = cur[key] || saved[key]; usedId = id || 0;
       if (!id) {
         var icons = e && e.banners ? e.banners.map(function (b) { return b.icon || b.appid; }).join(', ') : '';
         throw new Error(e && e.banners
@@ -1490,6 +1505,8 @@
       return jpost('/api/web-app-init', { botId: id });
     }).then(function (r) {
       if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
+      /* APK: отдельное нативное окно, как в Komet (cookie первой стороны, window.WebViewHandler); иначе — iframe-оверлей */
+      if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) { window.AndroidMiniAppWin.open(r.url, title, Number(usedId) || 0); return; }
       miniHost(r.url);
       appOverlay(r.url);
     }).catch(function (e) { toast(title + ': ' + (e && e.message || e)); });
@@ -1515,6 +1532,7 @@
     toast('Завершаем вход…');
     jpost('/api/external-callback', { url: url }).then(function (r) {
       if (!r || !r.url) throw new Error('сервер не вернул адрес');
+      try { if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.isOpen && window.AndroidMiniAppWin.isOpen()) { window.AndroidMiniAppWin.reload(r.url); return; } } catch (e) { }
       var fr = document.getElementsByTagName('iframe'), target = null;
       for (var i = 0; i < fr.length; i++) {
         var h = ''; try { h = new URL(fr[i].src).hostname; } catch (e) { }
