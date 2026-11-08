@@ -796,7 +796,8 @@
     pg.body.appendChild(sec('Сервисы MAX'));
     pg.body.appendChild(card(
       row({ icon: 'info', title: 'Сферум', sub: 'Школьная платформа MAX', chev: 1, onclick: function () { openEntryApp('sferum', 'Сферум'); } }),
-      row({ icon: 'link', title: 'Цифровой ID', sub: 'Документы и вход через Госуслуги', chev: 1, onclick: function () { openEntryApp('digital', 'Цифровой ID'); } })
+      row({ icon: 'link', title: 'Цифровой ID', sub: 'Документы и вход через Госуслуги', chev: 1, onclick: function () { openEntryApp('digital', 'Цифровой ID'); } }),
+      row({ icon: 'info', title: 'Другие сервисы', sub: 'Всё, что пришло в конфиге аккаунта', chev: 1, onclick: function () { open('entryApps'); } })
     ));
     pg.body.appendChild(sec('Только в классическом интерфейсе'));
     pg.body.appendChild(card(
@@ -870,6 +871,26 @@
       }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(errBox(e)); });
     }
     render();
+  };
+  /* Приложения из конфига входа (settings-entry-banners): «Сферум», «Цифровой ID» и всё остальное, что прислал сервер.
+     Названия — по файлам иконок; нужен, когда нужного приложения нет под ожидаемым именем. */
+  S.entryApps = function () {
+    var pg = page({ title: 'Другие сервисы' });
+    pg.spin();
+    rpc('entryApps').then(function (e) {
+      pg.body.innerHTML = '';
+      var list = (e && e.banners) || [];
+      if (!list.length) { pg.body.appendChild(hint(e && e.banners ? 'В конфиге аккаунта нет приложений.' : 'Конфиг ещё не получен — переподключитесь и откройте экран снова.')); return; }
+      pg.body.appendChild(sec('Приложения из конфига аккаунта'));
+      pg.body.appendChild(card.apply(null, list.map(function (b) {
+        var name = entryIconName(b.icon);
+        return row({ icon: 'link', title: name, sub: 'id ' + b.appid, chev: 1, onclick: function () {
+          toast('Открываем «' + name + '»…');
+          launchMini(b.appid, name).catch(function (x) { toast(name + ': ' + (x && x.message || x)); });
+        } });
+      })));
+      pg.body.appendChild(hint('Названия взяты из файлов иконок. Приложение открывается так же, как «Сферум».'));
+    }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(errBox(e)); });
   };
   /* ссылка из служебного сообщения «Новый вход» (max.ru/:settings/devices) открывает наш экран, а не сайт */
   (function () {
@@ -1190,7 +1211,7 @@
      Касания и свайпы внутри самого Web K (чаты, шторки) отсюда не проверяются. */
   function navSelfTest() {
     if (navSelfTest.running) return; navSelfTest.running = true;
-    var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features'];
+    var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features', 'entryApps'];
     var res = [], base = null;
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
     function snap() { return { layers: layers.length, dom: document.querySelectorAll('.mxu-page').length, idx: navIdx(), menu: document.querySelectorAll('.mxu-menu').length, ovl: document.querySelectorAll('#mx-upd,#mx-wa-overlay').length }; }
@@ -1488,27 +1509,30 @@
   /* Возврат из внешнего сценария (Цифровой ID и т.п.): APK перехватывает переход на адрес с externalCallback=1 (как web_app_screen.dart в Komet)
      и вызывает эту функцию. Дальше: opcode 105 -> opcode 160 -> окно мини-приложения перезагружается новым адресом. */
   /* «Сферум» и «Цифровой ID» — мини-приложения; их id приходят в конфиге входа (воркер: __mxNoteConfig), как в Komet (fetchSferum / fetchDigitalId) */
+  function launchMini(id, title) {   /* id → web-app-init → нативное окно (APK, как в Komet) или iframe-оверлей */
+    return jpost('/api/web-app-init', { botId: id }).then(function (r) {
+      if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
+      if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) { window.AndroidMiniAppWin.open(r.url, title, Number(id) || 0); return; }
+      miniHost(r.url);
+      appOverlay(r.url);
+    });
+  }
+  function entryIconName(icon) {   /* https://st.max.ru/icons/sferum_with_padding.png → «sferum with padding» */
+    var n = String(icon || '').split('?')[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+    return n || 'без названия';
+  }
   function openEntryApp(key, title) {
     toast('Открываем «' + title + '»…');
-    var KEY = 'mx_entry_apps', usedId = 0;
+    var KEY = 'mx_entry_apps';
     rpc('entryApps').then(function (e) {
       var saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (x) { }
       var cur = {}; if (e && e.sferum) cur.sferum = e.sferum; if (e && e.digital) cur.digital = e.digital;
       if (cur.sferum || cur.digital) { try { localStorage.setItem(KEY, JSON.stringify(Object.assign(saved, cur))); } catch (x) { } }   /* запоминаем: после перезапуска воркера конфиг приходит не сразу */
-      var id = cur[key] || saved[key]; usedId = id || 0;
-      if (!id) {
-        var icons = e && e.banners ? e.banners.map(function (b) { return b.icon || b.appid; }).join(', ') : '';
-        throw new Error(e && e.banners
-          ? 'в конфиге этого аккаунта нет такого приложения' + (icons ? ' (есть: ' + icons + ')' : '')
-          : 'конфиг ещё не получен, переподключитесь и попробуйте снова');
-      }
-      return jpost('/api/web-app-init', { botId: id });
-    }).then(function (r) {
-      if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
-      /* APK: отдельное нативное окно, как в Komet (cookie первой стороны, window.WebViewHandler); иначе — iframe-оверлей */
-      if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) { window.AndroidMiniAppWin.open(r.url, title, Number(usedId) || 0); return; }
-      miniHost(r.url);
-      appOverlay(r.url);
+      var id = cur[key] || saved[key];
+      if (!id) throw new Error(e && e.banners
+        ? 'в конфиге аккаунта нет такого приложения. «Другие сервисы» покажут всё, что пришло'
+        : 'конфиг ещё не получен, переподключитесь и попробуйте снова');
+      return launchMini(id, title);
     }).catch(function (e) { toast(title + ': ' + (e && e.message || e)); });
   }
   function appOverlay(url) {

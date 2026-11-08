@@ -132,5 +132,6 @@ Iframe в Web K не подходит приложениям, которым н�
 - Закрытие, «Назад» (`WebAppSetupBackButton` → `WebAppBackButtonPressed`) и подтверждение закрытия (`WebAppSetupClosingBehavior`) обрабатывает Kotlin; остальные события уходят в `window.__mxWinEvent` (`mx-ui.js`) → те же обработчики с подтверждениями, что и для iframe (телефон по `botId` окна, «поделиться», ссылки, скачивание …); ответ — `AndroidMiniAppWin.deliver`.
 - `externalCallback=1` в окне → `__mxExternalCallback` → `/api/external-callback` → `AndroidMiniAppWin.reload(новый адрес)`.
 - Кнопка **«Лог»** в шапке окна копирует в буфер: ошибки загрузки, HTTP >= 400 и `console.error/warn` страницы — нужна для отладки, если приложение снова покажет ошибку. Вне APK остаётся iframe-оверлей.
+- «Другие сервисы» («Дополнительно → Сервисы MAX»): экран со всеми приложениями из `settings-entry-banners` (название — по файлу иконки, `id`), каждое открывается так же, как «Сферум». Нужен, если «Цифровой ID» не найден по иконке `digital` (как в Komet) — тогда сообщение подскажет открыть этот экран.
 - Не перенесено: хранилища ключей (`WebAppDeviceStorage*`, `WebAppSecureStorage*`), биометрия, цвета шапки, сенсоры — такие события получают `unsupported_method`. User-Agent у окна стандартный WebView (Komet подставляет UA сессии MAX).
 
