@@ -868,6 +868,8 @@ async function __mxBotCallback(e){
       var r0=await fetch("/api/web-app-init"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({botId:botId,startParam:btn.payload||btn.startParam||btn.start_param||undefined,chatId:k.chatId})});
       var j0=await r0.json().catch(function(){return{}});
       if(!r0.ok||!j0.url)return ans({message:j0.error||"Не удалось открыть мини-приложение"});
+      if(__mx.nativeWin&&typeof __mxBc!=="undefined"&&__mxBc){   /* APK: мини-приложение открывает нативное окно (cookie первой стороны, window.WebViewHandler), а не страница Web K */
+        __mxBc.postMessage({t:"webapp-open",url:j0.url,bot:botId,title:String(btn.text||"")});return ans({})}
       return ans({pFlags:{has_url:!0},url:j0.url})}
     if(type==="REQUEST_CONTACT"||type==="REQUEST_GEO_LOCATION")return ans({message:"Эта кнопка пока не поддерживается"});
     if(!k.callbackId||mid==null)return ans({message:"У клавиатуры нет callbackId"});
@@ -925,6 +927,10 @@ function __mxWebView(method){return async function(e){
   try{r=await fetch("/api/web-app-init"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});j=await r.json()}catch(er){j={error:String(er&&er.message||er)}}
   if(!r||!r.ok||!j.url){__mxLog("web-app-init не удался",method,j&&j.error);throw{code:400,type:"BOT_WEBVIEW_FAILED",description:String(j&&j.error||""),handled:!0,method:method}}
   __mxLog("web-app-init ok",method,"bot",uid);
+  if(__mx.nativeWin&&typeof __mxBc!=="undefined"&&__mxBc){
+    var bu=typeof Dd!=="undefined"?Dd.find(function(x){return x.id===uid}):null;
+    __mxBc.postMessage({t:"webapp-open",url:j.url,bot:uid,title:String(bu&&bu.first_name||"")});
+    throw{code:400,type:"MX_NATIVE_WINDOW",handled:!0,method:method}}   /* Web K (openWebApp) ошибку requestWebView не показывает — получается «тихий» запуск нативного окна */
   try{if(typeof __mxBc!=="undefined"&&__mxBc)__mxBc.postMessage({t:"webapp",url:j.url})}catch(e){}   /* главный поток разрешит обход X-Frame-Options для этого хоста */
   return{_:"webViewResultUrl",pFlags:{},url:j.url}}}
 __mxM["messages.requestWebView"]=__mxWebView("messages.requestWebView");
@@ -1388,7 +1394,7 @@ function __mxUiProf(c,id){
   return{id:Number(id),name:__mxName(c)||"",first:on.firstName||"",last:on.lastName||"",phone:c.phone?String(c.phone):"",photo:c.baseRawUrl||c.baseUrl||"",photoSmall:c.baseUrl||"",desc:c.description||"",link:c.link||"",options:Array.isArray(c.options)?c.options:[],accountStatus:c.accountStatus||0,registrationTime:c.registrationTime||0,updateTime:c.updateTime||0,country:c.country||"",gender:c.gender}}
 async function __mxUiRpc(m,a){
   await __mxSync();
-  if(m==="entryApps"){var r0=Object.assign({},__mx.entryApps||{});r0.banners=__mx.entryBanners||null;return r0}
+  if(m==="entryApps"){var r0=Object.assign({},__mx.entryApps||{});r0.banners=__mx.entryBanners||null;r0.self=__mx.self;return r0}
   if(m==="me"){var sid=__mx.self;return __mxUiProf(__mx.contacts[sid],sid)}
   if(m==="contact"){
     var id=String(a.id);if(Number(id)===100)return __mxUiRpc("me",{});
@@ -1424,7 +1430,7 @@ async function __mxUiRpc(m,a){
     ((r2&&r2.messages)||[]).forEach(function(mm){(mm.attaches||[]).forEach(function(at){if(types.indexOf(at._type)<0)return;items.push({t:at._type,url:at.baseUrl||at.url||at.thumbnail||at.previewUrl||"",name:at.name||at.fileName||"",size:at.size||0,time:mm.time||0})})});
     return{items:items}}
   throw new Error("неизвестный запрос "+m)}
-try{var __mxBc=new BroadcastChannel("mx-ui");__mxBc.onmessage=function(e){var d=e.data;if(!d||d.t!=="req")return;__mxUiRpc(d.m,d.a||{}).then(function(r){__mxBc.postMessage({t:"res",id:d.id,r:r})},function(er){__mxBc.postMessage({t:"res",id:d.id,e:String(er&&er.message||er)})})}}catch(e){}
+try{var __mxBc=new BroadcastChannel("mx-ui");__mxBc.onmessage=function(e){var d=e.data;if(d&&d.t==="cfg"){__mx.nativeWin=!!d.native;return}if(!d||d.t!=="req")return;__mxUiRpc(d.m,d.a||{}).then(function(r){__mxBc.postMessage({t:"res",id:d.id,r:r})},function(er){__mxBc.postMessage({t:"res",id:d.id,e:String(er&&er.message||er)})})}}catch(e){}
 [["stories.incrementStoryViews",function(){return!0}],
  ["stories.getStoriesViews",function(){return{_:"stories.storyViews",views:[],users:[]}}]
 ].forEach(function(x){if(!__mxM[x[0]])__mxM[x[0]]=x[1]});

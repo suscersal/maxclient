@@ -194,6 +194,11 @@
   /* ------------------------------------------------------------ RPC к воркеру */
   var bc = null, pend = {}, seq = 0;
   /* APK: разрешаем обход X-Frame-Options/CSP frame-ancestors для хоста мини-приложения (MiniAppFrameFix.kt), иначе iframe покажет ERR_BLOCKED_BY_RESPONSE */
+  function openMiniNative(url, title, bot) {   /* APK: нативное окно (как в Komet); иначе — iframe-оверлей */
+    if (!url) return;
+    try { if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) { window.AndroidMiniAppWin.open(String(url), String(title || ''), Number(bot) || 0); return; } } catch (e) { }
+    miniHost(url); appOverlay(url);
+  }
   function miniHost(url) {
     try { if (window.AndroidMiniApp && window.AndroidMiniApp.allowFrameHost) window.AndroidMiniApp.allowFrameHost(String(url)); } catch (e) { }
   }
@@ -201,12 +206,14 @@
     bc = new BroadcastChannel('mx-ui');
     bc.onmessage = function (e) {
       var d = e.data;
-      if (d && d.t === 'webapp') { miniHost(d.url); return; }   /* воркер выдал адрес мини-приложения (requestWebView) */
+      if (d && d.t === 'webapp') { miniHost(d.url); return; }
+      if (d && d.t === 'webapp-open') { openMiniNative(d.url, d.title, d.bot); return; }   /* кнопка бота / меню бота → нативное окно */   /* воркер выдал адрес мини-приложения (requestWebView) */
       if (!d || d.t !== 'res') return;
       var p = pend[d.id]; if (!p) return;
       delete pend[d.id]; clearTimeout(p.t);
       if (d.e) p.rej(new Error(d.e)); else p.res(d.r);
     };
+    if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) bc.postMessage({ t: 'cfg', native: true });   /* воркер: запуски мини-приложений отдавать нативному окну */
   } catch (e) { bc = null; }
   function rpc(m, a, ms) {
     return new Promise(function (res, rej) {
@@ -1581,8 +1588,10 @@
   /* Возврат из внешнего сценария (Цифровой ID и т.п.): APK перехватывает переход на адрес с externalCallback=1 (как web_app_screen.dart в Komet)
      и вызывает эту функцию. Дальше: opcode 105 -> opcode 160 -> окно мини-приложения перезагружается новым адресом. */
   /* «Сферум» и «Цифровой ID» — мини-приложения; их id приходят в конфиге входа (воркер: __mxNoteConfig), как в Komet (fetchSferum / fetchDigitalId) */
-  function launchMini(id, title) {   /* id → web-app-init → нативное окно (APK, как в Komet) или iframe-оверлей */
-    return jpost('/api/web-app-init', { botId: id }).then(function (r) {
+  function launchMini(id, title, extra) {   /* id → web-app-init → нативное окно (APK, как в Komet) или iframe-оверлей */
+    var body = { botId: id };
+    if (extra) { if (extra.startParam) body.startParam = extra.startParam; if (extra.chatId) body.chatId = extra.chatId; }
+    return jpost('/api/web-app-init', body).then(function (r) {
       if (!r || !r.url) throw new Error('сервер не вернул адрес приложения');
       if (window.AndroidMiniAppWin && window.AndroidMiniAppWin.open) { window.AndroidMiniAppWin.open(r.url, title, Number(id) || 0); return; }
       miniHost(r.url);
@@ -1593,6 +1602,7 @@
     var n = String(icon || '').split('?')[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
     return n || 'без названия';
   }
+  var DIGITAL_BOT = 632;   /* «Стикеры в MAX»: диалог 32375211 = id владельца 32375763 XOR 632 (скриншот владельца), start_param digitalid */
   function openEntryApp(key, title) {
     toast('Открываем «' + title + '»…');
     var KEY = 'mx_entry_apps';
@@ -1600,11 +1610,17 @@
       var saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (x) { }
       var cur = {}; if (e && e.sferum) cur.sferum = e.sferum; if (e && e.digital) cur.digital = e.digital;
       if (cur.sferum || cur.digital) { try { localStorage.setItem(KEY, JSON.stringify(Object.assign(saved, cur))); } catch (x) { } }   /* запоминаем: после перезапуска воркера конфиг приходит не сразу */
-      var id = cur[key] || saved[key];
+      var id = cur[key] || saved[key], extra = null;
+      if (!id && key === 'digital') {
+        /* баннера «Цифровой ID» в конфиге нет — запускаем так, как бот «Стикеры в MAX» по кнопке «Подключить Цифровой ID»:
+           web-app-init(бот 632, startParam 'digitalid', chatId = диалог с этим ботом = ваш id XOR 632) */
+        id = DIGITAL_BOT; extra = { startParam: 'digitalid' };
+        try { if (e && e.self) extra.chatId = Number(BigInt(e.self) ^ BigInt(DIGITAL_BOT)); } catch (x) { }
+      }
       if (!id) throw new Error(e && e.banners
         ? 'в конфиге аккаунта нет такого приложения. «Другие сервисы» покажут всё, что пришло'
         : 'конфиг ещё не получен, переподключитесь и попробуйте снова');
-      return launchMini(id, title);
+      return launchMini(id, title, extra);
     }).catch(function (e) { toast(title + ': ' + (e && e.message || e)); });
   }
   function appOverlay(url) {
