@@ -1483,6 +1483,29 @@
       try { if (window.AndroidInAppBrowser && window.AndroidInAppBrowser.open) { window.AndroidInAppBrowser.open(u); return; } } catch (e) { }
       window.open(u, '_blank', 'noopener');
     }
+    /* https://max.ru/<имя>?startapp[=параметр] → {name, link, startApp}; служебные маршруты (:auth, :share …) и прочие ссылки — null.
+       Как MaxLink._parseContent в Komet, но «?startapp» без значения тоже считаем ссылкой на приложение (так её присылает «Цифровой ID»). */
+    function maxWebAppLink(u) {
+      var x; try { x = new URL(u); } catch (e) { return null; }
+      if (!/^(www\.)?max\.ru$/i.test(x.hostname)) return null;
+      var seg = x.pathname.split('/').filter(Boolean);
+      if (seg.length !== 1 || !/^[A-Za-z0-9_.\-]{3,64}$/.test(seg[0])) return null;
+      if (!x.searchParams.has('startapp') && !x.searchParams.has('startApp')) return null;
+      var sp = x.searchParams.get('startapp') || x.searchParams.get('startApp') || '';
+      return { name: seg[0], link: 'https://max.ru/' + seg[0], startApp: sp.split('&')[0] };
+    }
+    /* /api/link-info (opcode 89) → id бота (контакт, либо диалог: id чата XOR id аккаунта) → web-app-init(startParam) → нативное окно */
+    function openMaxWebApp(wa) {
+      toast('Открываем «' + wa.name + '»…');
+      Promise.all([jpost('/api/link-info', { link: wa.link }), rpc('entryApps')]).then(function (r) {
+        var li = r[0] || {}, me = r[1] || {}, bot = li.contactId;
+        if (!bot && li.chatId && li.chatType === 'DIALOG' && me.self) { try { bot = Number(BigInt(li.chatId) ^ BigInt(me.self)); } catch (e) { } }
+        if (!bot) throw new Error('приложение не найдено');
+        var extra = { startParam: wa.startApp };
+        if (me.self) { try { extra.chatId = Number(BigInt(me.self) ^ BigInt(bot)); } catch (e) { } }
+        return launchMini(bot, wa.name, extra);
+      }).catch(function (e) { toast('«' + wa.name + '»: ' + (e && e.message || e)); });
+    }
     function vib(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) { } }
 
     var H = {
@@ -1500,6 +1523,12 @@
       web_app_open_max_link: function (src, type, n, d) {
         var u = safeUrl(d.url || d.path_full);
         if (!u) return;
+        var wa = maxWebAppLink(u);
+        if (wa) {   /* max.ru/<бот>?startapp — это приложение бота: открываем его у себя, а не страницу на сайте */
+          if (!ask('link', 'Мини-приложение хочет открыть приложение «' + wa.name + '».\n\nОткрыть?')) return;
+          openMaxWebApp(wa);
+          return;
+        }
         if (!ask('link', 'Мини-приложение хочет открыть ссылку:\n\n' + cut(u, 200) + '\n\nОткрыть?')) return;
         openInApp(u);
       },

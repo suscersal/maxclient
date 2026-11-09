@@ -5427,6 +5427,35 @@ def external_callback():
     return jsonify({"url": url})
 
 
+@app.route("/api/link-info", methods=["POST"])
+def link_info():
+    """Разрешение публичной ссылки max.ru/<имя> (opcode 89 LINK_INFO, как LinkModule.resolve в Komet): контакт (бот) или диалог.
+    Нужно, чтобы открыть мини-приложение бота по ссылке max.ru/<бот>?startapp, которую присылает само мини-приложение."""
+    data = request.get_json(force=True)
+    link = str(data.get("link") or "")
+    if not re.match(r"^https://max\.ru/[A-Za-z0-9_.\-]{3,64}$", link):
+        return jsonify({"error": "Некорректная ссылка"}), 400
+    try:
+        packet = fetch_once(89, {"link": link}, wait_opcode=89, timeout=15)
+    except Exception as e:
+        logger.warning(f"[link-info] failed: {e}")
+        return jsonify({"error": str(e)}), 500
+    if not packet:
+        return jsonify({"error": "Нет ответа от сервера"}), 502
+    payload = packet.get("payload")
+    if packet.get("cmd") != 256 or not isinstance(payload, dict):
+        msg = payload.get("localizedMessage") or payload.get("message") if isinstance(payload, dict) else None
+        return jsonify({"error": msg or "Не удалось открыть ссылку"}), 502
+    user = payload.get("user")
+    contact = user.get("contact") if isinstance(user, dict) else None
+    if isinstance(contact, dict) and isinstance(contact.get("id"), int):
+        return jsonify({"contactId": contact["id"]})
+    chat = payload.get("chat")
+    if isinstance(chat, dict) and isinstance(chat.get("id"), int):
+        return jsonify({"chatId": chat["id"], "chatType": chat.get("type")})
+    return jsonify({"error": "Приложение по ссылке не найдено"}), 404
+
+
 @app.route("/api/web-app-phone", methods=["POST"])
 def web_app_phone():
     """Номер телефона для мини-приложения (opcode 106 PHONE_WEBAPP_SHARE, как в Komet: webAppModule.requestPhone).
