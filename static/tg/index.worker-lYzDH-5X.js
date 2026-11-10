@@ -140,6 +140,10 @@ function __mxAddMsgs(key,msgs){
   return fresh}
 /* первый op 19 иногда остаётся без ответа, а повтор проходит сразу — повторяем сами (до 3 попыток) */
 /* Komet (account.dart _persistEntryBannerApps): config.server["settings-entry-banners"][].items[] {appid, icon}; «sferum»/«digital» в icon */
+/* Нативное окно мини-приложений доступно, если воркер живёт в WebView приложения (в User-Agent есть «; wv)»).
+   Сообщение {t:"cfg"} от главного потока может прийти раньше, чем воркер начнёт слушать канал (BroadcastChannel не буферизует),
+   поэтому по умолчанию решает User-Agent; явный {t:"cfg",native:…} его переопределяет. */
+function __mxNativeWin(){return __mx.nativeWin===undefined?/; wv\)/.test(String(typeof navigator!=="undefined"&&navigator.userAgent||"")):!!__mx.nativeWin}
 function __mxNoteConfig(p){try{
   var eb=p&&p.config&&p.config.server&&p.config.server["settings-entry-banners"];if(!Array.isArray(eb))return;
   var ea={},all=[];eb.forEach(function(b){((b&&b.items)||[]).forEach(function(it){
@@ -868,7 +872,7 @@ async function __mxBotCallback(e){
       var r0=await fetch("/api/web-app-init"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({botId:botId,startParam:btn.payload||btn.startParam||btn.start_param||undefined,chatId:k.chatId})});
       var j0=await r0.json().catch(function(){return{}});
       if(!r0.ok||!j0.url)return ans({message:j0.error||"Не удалось открыть мини-приложение"});
-      if(__mx.nativeWin&&typeof __mxBc!=="undefined"&&__mxBc){   /* APK: мини-приложение открывает нативное окно (cookie первой стороны, window.WebViewHandler), а не страница Web K */
+      if(__mxNativeWin()&&typeof __mxBc!=="undefined"&&__mxBc){   /* APK: мини-приложение открывает нативное окно (cookie первой стороны, window.WebViewHandler), а не страница Web K */
         __mxBc.postMessage({t:"webapp-open",url:j0.url,bot:botId,title:String(btn.text||"")});return ans({})}
       return ans({pFlags:{has_url:!0},url:j0.url})}
     if(type==="REQUEST_CONTACT"||type==="REQUEST_GEO_LOCATION")return ans({message:"Эта кнопка пока не поддерживается"});
@@ -927,7 +931,7 @@ function __mxWebView(method){return async function(e){
   try{r=await fetch("/api/web-app-init"+__mxAccQ,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});j=await r.json()}catch(er){j={error:String(er&&er.message||er)}}
   if(!r||!r.ok||!j.url){__mxLog("web-app-init не удался",method,j&&j.error);throw{code:400,type:"BOT_WEBVIEW_FAILED",description:String(j&&j.error||""),handled:!0,method:method}}
   __mxLog("web-app-init ok",method,"bot",uid);
-  if(__mx.nativeWin&&typeof __mxBc!=="undefined"&&__mxBc){
+  if(__mxNativeWin()&&typeof __mxBc!=="undefined"&&__mxBc){
     var bu=typeof Dd!=="undefined"?Dd.find(function(x){return x.id===uid}):null;
     __mxBc.postMessage({t:"webapp-open",url:j.url,bot:uid,title:String(bu&&bu.first_name||"")});
     throw{code:400,type:"MX_NATIVE_WINDOW",handled:!0,method:method}}   /* Web K (openWebApp) ошибку requestWebView не показывает — получается «тихий» запуск нативного окна */

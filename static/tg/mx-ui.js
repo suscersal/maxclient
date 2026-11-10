@@ -925,10 +925,18 @@
     document.addEventListener('click', function (e) {
       var a = e.target && e.target.closest && e.target.closest('a[href],[data-href],[data-url]');
       var u = a && (a.getAttribute('href') || a.getAttribute('data-href') || a.getAttribute('data-url'));
-      if (isDev(u)) { e.preventDefault(); e.stopPropagation(); open('sessions'); }
+      if (isDev(u)) { e.preventDefault(); e.stopPropagation(); open('sessions'); return; }
+      /* ссылка max.ru/<бот>?startapp в чате или на кнопке бота — приложение бота открываем у себя, а не страницей на сайте */
+      var wa = u && window.__mxAppLink && window.__mxAppLink(u);
+      if (wa) { e.preventDefault(); e.stopPropagation(); window.__mxOpenMaxApp(wa); }
     }, true);
     var wo = window.open;
-    window.open = function (u) { if (isDev(String(u))) { open('sessions'); return null; } return wo.apply(window, arguments); };
+    window.open = function (u) {
+      if (isDev(String(u))) { open('sessions'); return null; }
+      var wa = window.__mxAppLink && window.__mxAppLink(String(u));
+      if (wa) { window.__mxOpenMaxApp(wa); return null; }
+      return wo.apply(window, arguments);
+    };
   })();
 
   /* ------------------------------------------------------------ Функции клиента */
@@ -1611,6 +1619,7 @@
         else if (/^WebApp[A-Z]/.test(name) && !SILENT[name]) fail(src, name, n, d, 'unsupported_method');
       } catch (e) { fail(src, name, n, d, 'request_error'); }
     };
+    window.__mxAppLink = maxWebAppLink; window.__mxOpenMaxApp = openMaxWebApp;   /* для перехвата ссылок max.ru/<бот>?startapp в чате (см. выше) */
     window.addEventListener('message', onMessage, true);
     return { norm: norm, parse: parse, handlers: H };
   })();
