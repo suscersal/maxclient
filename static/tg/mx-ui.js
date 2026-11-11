@@ -1165,7 +1165,7 @@
     var stN = document.createElement('style'); stN.id = 'mxn-css'; stN.textContent = NAVCSS; document.head.appendChild(stN);
 
     var cur = 'chats', bar = null, btns = {};
-    function visible(el) { return !!(el && el.offsetParent !== null); }
+    function visible(el) { return !!(el && (el.offsetParent !== null || (el.getClientRects && el.getClientRects().length))); }   /* у position:fixed offsetParent = null */
     function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
     /* вернуться на список чатов: закрыть экраны MAX и вкладки сайдбара Web K */
     function toRoot() {
@@ -1178,16 +1178,30 @@
         return sleep(260).then(step);
       })();
     }
+    /* Бургер-меню Web K: пока грузятся чаты, кнопки меню может ещё не быть, а само меню открывается с анимацией — раньше ждали ровно 180 мс
+       и показывали «Не удалось открыть». Теперь ждём кнопку до ~3 с и пункт меню до ~1,5 с, при неудаче пробуем ещё раз. */
     function menuClick(re) {
-      var t = document.querySelector('#column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button');
-      if (!t) return Promise.resolve(false);
-      t.click();
-      return sleep(180).then(function () {
+      var tries = 0;
+      function find() {
         var items = [].slice.call(document.querySelectorAll('.btn-menu.active .btn-menu-item, .btn-menu.is-visible .btn-menu-item, .btn-menu .btn-menu-item')).filter(visible);
-        var it = items.filter(function (el) { return re.test(txt(el)); })[0];
-        if (it) { it.click(); return true; }
-        t.click(); return false;
-      });
+        return items.filter(function (el) { return re.test(txt(el)); })[0];
+      }
+      function attempt() {
+        var t = document.querySelector('#column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button');
+        if (!t) return tries++ < 20 ? sleep(150).then(attempt) : Promise.resolve(false);
+        t.click();
+        var n = 0;
+        return (function poll() {
+          return sleep(120).then(function () {
+            var it = find();
+            if (it) { it.click(); return true; }
+            if (n++ < 12) return poll();
+            t.click();   /* закрыть меню и попробовать всё заново */
+            return tries++ < 2 ? sleep(300).then(attempt) : false;
+          });
+        })();
+      }
+      return attempt();
     }
     function go(id) {
       if (id === 'profile') { set('profile'); open('profile'); return; }
@@ -1414,6 +1428,17 @@
     }, function () { /* нет сети — молча: обновление не критично */ });
   }
   setTimeout(checkUpdate, 6000);
+  /* Замеры запуска: смотрите строки «[start]» в отладочной консоли (Дополнительно → Отладка → «Кнопка отладочной консоли») вместе со строками «start:» / «sync:» воркера */
+  (function () {
+    try { console.log('[start] mx-ui загружен через', Math.round(performance.now()), 'мс от начала навигации'); } catch (e) { }
+    var mo = new MutationObserver(function () {
+      if (!document.querySelector('#column-left .chatlist-chat')) return;
+      mo.disconnect();
+      try { console.log('[start] первый чат в списке через', Math.round(performance.now()), 'мс от начала навигации'); } catch (e) { }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function () { mo.disconnect(); }, 120000);
+  })();
   ensureCalls().catch(function () { });   /* входящие звонки нужны, даже если профиль не открывали */
   /* ------------------------------------------------------------ мост мини-приложений MAX (по Komet: lib/frontend/screens/webapp/web_app_bridge.dart)
      Web K сам понимает события в стиле Telegram (web_app_ready, device/secure storage, biometry …). Здесь — то, что у MAX по-своему:
@@ -1425,7 +1450,9 @@
     /* slug'и кодов ошибок — как _methodSlugs в Komet; для всего остального — unsupported_method */
     var SLUG = { request_phone: 'request_phone', open_max_link: 'open_max_link', share: 'web_app_share', max_share: 'web_app_max_share', download_file: 'download_file',
       open_code_reader: 'open_code_reader', change_screen_brightness: 'change_screen_brightness', nfc_emulate_nfc_tag: 'nfc_emulate_nfc_tag',
-      nfc_open_system_settings: 'nfc_open_system_settings', verify_mobile_id: 'verify_mobile_id', get_launch_context: 'launch_context', get_viewport_size: 'get_viewport_size' };
+      nfc_open_system_settings: 'nfc_open_system_settings', verify_mobile_id: 'verify_mobile_id', get_launch_context: 'launch_context', get_viewport_size: 'get_viewport_size',
+      device_storage_save_key: 'device_storage_save_key', device_storage_get_key: 'device_storage_get_key', device_storage_clear: 'device_storage_clear',
+      secure_storage_save_key: 'secure_storage_save_key', secure_storage_get_key: 'secure_storage_get_key', secure_storage_clear: 'secure_storage_clear' };
     var SILENT = { WebAppReady: 1, WebAppStat: 1, WebAppUrlInterceptor: 1, WebAppBackButtonPressed: 1 };
     var deny = {};
 
@@ -1605,6 +1632,38 @@
       if (/^WebApp[A-Z]/.test(m.type) && !SILENT[m.type]) fail(ev.source, m.type, n, m.data, 'unsupported_method');
     }
     /* Нативное окно мини-приложения (MiniAppWindow.kt): WebViewHandler.postEvent приходит сюда; ответы идут через AndroidMiniAppWin.deliver. */
+    /* Хранилища мини-приложений (WebApp{Device,Secure}Storage{SaveKey,GetKey,Clear}) — только для нативного окна: в iframe Web K у этих имён
+       своя (Telegram) семантика. Как в Komet: localStorage на бота, лимит ключей 512 (device) / 128 (secure), null = удалить. */
+    var HN = {};
+    function waStore(src, backend) {
+      var k = 'mx_wa_' + backend + '_' + (src.__botId || 0), o = {};
+      try { o = JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (e) { }
+      return { o: o, save: function () { try { localStorage.setItem(k, JSON.stringify(o)); return true; } catch (e) { return false; } } };
+    }
+    ['device', 'secure'].forEach(function (be) {
+      var limit = be === 'secure' ? 128 : 512;
+      HN['web_app_' + be + '_storage_save_key'] = function (src, type, n, d) {
+        var key = d.key != null ? String(d.key) : '';
+        if (!key) return fail(src, type, n, d, 'invalid_request');
+        var st = waStore(src, be);
+        if (d.value == null) { delete st.o[key]; st.save(); return ok(src, type, d, 'removed'); }
+        if (!(key in st.o) && Object.keys(st.o).length >= limit) return fail(src, type, n, d, 'too_many_keys');
+        st.o[key] = String(d.value);
+        if (!st.save()) return fail(src, type, n, d, 'too_many_keys');
+        ok(src, type, d, 'updated');
+      };
+      HN['web_app_' + be + '_storage_get_key'] = function (src, type, n, d) {
+        var key = d.key != null ? String(d.key) : '';
+        if (!key) return fail(src, type, n, d, 'invalid_request');
+        var st = waStore(src, be);
+        if (!(key in st.o)) return fail(src, type, n, d, 'not_found');
+        var o = { key: key, value: st.o[key] }; if (rid(d)) o.requestId = rid(d); reply(src, type, o);
+      };
+      HN['web_app_' + be + '_storage_clear'] = function (src, type, n, d) {
+        var st = waStore(src, be); st.o = {}; try { localStorage.removeItem('mx_wa_' + be + '_' + (src.__botId || 0)); } catch (e) { }
+        ok(src, type, d, 'cleared');
+      };
+    });
     window.__mxWinEvent = function (winId, name, raw, botId) {
       var d = {}; try { d = JSON.parse(raw || '{}') || {}; } catch (e) { }
       var src = {
@@ -1613,7 +1672,7 @@
           try { var m = JSON.parse(json); window.AndroidMiniAppWin.deliver(winId, m.eventType, JSON.stringify(m.eventData || {})); } catch (e) { }
         }
       };
-      var n = norm(name), h = H[n];
+      var n = norm(name), h = H[n] || HN[n];
       try {
         if (h) h(src, name, n, d);
         else if (/^WebApp[A-Z]/.test(name) && !SILENT[name]) fail(src, name, n, d, 'unsupported_method');

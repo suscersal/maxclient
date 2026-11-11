@@ -221,7 +221,8 @@ try{(p.chats||[]).forEach(function(c){if(c&&c.baseIconUrl)__mx.iconOf[Math.abs(N
 function __mxSync(){
   if(__mx.syncP)return __mx.syncP;
   var t0=Date.now();
-  __mx.syncP=Promise.all([__mxSnapGet(),__mxDelLoad()]).then(function(r){
+  __mxLog("start: sync начат");
+  __mx.syncP=Promise.all([__mxSnapGet().then(function(v){__mxLog("start: снимок прочитан за",Date.now()-t0,"мс; чатов",v&&v.p&&v.p.chats?v.p.chats.length:0,"; возраст, мин",v&&v.t?Math.round((Date.now()-v.t)/6e4):"-");return v}),__mxDelLoad().then(function(){__mxLog("start: хранилища удалённых сообщений загружены за",Date.now()-t0,"мс")})]).then(function(r){
     var snap=r[0],sp=snap&&snap.p&&Array.isArray(snap.p.chats)&&snap.p.chats.length&&Date.now()-(snap.t||0)<12096e5?snap.p:null;
     if(sp){
       __mxMetaFrom(sp);

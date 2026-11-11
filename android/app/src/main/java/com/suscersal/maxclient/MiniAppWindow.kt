@@ -25,6 +25,9 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 
 /**
@@ -47,6 +50,9 @@ class AndroidMiniAppWinBridge(private val activity: Activity, private val toMain
     private var backVisible = false
     private var needConfirm = false
     private val diag = ArrayList<String>()
+    private var appTitle = ""
+    private val bioPrefs by lazy { activity.getSharedPreferences("miniapp_bio", Context.MODE_PRIVATE) }
+    private val bioMode = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
 
     @JavascriptInterface
     fun isOpen(): Boolean = dialog != null
@@ -88,6 +94,119 @@ class AndroidMiniAppWinBridge(private val activity: Activity, private val toMain
     @JavascriptInterface
     fun close() {
         activity.runOnUiThread { dismissInternal() }
+    }
+
+    // ---- Биометрия мини-приложений (WebAppBiometry*, как в Komet web_app_bridge.dart), но с настоящей проверкой ----
+    // Komet выдаёт токен без проверки пальца; здесь вход идёт через BiometricPrompt, а доступ приложению — после явного разрешения.
+    // Токен — случайный секрет, хранится на устройстве отдельно для каждого бота (SharedPreferences, MODE_PRIVATE).
+    private fun bioKey(k: String): String = "b" + botId + "." + k
+
+    private fun bioAvailable(): Boolean =
+        try { BiometricManager.from(activity).canAuthenticate(bioMode) == BiometricManager.BIOMETRIC_SUCCESS } catch (e: Exception) { false }
+
+    private fun deviceId(): String {
+        var id = bioPrefs.getString("device_id", null)
+        if (id == null) {
+            id = java.util.UUID.randomUUID().toString()
+            bioPrefs.edit().putString("device_id", id).apply()
+        }
+        return id
+    }
+
+    private fun reqId(data: String?): String? =
+        try {
+            val o = JSONObject(data ?: "{}")
+            if (o.has("requestId")) o.get("requestId").toString() else null
+        } catch (e: Exception) {
+            null
+        }
+
+    private fun replyOk(name: String, rid: String?, o: JSONObject) {
+        if (rid != null) o.put("requestId", rid)
+        deliverToPage(name, o.toString())
+    }
+
+    private fun replyFail(name: String, rid: String?, slug: String, reason: String) {
+        if (rid == null) return
+        val e = JSONObject().put("code", "client." + slug + "." + reason)
+        deliverToPage(name, JSONObject().put("requestId", rid).put("error", e).toString())
+    }
+
+    private fun bioInfo(name: String, rid: String?) {
+        val o = JSONObject()
+        val avail = bioAvailable()
+        o.put("available", avail)
+        o.put("deviceId", deviceId())
+        if (avail) {
+            o.put("type", org.json.JSONArray().put("unknown"))
+            o.put("accessRequested", bioPrefs.getBoolean(bioKey("requested"), false))
+            o.put("accessGranted", bioPrefs.getBoolean(bioKey("granted"), false))
+            o.put("tokenSaved", bioPrefs.getString(bioKey("token"), null) != null)
+        }
+        replyOk(name, rid, o)
+    }
+
+    private fun bioAuth(name: String, rid: String?) {
+        val slug = if (name == "WebAppBiometryRequestAccess") "biometry_request_access" else "biometry_request_auth"
+        val fa = activity as? androidx.fragment.app.FragmentActivity
+        if (fa == null || !bioAvailable()) {
+            replyFail(name, rid, slug, "access_denied")
+            return
+        }
+        val authenticate = {
+            val prompt = BiometricPrompt(fa, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    var token = bioPrefs.getString(bioKey("token"), null)
+                    if (token == null) {
+                        val b = ByteArray(32)
+                        java.security.SecureRandom().nextBytes(b)
+                        token = b.joinToString("") { "%02x".format(it) }
+                    }
+                    bioPrefs.edit()
+                        .putString(bioKey("token"), token)
+                        .putBoolean(bioKey("requested"), true)
+                        .putBoolean(bioKey("granted"), true)
+                        .apply()
+                    replyOk(name, rid, JSONObject().put("token", token).put("status", "authorized").put("granted", true).put("accessGranted", true))
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    replyFail(name, rid, slug, "access_denied")
+                }
+            })
+            val info = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Подтвердите вход")
+                .setSubtitle(appTitle)
+                .setAllowedAuthenticators(bioMode)
+                .setNegativeButtonText("Отмена")
+                .build()
+            prompt.authenticate(info)
+        }
+        if (bioPrefs.getBoolean(bioKey("granted"), false)) {
+            authenticate()
+        } else {
+            AlertDialog.Builder(activity)
+                .setMessage("Разрешить приложению «" + appTitle + "» использовать биометрию?")
+                .setPositiveButton("Разрешить") { _, _ -> authenticate() }
+                .setNegativeButton("Запретить") { _, _ -> replyFail(name, rid, slug, "access_denied") }
+                .setOnCancelListener { replyFail(name, rid, slug, "access_denied") }
+                .show()
+        }
+    }
+
+    private fun bioUpdateToken(name: String, rid: String?, data: String?) {
+        val token = try { JSONObject(data ?: "{}").optString("token", "") } catch (e: Exception) { "" }
+        if (token.isEmpty()) {
+            bioPrefs.edit().remove(bioKey("token")).apply()
+            replyOk(name, rid, JSONObject().put("status", "removed"))
+            return
+        }
+        if (token.length > 1024) {
+            replyFail(name, rid, "biometry_update_token", "too_large")
+            return
+        }
+        bioPrefs.edit().putString(bioKey("token"), token).apply()
+        replyOk(name, rid, JSONObject().put("status", "updated"))
     }
 
     private fun isHttps(url: String): Boolean = Uri.parse(url).scheme?.lowercase() == "https"
@@ -156,6 +275,7 @@ class AndroidMiniAppWinBridge(private val activity: Activity, private val toMain
         synchronized(diag) { diag.clear() }
         val id = winId
         log("открываю " + (Uri.parse(url).host ?: "") + " (bot " + bot + ")")
+        appTitle = if (title.isNotEmpty()) title else (Uri.parse(url).host ?: "")
 
         val d = Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar)
         val root = LinearLayout(activity)
@@ -286,6 +406,10 @@ class AndroidMiniAppWinBridge(private val activity: Activity, private val toMain
                 "WebAppClose" -> activity.runOnUiThread { dismissInternal() }
                 "WebAppSetupBackButton" -> backVisible = flag(data, "isVisible")
                 "WebAppSetupClosingBehavior" -> needConfirm = flag(data, "needConfirmation")
+                "WebAppBiometryGetInfo" -> { val rid = reqId(data); activity.runOnUiThread { bioInfo(name, rid) } }
+                "WebAppBiometryRequestAccess", "WebAppBiometryRequestAuth" -> { val rid = reqId(data); activity.runOnUiThread { bioAuth(name, rid) } }
+                "WebAppBiometryUpdateToken" -> { val rid = reqId(data); activity.runOnUiThread { bioUpdateToken(name, rid, data) } }
+                "WebAppBiometryOpenSettings" -> { val rid = reqId(data); activity.runOnUiThread { replyOk(name, rid, JSONObject().put("status", "opened")) } }
                 "WebAppReady", "WebAppStat", "WebAppUrlInterceptor" -> {}
                 else -> toMain(
                     "window.__mxWinEvent&&window.__mxWinEvent(" + id + "," + JSONObject.quote(name) + "," +
