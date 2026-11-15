@@ -915,10 +915,11 @@ __mxM["messages.deleteMessages"]=async function(e){
     g.mx.forEach(function(m){__mx.selfDel[m]=1});
     try{await __mxCall(66,{messageIds:g.mx,chatId:g.cid,forMe:forMe,itemType:"REGULAR"})}
     catch(err){__mxLog("delete failed",err&&err.message||err);g.mx.forEach(function(m){delete __mx.selfDel[m]});throw{code:400,type:"MESSAGE_DELETE_FORBIDDEN",handled:!0,method:"messages.deleteMessages"}}
-    try{__mxDeletePush({chatId:g.cid,messageIds:g.mx})}catch(x){__mxLog("own delete keep",x&&x.message||x)}
-    jd[g.key]=(jd[g.key]||[]).filter(function(x){return g.tg.indexOf(x.id)<0})}
+    try{__mxDeletePush({chatId:g.cid,messageIds:g.mx})}catch(x){__mxLog("own delete keep",x&&x.message||x)}}
   __mxLog("delete ok",ids.length,forMe?"(у меня)":"(у всех)");
-  return{_:"messages.affectedMessages",pts:++xd,pts_count:ids.length}};
+  /* после успешного ответа Web K сам стирает пузырь, а вернуть его в ленту нечем. Отвечаем «отказом»: сообщение на сервере уже удалено,
+     а в клиенте остаётся на месте с пометкой «🗑 Удалено» (её уже отправил __mxDeletePush). В консоли будет «unhandled: MESSAGE_KEPT_LOCALLY» — так задумано. */
+  throw{code:400,type:"MESSAGE_KEPT_LOCALLY",handled:!0,method:"messages.deleteMessages"}};
 __mxM["messages.getBotCallbackAnswer"]=__mxBotCallback;
 __mxM["messages.startBot"]=__mxStartBot;
 
