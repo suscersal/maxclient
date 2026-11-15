@@ -920,6 +920,55 @@
       pg.body.appendChild(hint('Названия взяты из файлов иконок. Приложение открывается так же, как «Сферум».'));
     }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(errBox(e)); });
   };
+  /* ссылка max.ru/join/<токен> в чате: вместо открытия сайта — своё меню «Вступить / Не вступать» (op 89 → сведения, op 57 → вступление) */
+  (function () {
+    var st = document.createElement('style'); st.id = 'mxu-join';
+    st.textContent = '.mxu-jov{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}' +
+      '.mxu-jbox{background:var(--surface-color,#fff);color:var(--primary-text-color,#000);border-radius:14px;max-width:340px;width:100%;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.35);font:15px/1.4 system-ui,sans-serif}' +
+      '.mxu-jt{font-size:18px;font-weight:600;margin:0 0 4px;word-break:break-word}' +
+      '.mxu-js{color:var(--secondary-text-color,#707579);font-size:13px;margin:0 0 10px}' +
+      '.mxu-ja{font-size:14px;margin:0 0 14px;max-height:30vh;overflow:auto;white-space:pre-wrap;word-break:break-word}' +
+      '.mxu-jb{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}' +
+      '.mxu-jb button{border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer;background:transparent;color:var(--primary-color,#3390ec)}' +
+      '.mxu-jb button.mxu-jp{background:var(--primary-color,#3390ec);color:#fff}' +
+      '.mxu-jb button[disabled]{opacity:.6}';
+    document.head.appendChild(st);
+    function joinLinkOf(u) {
+      var x; try { x = new URL(String(u || ''), 'https://max.ru'); } catch (e) { return null; }
+      if (!/^(www\.)?max\.ru$/i.test(x.hostname)) return null;
+      var m = x.pathname.match(/^\/join\/([A-Za-z0-9_\-]{8,})\/?$/);
+      return m ? 'https://max.ru/join/' + m[1] : null;
+    }
+    var busy = false;
+    function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+    function dlg(link, d) {
+      var ov = el('div', 'mxu-jov'), box = el('div', 'mxu-jbox');
+      function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+      var kind = d.type === 'CHANNEL' ? 'Канал' : d.type === 'CHAT' ? 'Группа' : 'Чат';
+      box.appendChild(el('div', 'mxu-jt', d.title || 'Чат'));
+      box.appendChild(el('div', 'mxu-js', kind + (d.count ? ' · участников: ' + d.count : '') + (d.member ? ' · вы уже здесь' : '')));
+      if (d.about) box.appendChild(el('div', 'mxu-ja', d.about));
+      var bar = el('div', 'mxu-jb'), no = el('button', '', d.member ? 'Закрыть' : 'Не вступать'), yes = el('button', 'mxu-jp', d.member ? 'Открыть' : 'Вступить');
+      no.onclick = close;
+      yes.onclick = function () {
+        if (d.member) { close(); try { if (d.tgId != null) location.hash = '#-' + d.tgId; } catch (e) { } return; }
+        yes.disabled = no.disabled = true; yes.textContent = 'Вступаем…';
+        rpc('inviteJoin', { link: link }, 30000).then(function (r) {
+          close(); toast('Вы вступили: ' + (r && r.title || 'чат'));
+          try { if (r && r.tgId != null) location.hash = '#-' + r.tgId; } catch (e) { }
+        }, function (e) { yes.disabled = no.disabled = false; yes.textContent = 'Вступить'; toast('Не удалось вступить: ' + (e && e.message || e)); });
+      };
+      bar.appendChild(no); bar.appendChild(yes); box.appendChild(bar); ov.appendChild(box);
+      ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+      document.body.appendChild(ov);
+    }
+    window.__mxJoinLink = joinLinkOf;
+    window.__mxJoinPrompt = function (link) {
+      if (busy) return; busy = true; toast('Проверяем ссылку…');
+      rpc('inviteInfo', { link: link }, 20000).then(function (d) { busy = false; dlg(link, d || {}); },
+        function (e) { busy = false; toast('Ссылка не открылась: ' + (e && e.message || e)); });
+    };
+  })();
   /* ссылка из служебного сообщения «Новый вход» (max.ru/:settings/devices) открывает наш экран, а не сайт */
   (function () {
     function isDev(u) { return /max\.ru\/:settings\/devices/i.test(u || ''); }
@@ -929,13 +978,17 @@
       if (isDev(u)) { e.preventDefault(); e.stopPropagation(); open('sessions'); return; }
       /* ссылка max.ru/<бот>?startapp в чате или на кнопке бота — приложение бота открываем у себя, а не страницей на сайте */
       var wa = u && window.__mxAppLink && window.__mxAppLink(u);
-      if (wa) { e.preventDefault(); e.stopPropagation(); window.__mxOpenMaxApp(wa); }
+      if (wa) { e.preventDefault(); e.stopPropagation(); window.__mxOpenMaxApp(wa); return; }
+      var jl = u && window.__mxJoinLink && window.__mxJoinLink(u);
+      if (jl) { e.preventDefault(); e.stopPropagation(); window.__mxJoinPrompt(jl); }
     }, true);
     var wo = window.open;
     window.open = function (u) {
       if (isDev(String(u))) { open('sessions'); return null; }
       var wa = window.__mxAppLink && window.__mxAppLink(String(u));
       if (wa) { window.__mxOpenMaxApp(wa); return null; }
+      var jl = window.__mxJoinLink && window.__mxJoinLink(String(u));
+      if (jl) { window.__mxJoinPrompt(jl); return null; }
       return wo.apply(window, arguments);
     };
   })();
@@ -1018,7 +1071,10 @@
     function scan() {
       pend = false;
       [].forEach.call(document.querySelectorAll('.bubble:not(.mx-del) .message'), function (m) {
-        if (m.textContent.indexOf('🗑 Удалено') !== -1) { var b = m.closest('.bubble'); if (b) b.classList.add('mx-del'); }
+        /* эмодзи в Web K — картинка без текста, поэтому «🗑» в textContent нет: ищем ещё и слово «Удалено» в курсиве */
+        var hit = m.textContent.indexOf('🗑 Удалено') !== -1;
+        if (!hit) { var it = m.querySelectorAll('i'); for (var k = 0; k < it.length; k++) { if (/(^|\s)Удалено$/.test(it[k].textContent.trim())) { hit = true; break; } } }
+        if (hit) { var b = m.closest('.bubble'); if (b) b.classList.add('mx-del'); }
       });
     }
     new MutationObserver(function () { if (!pend) { pend = true; requestAnimationFrame(scan); } })

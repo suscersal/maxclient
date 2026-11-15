@@ -64,7 +64,7 @@ function __mxCall(op,payload){
   return new Promise(function(res,rej){
     /* приоритеты: 0 — отправка (op 64), 1 — обычные (история, истории-сторис, счётчики), 2 — фоновые (стикеры 26/27/28/29/259).
        Раньше пачка последовательных запросов стикеров стояла в FIFO перед загрузкой истории чата и лент историй. */
-    var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259||(op===48&&payload&&payload.chatIds&&payload.chatIds.length>1)?2:1);
+    var pr=op===64?0:(op===26||op===27||op===28||op===29||op===259||op===208||op===210||(op===48&&payload&&payload.chatIds&&payload.chatIds.length>1)?2:1);
     var job={op:op,payload:payload,res:res,rej:rej,p:pr,t:Date.now()},q=__mx.qs||(__mx.qs=[]),i=0;if(pr<2)__mx.lastNormal=Date.now();
     while(i<q.length&&q[i].p<=pr)i++;q.splice(i,0,job);
     __mxPump()})}
@@ -1411,6 +1411,18 @@ function __mxUiProf(c,id){
 async function __mxUiRpc(m,a){
   await __mxSync();
   if(m==="entryApps"){var r0=Object.assign({},__mx.entryApps||{});r0.banners=__mx.entryBanners||null;r0.self=__mx.self;return r0}
+  if(m==="inviteInfo"){
+    try{var ri=await __mxCall(89,{link:String(a.link||"")}),ci=ri&&(ri.chat||(ri.chats&&ri.chats[0]));
+      if(!ci)throw new Error("чат по ссылке не найден");
+      return{title:String(ci.title||"Чат"),about:String(ci.description||""),count:ci.participantsCount||0,type:String(ci.type||""),member:ci.id!=null&&__mx.chatKey[ci.id]!=null,tgId:ci.id!=null&&__mx.chatKey[ci.id]!=null?Math.abs(Number(ci.id)):null}}
+    catch(er){throw new Error((er&&(er.localizedMessage||er.message||er.error))||String(er))}}
+  if(m==="inviteJoin"){
+    try{var rj=await __mxCall(57,{link:String(a.link||"")}),cj=rj&&rj.chat;
+      if(!cj||typeof cj.id!=="number")throw new Error("не удалось вступить");
+      var cco=__mxChatObj(cj),ckey="c"+cco.id;__mxReg(ckey,cj.id);if(!jd[ckey])jd[ckey]=[];
+      if(!Od.some(function(x){return x.id===cco.id}))Od.push(cco);
+      __mxPublish([],[cco]);return{title:String(cj.title||"Чат"),tgId:cco.id}}
+    catch(er){throw new Error((er&&(er.localizedMessage||er.message||er.error))||String(er))}}
   if(m==="me"){var sid=__mx.self;return __mxUiProf(__mx.contacts[sid],sid)}
   if(m==="contact"){
     var id=String(a.id);if(Number(id)===100)return __mxUiRpc("me",{});
