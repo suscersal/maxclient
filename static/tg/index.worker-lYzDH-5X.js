@@ -51,7 +51,7 @@ function __mxConnect(){
       if(d.type==="auth_required"||d._auth_error){try{__mxSnapDel()}catch(e){}rej(new Error("auth"));return}
       if(d.error&&d.offline&&!d.opcode){rej(new Error(d.details||"offline"));return}
       if(d.seq!=null&&(d.cmd===256||d.cmd===768)){var p=__mx.pend.get(d.seq);if(p){__mx.pend.delete(d.seq);d.cmd===256?p.res(d.payload):p.rej(d.payload||new Error("err"));return}}
-      if(d.opcode===128&&d.payload)__mxPush(d.payload);if(d.opcode===155&&d.payload)__mxReactionPush(d.payload);if(d.opcode===132&&d.payload)__mxPresPush(d.payload);if(d.opcode===216)__mxStoriesPush();if((d.opcode===142||d.opcode===140)&&d.payload)__mxDeletePush(d.payload)};
+      if(d.opcode===128&&d.payload)__mxPush(d.payload);if(d.opcode===155&&d.payload)__mxReactionPush(d.payload);if(d.opcode===132&&d.payload)__mxPresPush(d.payload);if(d.opcode===216)__mxStoriesPush();if(d.opcode===142||d.opcode===140){try{__mxLog("deleted: пуш",d.opcode,"поля:",d.payload?Object.keys(d.payload).join(","):"нет payload")}catch(x){}if(d.payload)__mxDeletePush(d.payload)}};
     setTimeout(function(){rej(new Error("timeout"))},20000)});
   __mx.ready.catch(function(){__mx.ready=null});
   return __mx.ready}
@@ -907,6 +907,7 @@ __mxM["messages.deleteMessages"]=async function(e){
     g.mx.forEach(function(m){__mx.selfDel[m]=1});
     try{await __mxCall(66,{messageIds:g.mx,chatId:g.cid,forMe:forMe,itemType:"REGULAR"})}
     catch(err){__mxLog("delete failed",err&&err.message||err);g.mx.forEach(function(m){delete __mx.selfDel[m]});throw{code:400,type:"MESSAGE_DELETE_FORBIDDEN",handled:!0,method:"messages.deleteMessages"}}
+    try{__mxDeletePush({chatId:g.cid,messageIds:g.mx})}catch(x){__mxLog("own delete keep",x&&x.message||x)}
     jd[g.key]=(jd[g.key]||[]).filter(function(x){return g.tg.indexOf(x.id)<0})}
   __mxLog("delete ok",ids.length,forMe?"(у меня)":"(у всех)");
   return{_:"messages.affectedMessages",pts:++xd,pts_count:ids.length}};
@@ -1181,8 +1182,9 @@ function __mxDelRawSave(){clearTimeout(__mx.drT);__mx.drT=setTimeout(function(){
 /* что осталось от удалённого сообщения: его сырое тело и (по возможности) байты вложений */
 function __mxDeletePush(pl){
   var cid=pl.chatId!=null?pl.chatId:(pl.chat&&pl.chat.id),key=cid!=null?__mx.chatKey[cid]:null;
+  try{var _i=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String);__mxLog("deleted: разбор, чат",cid,"ключ",key||"нет","id",_i.length,"selfDel",_i.filter(function(i){return __mx.selfDel[i]}).length,"в кэше",_i.filter(function(i){var p=__mx.raw[String(cid)];return p&&p[i]}).length,"в ленте",_i.filter(function(i){return __mx.tgIdOf[i]!=null}).length)}catch(x){}
   if(!key){__mxLog("deleted: чат",cid,"неизвестен воркеру — пропуск");return}
-  var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String).filter(function(i){return !__mx.selfDel[i]});if(!ids.length)return;
+  var ids=(pl.messageIds||(pl.messageId!=null?[pl.messageId]:[])).map(String);if(!ids.length)return;
   var cs=String(cid),set=__mx.del[cs]||(__mx.del[cs]={}),ups=[];ids.forEach(function(i){set[i]=1});__mxDelSave();
   ids.forEach(function(mid){var tg=__mx.tgIdOf[mid];if(tg==null)return;var o=(jd[key]||[]).filter(function(x){return x.id===tg})[0];if(o&&__mxDelMark(o))ups.push(o)});
   ups.forEach(function(o){Vd({_:"updateEditMessage",message:o,pts:++xd,pts_count:1})});
