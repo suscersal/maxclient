@@ -536,7 +536,15 @@ async function __mxGetMedia(a){
       err="http "+res.status;if(thumb)break
     }catch(e){err=String(e&&e.message||e)}}
   if(thumb&&rec.attach.previewData)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:__mxHex(rec.attach.previewData)};
-  __mxLog("media http failed",rec.kind,err);throw{code:400,type:"LOCATION_INVALID",handled:!0}}
+  __mxLog("media http failed",rec.kind,err);try{__mxMediaHint(rec,err,thumb)}catch(x){}throw{code:400,type:"LOCATION_INVALID",handled:!0}}
+/* понятное сообщение, когда сервер MAX не отдал файл. VPN определить нельзя — только подсказка по коду ответа; не чаще раза в 20 с */
+function __mxMediaHint(rec,err,thumb){
+  if(thumb||!err||/not video/.test(String(err)))return;
+  var now=Date.now();if(now-(__mx.mhT||0)<2e4)return;__mx.mhT=now;
+  var m=String(err),msg;
+  if(m==="http 416")msg="Сервер MAX не отдаёт файл (416): обычно это значит, что он удалён или пуст.";
+  else msg="Сервер MAX не отдал файл ("+m+"). Если включён VPN, попробуйте отключить его и повторить.";
+  try{if(typeof __mxBc!=="undefined"&&__mxBc)__mxBc.postMessage({t:"toast",msg:msg})}catch(x){}}
 /* Приоритет обычным сообщениям: полноразмерные стикеры не стартуют, пока идут/стоят в очереди обычные запросы
    (чаты, история, истории-сторис), максимум 4 с ожидания; одновременно не больше 3 стикеров. Превью (thumb) — без ожидания. */
 var __mxSg={act:0,w:[]};
@@ -965,7 +973,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-11-15-r21")}catch(e){}
+try{__mxLog("worker build 2026-11-15-r22")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};

@@ -206,6 +206,7 @@
     bc = new BroadcastChannel('mx-ui');
     bc.onmessage = function (e) {
       var d = e.data;
+      if (d && d.t === 'toast') { toast(d.msg); return; }   /* воркер: понятная причина сбоя загрузки файла */
       if (d && d.t === 'webapp') { miniHost(d.url); return; }
       if (d && d.t === 'webapp-open') { openMiniNative(d.url, d.title, d.bot); return; }   /* кнопка бота / меню бота → нативное окно */   /* воркер выдал адрес мини-приложения (requestWebView) */
       if (!d || d.t !== 'res') return;
