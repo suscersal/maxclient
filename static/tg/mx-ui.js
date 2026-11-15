@@ -265,6 +265,7 @@
   function layerPush(close, isPage) { var L = { close: close, page: !!isPage }; layers.push(L); syncSent(); return L; }
   function layerRelease(L) { var i = layers.indexOf(L); if (i >= 0) layers.splice(i, 1); syncSent(); }
   window.addEventListener('popstate', function (e) {
+    if (window.__mxNavTrace) window.__mxNavTrace('popstate idx=' + navIdx() + ' sent=' + sent + ' sentIdx=' + sentIdx + ' skipPop=' + (skipPop !== null) + ' слоёв=' + layers.length + ' чужой back ' + (foreign ? (Date.now() - foreign) + ' мс назад' : 'нет'));
     if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); flushAfterSkip(); return; }
     if (!sent) return;
     var idx = navIdx();
@@ -1325,6 +1326,13 @@
      Касания и свайпы внутри самого Web K (чаты, шторки) отсюда не проверяются. */
   function navSelfTest() {
     if (navSelfTest.running) return; navSelfTest.running = true;
+    /* трасса: кто и когда трогает историю (pushState/replaceState/back/go, события Navigation API, popstate) — идёт в конец отчёта */
+    var trace = [], t00 = Date.now(), restore = [];
+    function tr(s) { if (trace.length < 160) trace.push('+' + (Date.now() - t00) + ' ' + s); }
+    function who() { try { return (new Error().stack || '').split('\n').slice(3, 5).map(function (x) { return x.trim().replace(/\(?https?:\/\/[^\/]+\//, '(').slice(0, 80); }).join(' < '); } catch (e) { return '?'; } }
+    window.__mxNavTrace = tr;
+    ['pushState', 'replaceState', 'back', 'go'].forEach(function (m) { var o = history[m]; history[m] = function () { tr('history.' + m + '(' + [].slice.call(arguments).filter(function (a) { return typeof a === 'number'; }).join() + ') ← ' + who()); return o.apply(history, arguments); }; restore.push(function () { history[m] = o; }); });
+    try { if (window.navigation && navigation.addEventListener) { var nvF = function (e) { tr('navigate ' + e.navigationType + ' → idx ' + (e.destination && e.destination.index) + (e.userInitiated ? ' (польз.)' : '')); }; navigation.addEventListener('navigate', nvF); restore.push(function () { navigation.removeEventListener('navigate', nvF); }); } } catch (e) { }
     var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features', 'entryApps'];
     var res = [], base = null;
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -1333,9 +1341,10 @@
     function check(name, got, want) {
       var bad = Object.keys(want).filter(function (k) { return want[k] !== undefined && got[k] !== want[k]; })
         .map(function (k) { return k + ': ожидали ' + want[k] + ', стало ' + got[k]; });
+      tr('— проверка «' + name + '»: idx=' + got.idx + ' слоёв=' + got.layers + (bad.length ? ' ✘' : ''));
       rec(name, !bad.length, bad.join('; '));
     }
-    function sysBack() { try { ownBack(); } catch (e) { } }
+    function sysBack() { tr('— sysBack: idx=' + navIdx() + ' слоёв=' + layers.length); try { ownBack(); } catch (e) { } }
     function nx(d) { return base.idx == null ? undefined : base.idx + d; }
     var steps = [];
     steps.push(function () {
@@ -1402,9 +1411,11 @@
       .then(function () { closeAll(); return wait(400); })
       .then(function () {
         navSelfTest.running = false;
+        restore.forEach(function (f) { try { f(); } catch (e) { } }); window.__mxNavTrace = null;
         var okN = res.filter(function (r) { return r.ok; }).length;
         var text = 'Проверка навигации: ' + okN + '/' + res.length + ' ок (Navigation API: ' + (navIdx() == null ? 'нет' : 'есть') + ')\n' +
           res.map(function (r) { return (r.ok ? '✔ ' : '✘ ') + r.name + (r.note ? ' — ' + r.note : ''); }).join('\n');
+        text += '\n\nТрасса истории (кто и когда её трогал):\n' + trace.join('\n');
         try { console.log(text); } catch (e) { }
         var pg = page({ title: 'Проверка навигации' });
         pg.body.appendChild(card.apply(null, res.map(function (r) { return row({ icon: 'info', title: (r.ok ? '✔ ' : '✘ ') + r.name, sub: r.note || '' }); })));
