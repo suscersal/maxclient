@@ -1259,8 +1259,12 @@
         return items.filter(function (el) { return re.test(txt(el)); })[0];
       }
       function attempt() {
-        var t = document.querySelector('#column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button');
-        if (!t) return tries++ < 20 ? sleep(150).then(attempt) : Promise.resolve(false);
+        var t = [].slice.call(document.querySelectorAll('#column-left .sidebar-tools-button, #column-left .folders-sidebar__menu-button, #column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button')).filter(visible)[0];
+        if (!t) {
+          if (tries++ < 20) return sleep(150).then(attempt);
+          try { console.warn('[mxn] кнопка меню Web K не найдена; кандидаты: ' + [].slice.call(document.querySelectorAll('#column-left button, #column-left [class*="menu"]')).slice(0, 12).map(function (x) { return x.tagName.toLowerCase() + '.' + String(x.className).replace(/\s+/g, '.').slice(0, 60); }).join(' | ')); } catch (e) { }
+          return Promise.resolve(false);
+        }
         t.click();
         var n = 0;
         return (function poll() {

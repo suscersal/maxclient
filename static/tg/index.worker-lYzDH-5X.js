@@ -717,10 +717,33 @@ async function __mxCountsAll(){
   __mxLog("counts done, чатов:",items.length)}
 var __mxSyncC0=__mxSync;
 __mxSync=function(){return __mxSyncC0().then(function(x){if(!__mx.cntRun){__mx.cntRun=1;__mxCountsAll().catch(function(){})}return x})};
+/* ---- участники группы: op 59 {type:"MEMBER", marker, chatId, count} → {members:[{contact,presence}], marker}. Раньше getFullChat подставлял трёх первых известных пользователей ---- */
+__mx.mem=__mx.mem||{};
+async function __mxChatMembers(cid){
+  var c=__mx.mem[cid];if(c&&Date.now()-c.t<6e4)return c.list;
+  var list=[],seen={},marker=0;
+  for(var pg=0;pg<20;pg++){                                   /* до 1000 участников */
+    var p=await __mxCall(59,{type:"MEMBER",marker:marker,chatId:cid,count:50}),ms=(p&&p.members)||[];
+    if(!ms.length)break;
+    ms.forEach(function(m){var ct=m&&m.contact;if(!ct||typeof ct.id!=="number"||seen[ct.id])return;seen[ct.id]=1;__mx.contacts[ct.id]=ct;list.push(ct.id)});
+    var nx=p&&p.marker;if(typeof nx!=="number"||nx===marker)break;marker=nx}
+  __mx.mem[cid]={t:Date.now(),list:list};return list}
 async function __mxGetFullChat(e){
   await __mxSync();
   var key="c"+e.chat_id,raw=__mx.keyChat[key],r=(function(x){x.full_chat.available_reactions={_:"chatReactionsAll",pFlags:{}};return x})(Gd["messages.getFullChat"](e)),n=raw!=null?await __mxCountFor(raw,key):null;
   if(n!=null){r.full_chat.participants_count=n;var ch=__mxSetCount(key,n);if(ch)__mxPublish([],[ch])}
+  try{
+    if(raw!=null){
+      var mids=await __mxChatMembers(raw);
+      if(mids.length){
+        var mus=mids.map(function(i){var had=Dd.some(function(x){return x.id===__mxTgUser(i)}),u=__mxUser(i);if(!had&&u.pFlags){u.pFlags.contact=!1;u.pFlags.mutual_contact=!1}return u});
+        r.full_chat.participants={_:"chatParticipants",chat_id:e.chat_id,participants:mus.map(function(u){return{_:"chatParticipant",user_id:u.id,inviter_id:100,date:Math.floor(Date.now()/1e3)-1e6}}),version:1};
+        if(n==null)r.full_chat.participants_count=mids.length;
+        r.users=Dd.slice();__mxPublish(mus,[]);
+        __mxLog("members:",key,"участников",mids.length)
+      }else r.full_chat.participants.participants=[]
+    }
+  }catch(er){__mxLog("members failed",er&&er.message||er);r.full_chat.participants.participants=[]}
   return r}
 /* ---- стикеры MAX: opcode 27 (секции), 26 (страницы), 28 (паки и стикеры); отправка — attach STICKER в opcode 64 ---- */
 __mx.st={p:null,setIds:[],sets:{},items:{},recent:[]};
