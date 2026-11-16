@@ -1309,6 +1309,61 @@
     new MutationObserver(function () { if (cur === 'profile' && !document.querySelector('.mxu-root')) set('chats'); }).observe(document.documentElement, { childList: true, subtree: true });
   })();
 
+  /* Android-оболочка: Web K сохраняет файл как <a download href="blob:…">, а WebView отдаёт такие ссылки в DownloadManager, и тот падает
+     («Can not handle uri: blob:…»). Читаем blob кусками и передаём нативному мосту AndroidDownload (MediaStore: Загрузки / Изображения / Видео).
+     Старый APK без потокового моста: изображения и видео сохраняем через saveFile (галерея), остальное — понятное сообщение. */
+  (function () {
+    var CH = 3 * 256 * 1024;   /* кратно 3: base64 кусков склеивается без «хвостов» */
+    function dl() { return window.AndroidDownload || null; }
+    function can(m) { var d = dl(); return !!(d && m in d); }
+    function toB64(blob) {
+      return blob.arrayBuffer().then(function (buf) {
+        var u = new Uint8Array(buf), s = '';
+        for (var i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+        return btoa(s);
+      });
+    }
+    function err(r) { return new Error(String(r).replace(/^error:\s*/, '')); }
+    window.__mxSaveBlob = function (url, name, hintMime) {
+      var d = dl();
+      if (!d) return Promise.reject(new Error('нет нативного моста'));
+      return fetch(url).then(function (r) { return r.blob(); }).then(async function (blob) {
+        var mime = blob.type || hintMime || 'application/octet-stream';
+        if (can('beginDownload')) {
+          var tok = d.beginDownload(name || '', mime);
+          if (String(tok).indexOf('error:') === 0) throw err(tok);
+          try {
+            for (var o = 0; o < blob.size; o += CH) {
+              var r = d.appendChunk(tok, await toB64(blob.slice(o, o + CH)));
+              if (r !== 'true') throw err(r);
+            }
+            var f = d.finishDownload(tok);
+            if (f !== 'true') throw err(f);
+          } catch (e) { try { d.abortDownload(tok); } catch (x) { } throw e; }
+          return;
+        }
+        if (/^(image|video)\//.test(mime) && can('saveFile')) {
+          var res = d.saveFile(await toB64(blob), name || ('file_' + Date.now()), mime);
+          if (res !== 'true') throw err(res);
+          return;
+        }
+        throw new Error('эта версия приложения не умеет сохранять такие файлы — обновите APK');
+      });
+    };
+    function handle(a) {
+      var name = a.getAttribute('download') || '';
+      window.__mxSaveBlob(a.href, name).catch(function (e) { toast('Не удалось сохранить: ' + (e && e.message || e)); });
+    }
+    function ours(a) { try { return !!(a && a.hasAttribute && a.hasAttribute('download') && /^blob:/i.test(a.href) && dl()); } catch (e) { return false; } }
+    /* программный a.click() (в том числе у элемента не в DOM) не доходит до document — перехватываем сам метод */
+    var click0 = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { if (ours(this)) { handle(this); return; } return click0.apply(this, arguments); };
+    document.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest && e.target.closest('a[download]');
+      if (ours(a)) { e.preventDefault(); e.stopPropagation(); handle(a); }
+    }, true);
+  })();
+
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */
   window.__mxBackLayer = function (close) { var L = layerPush(function () { close(); }, false); return function () { layerRelease(L); }; };
   /* Звонки (static/calls.js). В оболочке старого APK tg/index.html не содержит <script src="/calls.js"> и по OTA не обновляется,

@@ -414,6 +414,18 @@ class MainActivity : AppCompatActivity() {
         // ссылки на файлы с CDN, в отличие от фото/видео из просмотрщика,
         // которые идут через blob: и AndroidDownload-мост выше).
         webView.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
+            // blob: DownloadManager не умеет («Can not handle uri: blob:…»). Web K скачивает файлы именно так — просим страницу
+            // (window.__mxSaveBlob в mx-ui.js) прочитать blob и сохранить через мост AndroidDownload.
+            if (url.startsWith("blob:")) {
+                val blobName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                webView.post {
+                    webView.evaluateJavascript(
+                        "window.__mxSaveBlob&&window.__mxSaveBlob(" + org.json.JSONObject.quote(url) + "," +
+                            org.json.JSONObject.quote(blobName) + "," + org.json.JSONObject.quote(mimeType ?: "") + ")", null
+                    )
+                }
+                return@setDownloadListener
+            }
             try {
                 val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
                 val request = android.app.DownloadManager.Request(Uri.parse(url)).apply {
@@ -1084,6 +1096,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Запись, начатая AndroidDownloadBridge.beginDownload (вложенный класс нельзя объявлять внутри inner class, поэтому он здесь). */
+    private class PendingDownload(val uri: Uri, val stream: java.io.OutputStream, val name: String)
+
     /** Мост JS -> сохранение файла (фото/gif/видео) в публичную галерею
      * устройства. Обычный `<a download>` c blob:-ссылкой, который использует
      * index.html, в system WebView ничего не сохраняет — там нет ни
@@ -1095,6 +1110,84 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun isAvailable(): Boolean = true
+
+        /** Потоковое сохранение любого файла: beginDownload → appendChunk* → finishDownload (или abortDownload).
+         * Web K отдаёт файл как <a download href="blob:…">; такие ссылки DownloadManager не принимает
+         * («Can not handle uri: blob:…»), поэтому страница читает blob кусками и присылает base64 сюда.
+         * Папка по типу файла: изображения → Pictures/MaxClient, видео → Movies/MaxClient, остальное → Download/MaxClient.
+         * Куски идут по одному, а не одной строкой, чтобы большие файлы не упирались в память. */
+        private val pendingDownloads = java.util.concurrent.ConcurrentHashMap<String, PendingDownload>()
+
+        @JavascriptInterface
+        fun beginDownload(filename: String, mimeType: String): String {
+            return try {
+                val safe = filename.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifBlank { "file_" + System.currentTimeMillis() }
+                val mime = if (mimeType.isBlank()) "application/octet-stream" else mimeType
+                val collection: Uri
+                val dir: String
+                if (mime.startsWith("image/")) {
+                    collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI; dir = "Pictures/MaxClient"
+                } else if (mime.startsWith("video/")) {
+                    collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI; dir = "Movies/MaxClient"
+                } else {
+                    collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI; dir = "Download/MaxClient"
+                }
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, safe)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, dir)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = ctx.contentResolver
+                val uri = resolver.insert(collection, values) ?: return "error: не удалось создать файл (нет доступа к хранилищу)"
+                val stream = resolver.openOutputStream(uri)
+                if (stream == null) {
+                    resolver.delete(uri, null, null)
+                    return "error: не удалось открыть файл на запись"
+                }
+                val token = java.util.UUID.randomUUID().toString()
+                pendingDownloads[token] = PendingDownload(uri, stream, safe)
+                token
+            } catch (e: SecurityException) {
+                "error: нет разрешения на запись в хранилище"
+            } catch (e: Exception) {
+                "error: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+
+        @JavascriptInterface
+        fun appendChunk(token: String, base64Data: String): String {
+            val p = pendingDownloads[token] ?: return "error: загрузка не начата"
+            return try {
+                p.stream.write(Base64.decode(base64Data, Base64.DEFAULT))
+                "true"
+            } catch (e: Exception) {
+                abortDownload(token)
+                "error: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+
+        @JavascriptInterface
+        fun finishDownload(token: String): String {
+            val p = pendingDownloads.remove(token) ?: return "error: загрузка не начата"
+            return try {
+                p.stream.flush()
+                p.stream.close()
+                val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+                ctx.contentResolver.update(p.uri, values, null, null)
+                runOnUiThread { Toast.makeText(ctx, "Сохранено: ${p.name}", Toast.LENGTH_SHORT).show() }
+                "true"
+            } catch (e: Exception) {
+                "error: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+
+        @JavascriptInterface
+        fun abortDownload(token: String) {
+            val p = pendingDownloads.remove(token) ?: return
+            try { p.stream.close() } catch (e: Exception) { }
+            try { ctx.contentResolver.delete(p.uri, null, null) } catch (e: Exception) { }
+        }
 
         /** Сохраняет файл в галерею. Возвращает "true" при успехе, иначе
          * текст ошибки (начинается с "error:") — так JS может показать
