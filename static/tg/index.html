@@ -98,6 +98,11 @@
         } catch (e) {}
       })();
     </script>
+<script>
+/* mx-ui: возврат с нашей страховочной записи не должен доходить до appNavigationController Web K (он слушает navigate и при пустом стеке
+   ставит новую запись). Слушатель обязан стоять РАНЬШЕ модулей Web K, поэтому он здесь; решение принимает mx-ui.js (window.__mxNavHide). */
+try { if (window.navigation && navigation.addEventListener) navigation.addEventListener('navigate', function (e) { try { if (window.__mxNavHide && window.__mxNavHide(e)) e.stopImmediatePropagation(); } catch (x) { } }); } catch (x) { }
+</script>
 <script type="module" crossorigin src="./index-CnT2cwDd.js"></script>
     <link rel="modulepreload" crossorigin href="./rolldown-runtime-hePW80VL.js">
     <link rel="modulepreload" crossorigin href="./userAgent-C9TEwyRe.js">

@@ -277,6 +277,20 @@
     var L = layers.pop(); if (L) { try { L.close(); } catch (er) { } }
     syncSent();                                           // остались слои — вернём запись
   }, true);
+  /* Web K (appNavigationController) в режиме Navigation API слушает не popstate, а navigate: любой traverse он считает «Назад на корне»
+     и, когда его стек пуст, ставит НОВУЮ запись (navigation.navigate … history:'push'). Так возвращается запись, которую мы только что сняли,
+     и история растёт на каждом втором закрытии. Поэтому возврат с НАШЕЙ страховочной записи скрываем от Web K:
+     ранний слушатель (inline в index.html, до модулей Web K) спрашивает window.__mxNavHide. Чужой back (Web K закрывает своё окно) не трогаем. */
+  window.__mxNavHide = function (e) {
+    try {
+      if (!e || e.navigationType !== 'traverse' || !e.destination) return false;
+      var cur = navIdx(), dst = e.destination.index;
+      if (cur == null || dst == null || dst >= cur) return false;
+      var mine = (skipPop !== null) || (sent && sentIdx != null && cur === sentIdx && !(foreign && Date.now() - foreign < 800));
+      if (mine && window.__mxNavTrace) window.__mxNavTrace('navigate скрыт от Web K (возврат с нашей записи) idx ' + cur + ' → ' + dst);
+      return mine;
+    } catch (x) { return false; }
+  };
   function ensureRoot() {
     if (root) return root;
     root = h('div', { class: 'mxu-root' });
