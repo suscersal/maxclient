@@ -265,7 +265,7 @@
   function layerPush(close, isPage) { var L = { close: close, page: !!isPage }; layers.push(L); syncSent(); return L; }
   function layerRelease(L) { var i = layers.indexOf(L); if (i >= 0) layers.splice(i, 1); syncSent(); }
   window.addEventListener('popstate', function (e) {
-    if (window.__mxNavTrace) window.__mxNavTrace('popstate idx=' + navIdx() + ' sent=' + sent + ' sentIdx=' + sentIdx + ' skipPop=' + (skipPop !== null) + ' слоёв=' + layers.length + ' чужой back ' + (foreign ? (Date.now() - foreign) + ' мс назад' : 'нет'));
+    if (window.__mxNavTrace) window.__mxNavTrace('popstate state=' + (e.state ? (e.state.mxu ? 'M' : 'W') : '-') + ' idx=' + navIdx() + ' sent=' + sent + ' sentIdx=' + sentIdx + ' skipPop=' + (skipPop !== null) + ' слоёв=' + layers.length + ' чужой back ' + (foreign ? (Date.now() - foreign) + ' мс назад' : 'нет'));
     if (skipPop !== null) { var f = skipPop; skipPop = null; e.stopImmediatePropagation(); if (typeof f === 'function') f(); flushAfterSkip(); return; }
     if (!sent) return;
     var idx = navIdx();
@@ -1332,7 +1332,7 @@
     function who() { try { return (new Error().stack || '').split('\n').slice(3, 5).map(function (x) { return x.trim().replace(/\(?https?:\/\/[^\/]+\//, '(').slice(0, 80); }).join(' < '); } catch (e) { return '?'; } }
     window.__mxNavTrace = tr;
     ['pushState', 'replaceState', 'back', 'go'].forEach(function (m) { var o = history[m]; history[m] = function () { tr('history.' + m + '(' + [].slice.call(arguments).filter(function (a) { return typeof a === 'number'; }).join() + ') ← ' + who()); return o.apply(history, arguments); }; restore.push(function () { history[m] = o; }); });
-    try { if (window.navigation && navigation.addEventListener) { var nvF = function (e) { tr('navigate ' + e.navigationType + ' → idx ' + (e.destination && e.destination.index) + (e.userInitiated ? ' (польз.)' : '')); }; navigation.addEventListener('navigate', nvF); restore.push(function () { navigation.removeEventListener('navigate', nvF); }); } } catch (e) { }
+    try { if (window.navigation && navigation.addEventListener) { var nvF = function (e) { var st = ''; if (e.navigationType !== 'traverse') { try { st = (new Error().stack || '').split('\n').slice(2, 9).map(function (x) { return x.trim().replace(/\(?https?:\/\/[^\/]+\//, '(').slice(0, 90); }).join(' < '); } catch (x) { } } tr('navigate ' + e.navigationType + ' → idx ' + (e.destination && e.destination.index) + (e.userInitiated ? ' (польз.)' : '') + (st ? ' ЧЕРЕЗ ' + st : '')); }; navigation.addEventListener('navigate', nvF); restore.push(function () { navigation.removeEventListener('navigate', nvF); }); } } catch (e) { }
     var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features', 'entryApps'];
     var res = [], base = null;
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -1341,9 +1341,10 @@
     function check(name, got, want) {
       var bad = Object.keys(want).filter(function (k) { return want[k] !== undefined && got[k] !== want[k]; })
         .map(function (k) { return k + ': ожидали ' + want[k] + ', стало ' + got[k]; });
-      tr('— проверка «' + name + '»: idx=' + got.idx + ' слоёв=' + got.layers + (bad.length ? ' ✘' : ''));
+      tr('— проверка «' + name + '»: idx=' + got.idx + ' слоёв=' + got.layers + (bad.length ? ' ✘' : '') + ' записи: ' + ents());
       rec(name, !bad.length, bad.join('; '));
     }
+    function ents() { try { return navigation.entries().map(function (en, i) { var s = null; try { s = en.getState(); } catch (x) { } var hs = String(en.url || '').split('#')[1]; return i + ':' + (s && s.mxu ? 'M' : (s ? 'W' : '-')) + (hs ? '#' + hs.slice(0, 14) : ''); }).join(' '); } catch (x) { return ''; } }
     function sysBack() { tr('— sysBack: idx=' + navIdx() + ' слоёв=' + layers.length); try { ownBack(); } catch (e) { } }
     function nx(d) { return base.idx == null ? undefined : base.idx + d; }
     var steps = [];
