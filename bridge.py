@@ -5861,8 +5861,38 @@ def api_sessions_close():
     return jsonify({"ok": True})
 
 
+_file_url_lock = threading.Lock()
+_file_url_cache = {}   # (fileId, chatId, messageId) -> (время, url)
+
+
 @app.route("/api/file-url", methods=["POST"])
 def get_file_url():
+    """Параллельные запросы одной и той же ссылки (Web K качает файл десятками кусков разом) выполняются по очереди и после первого берутся из
+    короткого кеша: раньше каждый такой запрос уходил в fetch_once и открывал НОВУЮ сессию с сохранённым токеном — MAX обрывал рабочую."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        key = (int(data.get("fileId")), int(data.get("chatId")), int(data.get("messageId")))
+    except Exception:
+        return _get_file_url_uncached()   # некорректный запрос — пусть ответит прежний код (400)
+    with _file_url_lock:
+        hit = _file_url_cache.get(key)
+        if hit and time.time() - hit[0] < 20:
+            return jsonify({"url": hit[1]})
+        resp = _get_file_url_uncached()
+        try:
+            r = resp[0] if isinstance(resp, tuple) else resp
+            code = resp[1] if isinstance(resp, tuple) else r.status_code
+            url = (r.get_json(silent=True) or {}).get("url") if code == 200 else None
+            if url:
+                if len(_file_url_cache) > 200:
+                    _file_url_cache.clear()
+                _file_url_cache[key] = (time.time(), url)
+        except Exception:
+            pass
+        return resp
+
+
+def _get_file_url_uncached():
     """Актуальная (подписанная, со сроком действия) ссылка на файл-вложение.
     Собрать её на клиенте из token нельзя — не хватает r=/expires=, сервер сам
     выдаёт готовый URL по fileId/chatId/messageId через opcode 88."""
