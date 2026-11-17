@@ -2648,6 +2648,29 @@ def clear_auth_token():
     logger.info("[session] Auth token cleared")
 
 
+_AUTH_WEAK = []   # времена «мягких» признаков отказа авторизации (только по тексту ошибки)
+
+
+def auth_failure_is_final(payload) -> bool:
+    """Ответ-ошибка на op 19: токен действительно негоден?
+    Надёжный признак — message == FAIL_LOGIN_TOKEN / FAIL_WRONG_PASSWORD (так делает Komet): токен стираем сразу.
+    Одного лишь текста про авторизацию («авторизируйтесь», «вход» …) мало: так отвечает и только что переподключённая, ещё не вошедшая
+    сессия (гонка при обрыве связи, лавина параллельных сессий) — раньше из-за этого терялся токен и пользователя «выкидывало».
+    По тексту токен стираем только на 2-й раз подряд (с интервалом от 2 с, в пределах 5 минут): настоящий отказ повторяется на каждой попытке."""
+    p = payload if isinstance(payload, dict) else {}
+    if p.get("message") in ("FAIL_LOGIN_TOKEN", "FAIL_WRONG_PASSWORD"):
+        return True
+    text = str(p.get("localizedMessage") or "").lower()
+    if any(word in text for word in ["авториз", "authoriz", "login", "вход"]):
+        now = time.time()
+        _AUTH_WEAK[:] = [t for t in _AUTH_WEAK if now - t < 300]
+        if not _AUTH_WEAK or now - _AUTH_WEAK[-1] >= 2:
+            _AUTH_WEAK.append(now)
+        logger.warning(f"[session] op 19: похоже на отказ авторизации (признак {len(_AUTH_WEAK)} из 2) — токен пока не трогаю")
+        return len(_AUTH_WEAK) >= 2
+    return False
+
+
 # --- Версия приложения ---
 # ПРЕЖДЕ это динамически скрейпилось с uptodown, чтобы всегда слать "самую
 # свежую" версию MAX в хендшейке. Это и было причиной, по которой код из
@@ -6401,11 +6424,11 @@ def recv_loop(client: MaxClient, out_queue: queue.Queue, stop_event: threading.E
                 logger.info(
                     f"  payload: {json.dumps(packet.get('payload'), ensure_ascii=False, indent=2)}")
 
-            # Обработка ошибки авторизации
+            # Обработка ошибки авторизации (токен стираем только при надёжном признаке — см. auth_failure_is_final)
+            if packet["opcode"] == 19 and packet["cmd"] == 256:
+                _AUTH_WEAK.clear()
             if packet["opcode"] == 19 and packet["cmd"] == 768:
-                error_msg = packet.get(
-                    "payload", {}).get("localizedMessage", "")
-                if any(word in error_msg.lower() for word in ["авториз", "authoriz", "login", "вход"]):
+                if auth_failure_is_final(packet.get("payload")):
                     logger.warning("[session] Auth token expired or invalid")
                     clear_auth_token()
                     packet["_auth_error"] = True
