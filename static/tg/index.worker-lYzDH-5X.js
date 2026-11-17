@@ -25,6 +25,8 @@ function __mxTgUser(id){return String(id)===String(__mx.self)?100:Number(id)}
 function __mxUser(id){
   var tg=__mxTgUser(id),u=Dd.find(function(x){return x.id===tg});
   var c=__mx.contacts[id],nm=__mxName(c)||(tg===100?"Вы":"Контакт #"+id),p=nm.split(" "),f=p.shift()||nm,l=p.join(" ");
+  /* диагностика «Удалённый аккаунт» вместо имени: что именно известно о пользователе (по 20 id, один раз каждый) */
+  if(tg!==100&&(!c||/^Удал[её]нн/i.test(nm))){var dg=__mx.nmLog||(__mx.nmLog={});if(!dg[id]&&Object.keys(dg).length<20){dg[id]=1;__mxLog("user: имя не определено",id,c?JSON.stringify(c).slice(0,240):"контакта нет в кеше")}}
   if(!u){u={_:"user",pFlags:{contact:tg!==100,mutual_contact:tg!==100,self:tg===100},id:tg,access_hash:"1",first_name:f,last_name:l,phone:(c&&c.phone)?String(c.phone):"",status:{_:"userStatusRecently",pFlags:{}}};Dd.push(u)}
   else{u.first_name=f;u.last_name=l}
   if(c&&Array.isArray(c.options)&&c.options.indexOf("BOT")>=0){u.pFlags=u.pFlags||{};u.pFlags.bot=!0;u.bot_info_version=u.bot_info_version||1}
@@ -105,16 +107,31 @@ function __mxAttachText(m,out){
       return ic+(out?"Исходящий ":"Входящий ")+kind+" · "+__mxDur(dur)}
     if(t==="CONTROL"){
       var ev=String(a.event||""),ttl=a.title?" «"+a.title+"»":"",M={add:"Новый участник",joinByLink:"Новый участник",leave:"Участник вышел",remove:"Участник удалён",pin:"Закреплённое сообщение",changeIcon:"Фото чата обновлено"};
-      if(ev==="new")return"ℹ️ Чат создан"+ttl;
-      if(ev==="changeTitle")return"ℹ️ Название чата изменено"+ttl;
-      if(M[ev])return"ℹ️ "+M[ev];
-      return"ℹ️ "+(a.shortMessage||"Системное сообщение")}
+      if(ev==="new")return"Чат создан"+ttl;
+      if(ev==="changeTitle")return"Название чата изменено"+ttl;
+      if(M[ev])return M[ev];
+      return a.shortMessage||"Системное сообщение"}
     if(t==="SHARE")return"🔗 "+(a.title||a.url||"Ссылка");
     if(t==="POLL")return"📊 Опрос"+(a.title?": "+a.title:"");
     if(t==="LOCATION")return"📍 Геопозиция";
     if(t==="CONTACT")return"👤 Контакт"+(a.name?": "+a.name:"")
   }catch(e){}
   return"📎 "+String((m.attaches&&m.attaches[0]&&m.attaches[0]._type)||"Вложение")}
+/* ---- служебные события чата (CONTROL: вступил, добавили, вышел, удалили, создан, переименован…) → messageService Web K:
+   рисуется по центру «Имя присоединился(-ась)…», как в официальном клиенте; имена Web K берёт из пользователей (и обновит, когда они подгрузятся).
+   Типы событий и порядок — по Komet (control_bubble.dart). Прочее (закреп, фото чата) — messageActionCustomAction с готовым текстом. ---- */
+function __mxServiceAction(a,m){
+  var ev=String(a.event||""),sid=m.sender,ids=(a.userIds||[]).concat(a.userId?[a.userId]:[]).filter(function(x){return x!=null&&Number(x)!==0});
+  function touch(l){l.forEach(function(i){__mxUser(i)});__mxFetchUsers(l)}
+  var tg=function(i){return __mxTgUser(i)};
+  if(Number(sid)>0)touch([sid]);
+  if(ev==="joinByLink")return{_:"messageActionChatJoinedByLink",inviter_id:tg(sid)};
+  if(ev==="add"){if(!ids.length)return null;touch(ids);return{_:"messageActionChatAddUser",users:ids.map(tg)}}
+  if(ev==="leave")return{_:"messageActionChatDeleteUser",user_id:tg(sid)};
+  if(ev==="remove"){if(!ids.length)return null;touch(ids);return{_:"messageActionChatDeleteUser",user_id:tg(ids[0])}}
+  if(ev==="new")return{_:"messageActionChatCreate",title:String(a.title||""),users:[]};
+  if(ev==="changeTitle")return{_:"messageActionChatEditTitle",title:String(a.title||"")};
+  return{_:"messageActionCustomAction",message:__mxAttachText({attaches:[a]},!1)}}
 function __mxAddMsgs(key,msgs){
   var list=msgs.slice().sort(function(a,b){return(a.time||0)-(b.time||0)}),made=[];
   var seen=__mx.seen[key]||(__mx.seen[key]={}),lim=__mx.lim[key];
@@ -127,6 +144,8 @@ function __mxAddMsgs(key,msgs){
     var from=out?100:(key[0]==="u"?+key.slice(1):(noFrom?100:__mxTgUser(sid)));
     if(!out&&key[0]==="c"&&!noFrom){__mxUser(sid);__mxFetchUsers([sid])}
     var o=Pd(key,out,text,0,from,{date:Math.floor((m.time||Date.now())/1e3)});
+    try{var ctl=key[0]==="c"&&!m.text?(m.attaches||[]).filter(function(x){return x&&String(x._type).toUpperCase()==="CONTROL"})[0]:null;
+      if(ctl){var act=__mxServiceAction(ctl,m);if(act){o._="messageService";delete o.message;delete o.entities;delete o.media;o.action=act}}}catch(er){__mxLog("service msg",er&&er.message||er)}
     if(noFrom){delete o.from_id;o.pFlags=o.pFlags||{};o.pFlags.post=!0}
     jd[key].pop();seen[id]=1;o.__mx=id;o.__t=m.time||Date.now();fresh.push(o)});
   if(!fresh.length)return made;
