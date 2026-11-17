@@ -1324,9 +1324,12 @@
       });
     }
     function err(r) { return new Error(String(r).replace(/^error:\s*/, '')); }
+    var recent = {};
     window.__mxSaveBlob = function (url, name, hintMime) {
       var d = dl();
       if (!d) return Promise.reject(new Error('нет нативного моста'));
+      /* тот же blob уже сохраняется/сохранён (клик по ссылке + DownloadListener оболочки) — второй раз не сохраняем: иначе файл дублируется с именем-UUID */
+      var now = Date.now(); if (recent[url] && now - recent[url] < 8000) return Promise.resolve(); recent[url] = now;
       return fetch(url).then(function (r) { return r.blob(); }).then(async function (blob) {
         var mime = blob.type || hintMime || 'application/octet-stream';
         if (can('beginDownload')) {

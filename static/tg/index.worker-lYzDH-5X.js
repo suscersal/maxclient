@@ -412,7 +412,7 @@ function __mxMedia(key,o,m){
   for(i=0;i<at.length;i++){var t=at[i]&&at[i]._type;
     if(t==="PHOTO"||t==="FILE"||t==="VIDEO"||t==="AUDIO"||t==="STICKER"){if(!pick){pick=at[i];idx=i}else if(t==="PHOTO"&&pick._type==="PHOTO")extra++}}
   if(!pick)return;
-  var type=pick._type,id=(type==="STICKER"&&pick.stickerId!=null)?String(pick.stickerId):__mxH(cid+":"+m.id+":"+idx),date=o.date,rec={kind:type,chatId:cid,msgId:String(m._o?m._o.id:m.id),msgTime:m.time||0,idx:m._o?m._o.idx:idx,attach:pick,url:null,size:0},media;
+  var type=pick._type,id=(type==="STICKER"&&pick.stickerId!=null)?String(pick.stickerId):__mxH(cid+":"+m.id+":"+idx+(type==="FILE"?":f2":"")),date=o.date,rec={kind:type,chatId:cid,msgId:String(m._o?m._o.id:m.id),msgTime:m.time||0,idx:m._o?m._o.idx:idx,attach:pick,url:null,size:0},media;
   __mx.media[id]=rec;
   if(type==="VIDEO"||type==="FILE"||type==="AUDIO")__mxLog("attach",type,id.slice(-6),"msg",rec.msgId);
   if(type==="PHOTO"){
@@ -526,6 +526,7 @@ async function __mxGetMedia(a){
       var res=await fetch(ep+"?url="+encodeURIComponent(url),opt);
       if(!res.ok&&img&&!thumb&&res.status===400){res=await fetch("/video?url="+encodeURIComponent(url))}
       if(res.ok){var buf=new Uint8Array(await res.arrayBuffer());if(ranged&&res.status===200)buf=buf.subarray(off,off+lim);
+        if(ranged&&off+2*lim>rec.size)__mxLog("file: хвост, размер",rec.size,"off",off,"lim",lim,"статус",res.status,"байт",buf.length);
         if(rec.kind==="VIDEO"&&!thumb){
           var ct=res.headers&&res.headers.get?res.headers.get("content-type"):"";
           __mxLog("video bytes",buf.length,"ct",ct,"src",rec.vlabel||"?","head",__mxHead(buf,16));
@@ -1006,7 +1007,7 @@ function __mxNoteRights(key,chat){try{
   if((__mx.rLog=(__mx.rLog||0)+1)<=3)__mxLog("channel rights",key,"canPost",__mx.canPost[key])
 }catch(e){}}
 function __mxNoPost(){var f={};["send_messages","send_media","send_stickers","send_gifs","send_games","send_inline","send_polls","send_photos","send_videos","send_roundvideos","send_audios","send_voices","send_docs","send_plain","embed_links"].forEach(function(k){f[k]=!0});return f}
-try{__mxLog("worker build 2026-11-15-r22")}catch(e){}
+try{__mxLog("worker build 2026-11-17-r23")}catch(e){}
 
 /* ==== значки списка чатов: «без звука» (dontDisturbUntil) и галочка OFFICIAL — всё из данных MAX ==== */
 __mx.muted={};
