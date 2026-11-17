@@ -531,8 +531,17 @@ async function __mxGetMedia(a){
           __mxLog("video bytes",buf.length,"ct",ct,"src",rec.vlabel||"?","head",__mxHead(buf,16));
           if(off===0&&!__mxIsVideoBytes(buf)){__mxLog("video: ответ НЕ видео:",__mxHead(buf,160));err="not video";continue}}
         return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:buf}}
-      /* 416: Web K просит кусок за концом файла (размер в документе округлён/больше реального) — это конец файла, а не ошибка */
-      if(res.status===416&&ranged&&off>0){__mxLog("file: 416 → конец файла",rec.kind,off);return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:new Uint8Array(0)}}
+      /* 416 на диапазоне «off-(off+lim-1)»: CDN отвечает так и тогда, когда НАЧАЛО внутри файла, а КОНЕЦ диапазона за его концом (последний неполный кусок,
+         файл меньше одного куска). Раньше это считалось концом файла: файл обрезался до кратного 64 КБ (PDF «повреждён»), мелкие файлы не качались вовсе.
+         Повторяем с концом по реальному размеру из Content-Range (или открытым диапазоном). 416 и на повторе — настоящий конец файла. */
+      if(res.status===416&&ranged){
+        var cr=res.headers&&res.headers.get?res.headers.get("content-range"):"",tm=/\/(\d+)\s*$/.exec(cr||""),tot=tm?Number(tm[1]):0;
+        if(!tot||off<tot){
+          try{var r2=await fetch(ep+"?url="+encodeURIComponent(url),{headers:{Range:"bytes="+off+"-"+(tot?tot-1:"")}});
+            if(r2.ok){var b2=new Uint8Array(await r2.arrayBuffer());if(r2.status===200)b2=b2.subarray(off,off+lim);else if(b2.length>lim)b2=b2.subarray(0,lim);
+              __mxLog("file: 416 на хвосте — добрали",rec.kind,"off",off,"байт",b2.length,tot?("из "+tot):"");
+              return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:b2}}}catch(x){}}
+        if(off>0){__mxLog("file: 416 → конец файла",rec.kind,off);return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:new Uint8Array(0)}}}
       err="http "+res.status;if(thumb)break
     }catch(e){err=String(e&&e.message||e)}}
   if(thumb&&rec.attach.previewData)return{_:"upload.file",type:{_:"storage.fileUnknown"},mtime:0,bytes:__mxHex(rec.attach.previewData)};
