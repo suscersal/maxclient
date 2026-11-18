@@ -824,7 +824,8 @@
       row({ icon: 'bug', title: 'Кнопка отладочной консоли', sub: 'Журнал воркера, синхронизации и сетевых вызовов', toggle: { on: on(), onchange: function (v) { try { localStorage.setItem('mx_dbg_btn', v ? '1' : '0'); } catch (e) { } applyDbg(); } } }),
       row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(function () { b.click(); }); } else toast('Консоль недоступна'); } }),
       row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } }),
-      row({ icon: 'bug', title: 'Проверка навигации', sub: 'Открывает все экраны MAX и проверяет кнопку «Назад»', chev: 1, onclick: function () { navSelfTest(); } })
+      row({ icon: 'bug', title: 'Проверка навигации', sub: 'Открывает все экраны MAX и проверяет кнопку «Назад»', chev: 1, onclick: function () { navSelfTest(); } }),
+      row({ icon: 'bug', title: 'Запись навигации (60 с)', sub: 'Включите, воспроизведите проблему (выбор сообщений → «Назад»), дождитесь отчёта', chev: 1, onclick: function () { navRecord(60); } })
     ));
     pg.body.appendChild(hint('Строки «sync: …», «stories: …», «deleted: …» и «e2e: …» в консоли показывают, где тратится время при старте и что происходит с историями и шифрованием.'));
   };
@@ -1501,6 +1502,44 @@
       });
   }
   window.__mxNavSelfTest = navSelfTest;
+  /* ------------------------------------------------------------ запись навигации «вживую»
+     Включаем, закрываем экран отладки и воспроизводим то, что ломается (выбор сообщений → «Назад», любой переход). Через secs секунд (или повторным
+     нажатием) открывается отчёт: каждый pushState/back/go, события navigate (со стеком вызова), popstate и — на каждом шаге — внутреннее состояние
+     Web K (стек элементов навигации и очередь ignoreNextNavigations из appNavigationController). Отчёт копируется целиком. */
+  function navRecord(secs) {
+    if (navRecord.running) { if (navRecord.stop) navRecord.stop(); return; }
+    navRecord.running = true; secs = secs || 60;
+    var trace = [], t00 = Date.now(), restore = [], wk = null, badge = null, timer = null;
+    function tr(s) { if (trace.length < 500) trace.push('+' + (Date.now() - t00) + ' ' + s); }
+    function who() { try { return (new Error().stack || '').split('\n').slice(3, 8).map(function (x) { return x.trim().replace(/\(?https?:\/\/[^\/]+\//, '(').slice(0, 90); }).join(' < '); } catch (e) { return '?'; } }
+    function wks() { try { return wk ? 'WebK[стек=' + wk.navigations.map(function (x) { return x.type + (x.removed ? '(удалён)' : ''); }).join(',') + '; ignore=' + wk.ignoreNextNavigations.join(',') + '; popping=' + wk.popping + '; busy=' + wk.modificationBusy + ']' : 'WebK[недоступен]'; } catch (e) { return ''; } }
+    function mxs() { return 'mx[слоёв=' + layers.length + '; sent=' + sent + '; skipPop=' + (skipPop !== null) + '; idx=' + navIdx() + ']'; }
+    function ents() { try { return navigation.entries().map(function (en, i) { var st = null; try { st = en.getState(); } catch (x) { } var hs = String(en.url || '').split('#')[1]; return i + ':' + (st ? 'W' : '-') + (hs ? '#' + hs.slice(0, 10) : ''); }).join(' '); } catch (x) { return ''; } }
+    window.__mxNavTrace = function (s) { tr(s + ' | ' + wks()); };
+    ['pushState', 'replaceState', 'back', 'go'].forEach(function (m) { var o = history[m]; history[m] = function () { tr('history.' + m + '(' + [].slice.call(arguments).filter(function (a) { return typeof a === 'number'; }).join() + ') ← ' + who()); return o.apply(history, arguments); }; restore.push(function () { history[m] = o; }); });
+    try { if (window.navigation && navigation.addEventListener) { var nvF = function (e) { var st = e.navigationType !== 'traverse' ? ' ЧЕРЕЗ ' + who() : ''; tr('navigate ' + e.navigationType + ' → idx ' + (e.destination && e.destination.index) + (e.userInitiated ? ' (польз.)' : '') + ' | ' + mxs() + ' ' + wks() + st); }; navigation.addEventListener('navigate', nvF); restore.push(function () { navigation.removeEventListener('navigate', nvF); }); } } catch (e) { }
+    try { import('./appNavigationController-XRmhFmts.js').then(function (m) { wk = m.n; tr('контроллер Web K подключён | ' + wks()); }).catch(function (e) { tr('нет доступа к контроллеру Web K: ' + (e && e.message || e)); }); } catch (e) { tr('import() недоступен'); }
+    tr('запись началась | ' + mxs() + ' записи: ' + ents());
+    function finish() {
+      if (!navRecord.running) return;
+      navRecord.running = false; navRecord.stop = null; clearTimeout(timer);
+      tr('запись закончена | ' + mxs() + ' ' + wks() + ' записи: ' + ents());
+      restore.forEach(function (f) { try { f(); } catch (e) { } }); window.__mxNavTrace = null;
+      if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+      var text = 'Запись навигации (' + Math.round((Date.now() - t00) / 1000) + ' с)\n' + trace.join('\n');
+      try { console.log(text); } catch (e) { }
+      var pg = page({ title: 'Запись навигации' });
+      pg.body.appendChild(card(
+        row({ icon: 'info', title: 'Записано событий: ' + trace.length, sub: 'Нажмите «Скопировать отчёт» и пришлите его целиком' }),
+        row({ icon: 'link', title: 'Скопировать отчёт', chev: 1, onclick: function () { copy(text, 'Отчёт'); } })));
+    }
+    navRecord.stop = finish; timer = setTimeout(finish, secs * 1000);
+    badge = h('div', { style: 'position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);right:8px;z-index:2147483000;background:#e53935;color:#fff;font:600 12px system-ui;padding:3px 8px;border-radius:10px;pointer-events:none;opacity:.9' }, '● запись навигации');
+    document.body.appendChild(badge);
+    closeAll();   /* экран отладки закрываем: его слой «Назад» исказил бы то, что записываем */
+    toast('Идёт запись навигации ' + secs + ' с — воспроизведите проблему');
+  }
+  window.__mxNavRecord = navRecord;
   /* ------------------------------------------------------------ уведомление о новой версии (как showUpdatePrompt в roblox-studio-web)
      Сервер (/api/update-check) сравнивает versionCode установленного APK с последним stable-релизом на GitHub; hot-релизы не в счёт.
      Показываем один раз за сессию; «Позже» просто закрывает окно, при следующем запуске приложения напомним снова. */
