@@ -1540,6 +1540,24 @@
     toast('Идёт запись навигации ' + secs + ' с — воспроизведите проблему');
   }
   window.__mxNavRecord = navRecord;
+  /* Выбор нескольких сообщений: стрелка «←» в шапке чата (.topbar .sidebar-close-button, со значком непрочитанных) в Web K всегда закрывает чат
+     и не смотрит на выделение. В выделении она должна его снять — как системная «Назад», которая снимает его через элемент навигации выделения
+     (appNavigationController). Поэтому при включённом выделении (.chat-input.is-selecting) нажатие перехватываем и делаем history.back():
+     Web K выталкивает элемент выделения и вызывает cancelSelection. Один жест даёт несколько событий — реагируем не чаще раза в 600 мс. */
+  (function () {
+    var last = 0;
+    var STARTS = { pointerdown: 1, touchstart: 1, mousedown: 1 };   /* начало жеста: только не пускаем к Web K (его обработчик на touch срабатывает по touchend) */
+    function onBackBtn(e) {
+      try {
+        var t = e.target, b = t && t.closest && t.closest('.topbar .sidebar-close-button');
+        if (!b || !document.querySelector('.chat-input.is-selecting')) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (STARTS[e.type]) return;
+        if (Date.now() - last > 600) { last = Date.now(); history.back(); }
+      } catch (x) { }
+    }
+    ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function (n) { document.addEventListener(n, onBackBtn, true); });
+  })();
   /* ------------------------------------------------------------ уведомление о новой версии (как showUpdatePrompt в roblox-studio-web)
      Сервер (/api/update-check) сравнивает versionCode установленного APK с последним stable-релизом на GitHub; hot-релизы не в счёт.
      Показываем один раз за сессию; «Позже» просто закрывает окно, при следующем запуске приложения напомним снова. */
