@@ -825,7 +825,9 @@
       row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(function () { b.click(); }); } else toast('Консоль недоступна'); } }),
       row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } }),
       row({ icon: 'bug', title: 'Проверка навигации', sub: 'Открывает все экраны MAX и проверяет кнопку «Назад»', chev: 1, onclick: function () { navSelfTest(); } }),
-      row({ icon: 'bug', title: 'Запись навигации (60 с)', sub: 'Включите, воспроизведите проблему (выбор сообщений → «Назад»), дождитесь отчёта', chev: 1, onclick: function () { navRecord(60); } })
+      row({ icon: 'bug', title: 'Запись навигации (60 с)', sub: 'Включите, воспроизведите проблему (выбор сообщений → «Назад»), дождитесь отчёта', chev: 1, onclick: function () { navRecord(60); } }),
+      row({ icon: 'info', title: 'Мой ID', sub: 'Копирует ваш MAX ID — для реестра поддержавших', chev: 1, onclick: function () { window.__mxBadgeIds.mine(); } }),
+      row({ icon: 'info', title: 'ID человека из открытого чата', sub: 'Откройте чат с ним, затем сюда: копирует его ID для реестра', chev: 1, onclick: function () { window.__mxBadgeIds.chat(); } })
     ));
     pg.body.appendChild(hint('Строки «sync: …», «stories: …», «deleted: …» и «e2e: …» в консоли показывают, где тратится время при старте и что происходит с историями и шифрованием.'));
   };
@@ -1366,6 +1368,107 @@
       var a = e.target && e.target.closest && e.target.closest('a[download]');
       if (ours(a)) { e.preventDefault(); e.stopPropagation(); handle(a); }
     }, true);
+  })();
+
+  /* ------------------------------------------------------------ значок поддержавших проект (реестр id → номерной значок)
+     Реестр — mx-ui-supporters.json рядом с mx-ui.js (префикс mx-ui: без кеша, едет по OTA); remoteUrl в нём — необязательное обновление без релиза.
+     Значок рисуется справа от имени везде, где Web K показывает .peer-title[data-peer-id] (профиль, шапка чата, имена в сообщениях, список чатов);
+     нажатие на значок (кроме списка чатов, где нажатие открывает чат) открывает карточку «<Имя> поддерживает <проект>» с номером и перками. */
+  (function () {
+    var DEFAULT = { project: 'MaxClient', badge: { title: 'Звезда', icon: 'mx-ui-badge.png' }, donateUrl: '', donateText: 'Сделать пожертвование', remoteUrl: '', perks: [{ title: 'Номерной значок', text: 'Значок с вашим номером рядом с именем, его видят все.' }], supporters: [] };
+    var CACHE_KEY = 'mxu-supporters-v1', cfg = null, ids = {}, selfId = null, scanT = 0;
+    var st = document.createElement('style'); st.id = 'mxu-badge';
+    st.textContent = '.mx-badge{width:1.15em;height:1.15em;margin-left:.28em;vertical-align:-.22em;display:inline-block;object-fit:contain;flex:none;cursor:pointer;-webkit-user-drag:none}' +
+      '.chatlist .mx-badge,.chatlist-container .mx-badge{pointer-events:none}' +
+      '.mxu-bd{padding:28px 20px calc(28px + env(safe-area-inset-bottom,0px));text-align:center;color:var(--primary-text-color,#fff);background:radial-gradient(120% 55% at 50% 0,rgba(74,168,255,.2),transparent 70%)}' +
+      '.mxu-bd-art img{width:132px;height:132px;object-fit:contain;filter:drop-shadow(0 10px 28px rgba(74,168,255,.5))}' +
+      '.mxu-bd-pill{display:inline-block;margin:14px 0 18px;padding:7px 18px;border-radius:999px;font-weight:700;font-size:18px;color:#fff;background:linear-gradient(90deg,#3d9bff,#62d0ff)}' +
+      '.mxu-bd-h{font-size:24px;font-weight:700;line-height:1.25;margin:0 8px 8px;word-break:break-word}.mxu-bd-n{color:#4aa8ff}' +
+      '.mxu-bd-s{font-size:16px;margin:10px 0 18px;opacity:.92}' +
+      '.mxu-bd-perks{text-align:left;margin:0 4px 20px}.mxu-bd-perk{position:relative;padding:0 0 16px 36px}' +
+      '.mxu-bd-perk:before{content:"\\2713";position:absolute;left:4px;top:0;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(74,168,255,.18);color:#4aa8ff;font-weight:700;font-size:14px}' +
+      '.mxu-bd-pt{font-size:17px;font-weight:600}.mxu-bd-px{font-size:14px;opacity:.65;margin-top:2px}';
+    document.head.appendChild(st);
+    function norm(c) {
+      c = c && typeof c === 'object' ? c : {};
+      var o = {}; Object.keys(DEFAULT).forEach(function (k) { o[k] = c[k] != null ? c[k] : DEFAULT[k]; });
+      o.badge = Object.assign({}, DEFAULT.badge, c.badge || {});
+      o.perks = Array.isArray(o.perks) ? o.perks : []; o.supporters = Array.isArray(o.supporters) ? o.supporters : [];
+      return o;
+    }
+    function index() {
+      ids = {};
+      cfg.supporters.forEach(function (s, i) {
+        if (!s || s.id == null || String(s.id).trim() === '') return;
+        var k = String(s.id).trim(); if (!ids[k]) ids[k] = { number: s.number != null ? s.number : i + 1, name: s.name || '' };
+      });
+    }
+    function save() { try { localStorage.setItem(CACHE_KEY, JSON.stringify({ cfg: cfg })); } catch (e) { } }
+    function entryOf(peerId) { var k = String(peerId); if (k === '100' && selfId != null) k = String(selfId); return ids[k] || null; }
+    function iconSrc() { return './' + (cfg.badge.icon || DEFAULT.badge.icon); }
+    function scan() { if (scanT) return; scanT = setTimeout(function () { scanT = 0; doScan(); }, 250); }
+    function doScan() {
+      if (!cfg || !Object.keys(ids).length) return;
+      var list = document.querySelectorAll('.peer-title[data-peer-id]');
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i], pid = el.getAttribute('data-peer-id');
+        if (!entryOf(pid) || el.querySelector(':scope > .mx-badge')) continue;
+        var img = document.createElement('img'); img.className = 'mx-badge'; img.src = iconSrc(); img.alt = ''; img.draggable = false; img.setAttribute('data-mxb', pid);
+        el.appendChild(img);
+      }
+    }
+    function load() {
+      var cached = null; try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (e) { }
+      cfg = norm(cached && cached.cfg); index(); scan();
+      fetch('./mx-ui-supporters.json?t=' + Math.floor(Date.now() / 6e4), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j) return;
+        cfg = norm(j); index(); save(); scan();
+        if (!cfg.remoteUrl) return;
+        return fetch(cfg.remoteUrl, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (rj) {
+          if (rj && Array.isArray(rj.supporters)) { cfg = norm(Object.assign({}, j, rj)); index(); save(); scan(); }
+        });
+      }).catch(function () { });
+      rpc('entryApps', {}, 15000).then(function (r) { if (r && r.self != null) { selfId = r.self; scan(); } }).catch(function () { });
+    }
+    function titleText(titleEl, fallback) {
+      if (!titleEl) return fallback;
+      var c = titleEl.cloneNode(true); [].forEach.call(c.querySelectorAll('.mx-badge'), function (n) { n.remove(); });
+      return (c.textContent || '').trim() || fallback;
+    }
+    function openUrl(u) { var a = h('a', { href: u, target: '_blank', rel: 'noopener' }); document.body.appendChild(a); a.click(); a.remove(); }
+    function openCard(peerId, titleEl) {
+      var e = entryOf(peerId); if (!e) return;
+      var name = titleText(titleEl, e.name || 'Пользователь');
+      var pg = page({ title: 'Значок' });
+      var perks = cfg.perks;
+      var box = h('div', { class: 'mxu-bd' },
+        h('div', { class: 'mxu-bd-art' }, h('img', { src: iconSrc(), alt: '' })),
+        h('div', { class: 'mxu-bd-pill' }, (cfg.badge.title || 'Значок') + ' #' + e.number),
+        h('div', { class: 'mxu-bd-h' }, h('span', { class: 'mxu-bd-n' }, name), ' поддерживает ' + cfg.project),
+        h('div', { class: 'mxu-bd-s' }, 'Поддержавшие получают:'),
+        h('div', { class: 'mxu-bd-perks' }, perks.map(function (p) { return h('div', { class: 'mxu-bd-perk' }, h('div', { class: 'mxu-bd-pt' }, p.title || ''), p.text ? h('div', { class: 'mxu-bd-px' }, p.text) : null); })));
+      if (cfg.donateUrl) box.appendChild(btn(cfg.donateText || 'Сделать пожертвование', 'primary', function () { openUrl(cfg.donateUrl); }));
+      pg.body.appendChild(box);
+    }
+    var STARTS = { pointerdown: 1, touchstart: 1, mousedown: 1 }, last = 0;
+    function onBadge(e) {
+      var t = e.target; if (!t || !t.classList || !t.classList.contains('mx-badge')) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (STARTS[e.type]) return;
+      if (Date.now() - last > 600) { last = Date.now(); openCard(t.getAttribute('data-mxb'), t.closest('.peer-title')); }
+    }
+    ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function (n) { document.addEventListener(n, onBadge, true); });
+    try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) { }
+    /* для Отладки: свой ID и ID человека из открытого чата — чтобы вписать в реестр */
+    window.__mxBadgeIds = {
+      mine: function () { return rpc('entryApps', {}, 15000).then(function (r) { if (r && r.self != null) copy(r.self, 'ID'); else toast('ID пока неизвестен'); }, function () { toast('ID пока неизвестен'); }); },
+      chat: function () {
+        var el = document.querySelector('.topbar .peer-title[data-peer-id]'), id = el && el.getAttribute('data-peer-id');
+        if (!id || !(Number(id) > 0)) { toast('Откройте чат с человеком'); return; }
+        copy(id === '100' && selfId != null ? selfId : id, 'ID');
+      }
+    };
+    load();
   })();
 
   /* внешние оверлеи (фрейм классического UI) встают в тот же стек «Назад» */

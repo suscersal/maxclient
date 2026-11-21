@@ -69,7 +69,7 @@ if os.path.isdir(assets_src):
 tg_src = os.path.join(src, "tg")
 if os.path.isdir(tg_src):
     for fname in sorted(os.listdir(tg_src)):
-        if (fname.startswith("index.worker-") and fname.endswith(".js")) or fname == "mx-ui.js":
+        if (fname.startswith("index.worker-") and fname.endswith(".js")) or fname == "mx-ui.js" or fname.startswith("mx-ui-"):
             hash_and_copy(f"tg/{fname}", os.path.join(tg_src, fname))
 
 with open(os.path.join(out_dir, "version.json"), "w", encoding="utf-8") as f:
