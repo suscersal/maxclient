@@ -1406,12 +1406,22 @@
     function save() { try { localStorage.setItem(CACHE_KEY, JSON.stringify({ cfg: cfg })); } catch (e) { } }
     function entryOf(peerId) { var k = String(peerId); if (k === '100' && selfId != null) k = String(selfId); return ids[k] || null; }
     function iconSrc() { return './' + (cfg.badge.icon || DEFAULT.badge.icon); }
+    /* свой MAX-id приходит от воркера только после входа (op 19): при старте он ещё null, поэтому спрашиваем повторно, пока не узнаем */
+    var selfBusy = 0, selfTry = 0;
+    function getSelf() {
+      if (selfId != null || selfBusy) return;
+      selfBusy = 1;
+      rpc('entryApps', {}, 8000).then(function (r) { if (r && r.self != null) { selfId = r.self; scan(); } }, function () { }).then(function () {
+        selfBusy = 0; if (selfId == null && selfTry++ < 60) setTimeout(getSelf, 2500);
+      });
+    }
     function scan() { if (scanT) return; scanT = setTimeout(function () { scanT = 0; doScan(); }, 250); }
     function doScan() {
       if (!cfg || !Object.keys(ids).length) return;
       var list = document.querySelectorAll('.peer-title[data-peer-id]');
       for (var i = 0; i < list.length; i++) {
         var el = list[i], pid = el.getAttribute('data-peer-id');
+        if (pid === '100' && selfId == null) getSelf();
         if (!entryOf(pid) || el.querySelector(':scope > .mx-badge')) continue;
         var img = document.createElement('img'); img.className = 'mx-badge'; img.src = iconSrc(); img.alt = ''; img.draggable = false; img.setAttribute('data-mxb', pid);
         el.appendChild(img);
@@ -1428,7 +1438,7 @@
           if (rj && Array.isArray(rj.supporters)) { cfg = norm(Object.assign({}, j, rj)); index(); save(); scan(); }
         });
       }).catch(function () { });
-      rpc('entryApps', {}, 15000).then(function (r) { if (r && r.self != null) { selfId = r.self; scan(); } }).catch(function () { });
+      getSelf();
     }
     function titleText(titleEl, fallback) {
       if (!titleEl) return fallback;
