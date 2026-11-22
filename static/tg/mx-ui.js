@@ -401,7 +401,7 @@
     var sub = h('div', { class: 'mxu-sub' });
     if (o.dot) sub.appendChild(h('span', { class: 'mxu-dot' }));
     if (o.subText) sub.appendChild(h('span', null, o.subText));
-    var meta = h('div', { class: 'mxu-hero-meta' }, h('div', { class: 'mxu-name' }, o.title || ''), sub);
+    var meta = h('div', { class: 'mxu-hero-meta' }, h('div', Object.assign({ class: 'mxu-name' }, o.userId != null ? { 'data-mxb-user': String(o.userId) } : {}), o.title || ''), sub);
     w.appendChild(top); w.appendChild(meta);
     w.sub = sub;
     return w;
@@ -474,7 +474,7 @@
     rpc('me').then(function (p) {
       pg.body.innerHTML = '';
       var title = p.name || 'Профиль';
-      var h0 = hero({ title: title, photo: p.photo, photoSmall: p.photoSmall, dot: true, subText: 'онлайн' });
+      var h0 = hero({ title: title, photo: p.photo, photoSmall: p.photoSmall, dot: true, subText: 'онлайн', userId: p.id });
       if (p.phone) {
         var shown = false, ph = h('span', null, maskPhone(p.phone));
         var eye = h('button', { class: 'mxu-eye', 'aria-label': 'Показать номер' }, icon('eyeoff', 22));
@@ -538,7 +538,7 @@
       if (p.link) items.push({ icon: 'link', text: 'Копировать ссылку', run: function () { copy(p.link, 'Ссылка'); } });
       if (p.phone && !a.group) items.push({ icon: 'phone', text: 'Копировать номер', run: function () { copy(fullPhone(p.phone), 'Номер'); } });
       var more = h('button', { class: 'mxu-fab', 'aria-label': 'Меню', onclick: function () { showMenu(items); } }, icon('more'));
-      pg.body.appendChild(hero({ title: p.name || ('ID ' + a.id), photo: p.photo, photoSmall: p.photoSmall, dot: ps && ps.dot, subText: ps && ps.text, right: more }));
+      pg.body.appendChild(hero({ title: p.name || ('ID ' + a.id), photo: p.photo, photoSmall: p.photoSmall, dot: ps && ps.dot, subText: ps && ps.text, right: more, userId: a.group ? null : p.id }));
 
       var tiles = h('div', { class: 'mxu-tiles' }), muted = !!p.muted;
       tiles.appendChild(tile('chat', 'Чат', function () { goChat(a); }));
@@ -1418,9 +1418,9 @@
     function scan() { if (scanT) return; scanT = setTimeout(function () { scanT = 0; doScan(); }, 250); }
     function doScan() {
       if (!cfg || !Object.keys(ids).length) return;
-      var list = document.querySelectorAll('.peer-title[data-peer-id]');
+      var list = document.querySelectorAll('.peer-title[data-peer-id], .mxu-name[data-mxb-user]');
       for (var i = 0; i < list.length; i++) {
-        var el = list[i], pid = el.getAttribute('data-peer-id');
+        var el = list[i], pid = el.getAttribute('data-peer-id') || el.getAttribute('data-mxb-user');
         if (pid === '100' && selfId == null) getSelf();
         if (!entryOf(pid) || el.querySelector(':scope > .mx-badge')) continue;
         var img = document.createElement('img'); img.className = 'mx-badge'; img.src = iconSrc(); img.alt = ''; img.draggable = false; img.setAttribute('data-mxb', pid);
@@ -1465,7 +1465,7 @@
       var t = e.target; if (!t || !t.classList || !t.classList.contains('mx-badge')) return;
       e.preventDefault(); e.stopImmediatePropagation();
       if (STARTS[e.type]) return;
-      if (Date.now() - last > 600) { last = Date.now(); openCard(t.getAttribute('data-mxb'), t.closest('.peer-title')); }
+      if (Date.now() - last > 600) { last = Date.now(); openCard(t.getAttribute('data-mxb'), t.closest('.peer-title, .mxu-name')); }
     }
     ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function (n) { document.addEventListener(n, onBadge, true); });
     try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) { }
