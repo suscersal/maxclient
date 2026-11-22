@@ -97,7 +97,7 @@
   var CSS = [
     '.mxu-root{position:fixed;inset:0;z-index:2147483000;background:var(--background-color,#0b0b0d);color:var(--primary-text-color,#fff);overflow:hidden;-webkit-tap-highlight-color:transparent;line-height:1.3}',
     '.mxu-root *{box-sizing:border-box}',
-    '.mxu-page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;background:var(--background-color,#0b0b0d);padding-bottom:calc(36px + env(safe-area-inset-bottom,0px));transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);overscroll-behavior:contain}',
+    '.mxu-page{position:absolute;inset:0;isolation:isolate;overflow-y:auto;overflow-x:hidden;background:var(--background-color,#0b0b0d);padding-bottom:calc(36px + env(safe-area-inset-bottom,0px));transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);overscroll-behavior:contain}',
     '.mxu-page.mxu-in{transform:none}',
     '.mxu-bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:6px;padding:calc(8px + env(safe-area-inset-top,0px)) 10px 8px;background:var(--background-color,#0b0b0d)}',
     '.mxu-bar h1{margin:0;font-size:21px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -487,19 +487,13 @@
       p.self = true; pg.body.appendChild(infoCard(p));
       if (p.desc) { pg.body.appendChild(sec('О себе')); pg.body.appendChild(card(h('div', { class: 'mxu-row' }, h('div', { class: 'mxu-grow' }, h('div', { class: 'mxu-t', style: 'font-weight:400;font-size:17px;white-space:pre-wrap' }, p.desc))))); }
       pg.body.appendChild(sec('MAX'));
+      var th0 = THEMES.filter(function (x) { return x.id === getTheme(); })[0] || THEMES[0];
       pg.body.appendChild(card(
+        row({ icon: 'image', title: 'Тема оформления', value: th0.name, chev: 1, onclick: function () { open('themes'); } }),
+        row({ icon: 'bell', title: 'Уведомления', chev: 1, onclick: function () { open('notifications'); } }),
         row({ icon: 'device', title: 'Устройства', sub: 'Сеансы аккаунта, выход на других', chev: 1, onclick: function () { open('sessions'); } }),
-        row({ icon: 'info', title: 'Функции клиента', sub: 'Темы, призрак, автоответ, отладка', chev: 1, onclick: function () { open('features'); } }),
-        row({ icon: 'bell', title: 'Уведомления', sub: 'Push и тестовое уведомление', chev: 1, onclick: function () { open('notifications'); } }),
-        row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
-        row({ icon: 'device', title: 'Устройство (протокол)', sub: 'Как клиент представляется серверу MAX', chev: 1, onclick: function () { open('device'); } }),
-        row({ icon: 'shield', title: 'Скам-проверка (ИИ)', sub: 'Проверка входящих сообщений', chev: 1, onclick: function () { open('scam'); } })
-      ));
-      pg.body.appendChild(card(
-        row({ icon: 'gift', title: 'Пригласить друзей', chev: 1, onclick: function () { open('invite'); } }),
-        row({ icon: 'link', title: 'Вступить по ссылке', chev: 1, onclick: function () { closeAll(function () { legacyOpen('joinLink', 'Вступить по ссылке'); }); } }),
-        row({ icon: 'info', title: 'Дополнительно', chev: 1, onclick: function () { open('more'); } }),
-        row({ icon: 'info', title: 'О приложении', chev: 1, onclick: function () { open('about'); } })
+        row({ icon: 'shield', title: 'Данные и безопасность', sub: 'Память, скам-проверка', chev: 1, onclick: function () { open('data'); } }),
+        row({ icon: 'info', title: 'Ещё', sub: 'Сервисы MAX, приглашения, отладка, о приложении', chev: 1, onclick: function () { open('more'); } })
       ));
     }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(hero({ title: 'Профиль' })); pg.body.appendChild(errBox(e)); });
   };
@@ -647,7 +641,8 @@
       var supported = 'Notification' in window, perm = supported ? Notification.permission : 'unsupported';
       var label = perm === 'granted' ? 'Включены' : perm === 'denied' ? 'Заблокированы в браузере' : perm === 'unsupported' ? 'Недоступны в этом окружении' : 'Выключены';
       pg.body.appendChild(sec('Push-уведомления'));
-      pg.body.appendChild(card(row({ icon: 'bell', title: 'Уведомления о сообщениях', sub: label })));
+      pg.body.appendChild(card(row({ icon: 'bell', title: 'Уведомления о сообщениях', sub: label }),
+        tog({ icon: 'bell', title: 'Текст в уведомлениях', sub: 'Показывать превью сообщения в push', on: function () { return lsGet('maxclient_notif_preview', '1') !== '0'; }, set: function (v) { lsSet('maxclient_notif_preview', v ? '1' : '0'); } })));
       var bs = h('div', { class: 'mxu-btns' });
       if (perm === 'default') bs.appendChild(btn('Включить push', '', enablePush, 'bell'));
       if (perm === 'granted') bs.appendChild(btn('Тестовое уведомление', 'ghost', function () { jpost('/api/push/test').then(function () { toast('Тестовое уведомление отправлено'); }, function (e) { toast('Ошибка: ' + e.message); }); }, 'bell'));
@@ -674,6 +669,14 @@
       });
     }
     render();
+  };
+
+  S.data = function () {
+    var pg = page({ title: 'Данные и безопасность' });
+    pg.body.appendChild(card(
+      row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
+      row({ icon: 'shield', title: 'Скам-проверка (ИИ)', sub: 'Проверка входящих сообщений', chev: 1, onclick: function () { open('scam'); } })
+    ));
   };
 
   S.storage = function () {
@@ -821,6 +824,8 @@
     var pg = page({ title: 'Отладка' });
     function on() { try { return localStorage.getItem('mx_dbg_btn') !== '0'; } catch (e) { return true; } }
     pg.body.appendChild(card(
+      tog({ icon: 'bug', title: 'Панель логов', on: function () { return flag('maxclient_log_panel_enabled', false); }, set: function (v) { lsSet('maxclient_log_panel_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
+      tog({ icon: 'bug', title: 'Дамп отладки', sub: 'Сохранять подробный дамп запросов', on: function () { return flag('maxclient_debug_dump_enabled', false); }, set: function (v) { lsSet('maxclient_debug_dump_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
       row({ icon: 'bug', title: 'Кнопка отладочной консоли', sub: 'Журнал воркера, синхронизации и сетевых вызовов', toggle: { on: on(), onchange: function (v) { try { localStorage.setItem('mx_dbg_btn', v ? '1' : '0'); } catch (e) { } applyDbg(); } } }),
       row({ icon: 'bug', title: 'Открыть консоль', chev: 1, onclick: function () { var b = document.getElementById('debugConsoleToggle'); if (b) { closeAll(function () { b.click(); }); } else toast('Консоль недоступна'); } }),
       row({ icon: 'info', title: 'Журнал bridge (pylog)', sub: 'Последние строки логов сервера', chev: 1, onclick: function () { window.open('/api/debug/pylog', '_blank'); } }),
@@ -833,17 +838,20 @@
   };
 
   S.more = function () {
-    var pg = page({ title: 'Дополнительно' });
-    pg.body.appendChild(card(
-      row({ icon: 'info', title: 'Функции клиента', chev: 1, onclick: function () { open('features'); } }),
-      row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } }),
-      row({ icon: 'bug', title: 'Отладка', chev: 1, onclick: function () { open('debug'); } })
-    ));
+    var pg = page({ title: 'Ещё' });
     pg.body.appendChild(sec('Сервисы MAX'));
     pg.body.appendChild(card(
       row({ icon: 'info', title: 'Сферум', sub: 'Школьная платформа MAX', chev: 1, onclick: function () { openEntryApp('sferum', 'Сферум'); } }),
       row({ icon: 'link', title: 'Цифровой ID', sub: 'Документы и вход через Госуслуги', chev: 1, onclick: function () { openEntryApp('digital', 'Цифровой ID'); } }),
       row({ icon: 'info', title: 'Другие сервисы', sub: 'Всё, что пришло в конфиге аккаунта', chev: 1, onclick: function () { open('entryApps'); } })
+    ));
+    pg.body.appendChild(sec('Общее'));
+    pg.body.appendChild(card(
+      row({ icon: 'gift', title: 'Пригласить друзей', chev: 1, onclick: function () { open('invite'); } }),
+      row({ icon: 'link', title: 'Вступить по ссылке', chev: 1, onclick: function () { closeAll(function () { legacyOpen('joinLink', 'Вступить по ссылке'); }); } }),
+      row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } }),
+      row({ icon: 'bug', title: 'Отладка', chev: 1, onclick: function () { open('debug'); } }),
+      row({ icon: 'info', title: 'О приложении', chev: 1, onclick: function () { open('about'); } })
     ));
     pg.body.appendChild(sec('Только в классическом интерфейсе'));
     pg.body.appendChild(card(
@@ -914,6 +922,8 @@
           jpost('/api/sessions/close').then(function () { toast('Другие сеансы завершены'); render(); }, function (e) { toast('Ошибка: ' + e.message); });
         }, 'trash')));
         pg.body.appendChild(hint('Если вход с неизвестного устройства — не ваш, завершите остальные сеансы.'));
+        pg.body.appendChild(sec('Клиент'));
+        pg.body.appendChild(card(row({ icon: 'device', title: 'Протокол клиента', sub: 'Как клиент представляется серверу MAX', chev: 1, onclick: function () { open('device'); } })));
       }, function (e) { pg.body.innerHTML = ''; pg.body.appendChild(errBox(e)); });
     }
     render();
@@ -1020,42 +1030,6 @@
     return row({ icon: o.icon, title: o.title, sub: o.sub, toggle: { on: o.on(), onchange: function (v) { o.set(v); if (o.note) toast(o.note); } } });
   }
 
-  S.features = function () {
-    var pg = page({ title: 'Функции клиента' });
-    var b = pg.body;
-    b.appendChild(sec('Оформление'));
-    var th = THEMES.filter(function (x) { return x.id === getTheme(); })[0] || THEMES[0];
-    b.appendChild(card(row({ icon: 'image', title: 'Тема оформления', value: th.name, chev: 1, onclick: function () { open('themes'); } })));
-
-    b.appendChild(sec('Приватность'));
-    var gh = lsCount('maxclient_ghost_read'), ar = lsCount('maxclient_autoreply');
-    b.appendChild(card(
-      row({ icon: 'eyeoff', title: 'Режим призрака', sub: 'Не отмечать сообщения прочитанными. Меню чата (⋮) → «Призрак»', value: gh ? 'чатов: ' + gh : 'выкл' }),
-      row({ icon: 'bot', title: 'Автоответ', sub: 'Пока только в классическом интерфейсе', value: ar ? 'чатов: ' + ar : 'выкл' })
-    ));
-    b.appendChild(hint('Призрак включается для каждого чата в его меню (⋮); сквозное шифрование — там же, в личных чатах. Настройки призрака общие с классическим интерфейсом.'));
-
-    b.appendChild(sec('Уведомления'));
-    b.appendChild(card(tog({ icon: 'bell', title: 'Текст в уведомлениях', sub: 'Показывать превью сообщения в push', on: function () { return lsGet('maxclient_notif_preview', '1') !== '0'; }, set: function (v) { lsSet('maxclient_notif_preview', v ? '1' : '0'); } })));
-
-    b.appendChild(sec('Инструменты'));
-    b.appendChild(card(
-      row({ icon: 'shield', title: 'Скам-проверка (ИИ)', sub: 'Проверка входящих сообщений', chev: 1, onclick: function () { open('scam'); } }),
-      row({ icon: 'bell', title: 'Уведомления и push', chev: 1, onclick: function () { open('notifications'); } }),
-      row({ icon: 'db', title: 'Использование памяти', sub: 'Кэш картинок и файлов', chev: 1, onclick: function () { open('storage'); } }),
-      row({ icon: 'device', title: 'Устройства (сеансы)', sub: 'Где выполнен вход, выход на других', chev: 1, onclick: function () { open('sessions'); } }),
-      row({ icon: 'device', title: 'Устройство (протокол)', chev: 1, onclick: function () { open('device'); } }),
-      row({ icon: 'image', title: 'Просмотр GIF', chev: 1, onclick: function () { open('gif'); } })
-    ));
-
-    b.appendChild(sec('Отладка'));
-    b.appendChild(card(
-      tog({ icon: 'bug', title: 'Панель логов', on: function () { return flag('maxclient_log_panel_enabled', false); }, set: function (v) { lsSet('maxclient_log_panel_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
-      tog({ icon: 'bug', title: 'Дамп отладки', sub: 'Сохранять подробный дамп запросов', on: function () { return flag('maxclient_debug_dump_enabled', false); }, set: function (v) { lsSet('maxclient_debug_dump_enabled', v ? '1' : '0'); }, note: 'Применится после перезапуска' }),
-      row({ icon: 'bug', title: 'Консоль отладки', chev: 1, onclick: function () { open('debug'); } })
-    ));
-  };
-
   /* ------------------------------------------------------------ вход */
   var legacy = window.__mxOpen;
   function legacyOpen(id, title) { if (typeof legacy === 'function') legacy(id, title); }
@@ -1066,8 +1040,6 @@
     if (S[k]) { open(k); return; }
     legacyOpen(id, title);
   };
-  /* theme/vars правили CSS старого интерфейса и в /tg/ смысла не имеют (у Web K свои темы: Настройки → Настройки чатов) */
-  S.theme = function () { toast('Тема меняется в Настройки → Настройки чатов'); };
 
   /* ------------------------------------------------------------ кнопка отладки: вкл/выкл */
   function applyDbg() {
@@ -1163,7 +1135,8 @@
     if (/(^|\|)(Избранное|Saved Messages)(\||$)/.test(names)) {
       menu.setAttribute('data-mxu-done', '1');
       var fav = items.filter(function (el) { return /^(Избранное|Saved Messages)$/.test(txt(el)); })[0];
-      fav.parentNode.insertBefore(cloneItem(fav, 'Профиль MAX', function () { open('profile'); }), fav);
+      fav.parentNode.insertBefore(cloneItem(fav, 'Профиль', function () { open('profile'); }), fav);
+      items.filter(function (el) { return /^(Настройки|Settings)$/.test(txt(el)); }).forEach(function (el) { setLabel(el, 'Настройки чатов'); });
     } else if (/(Выбрать сообщения|Select Messages|Очистить историю|Clear History|Удалить чат|Delete Chat|Покинуть|Leave|Заблокировать|Block)/i.test(names) && /(Поиск|Search)/i.test(names)) {
       menu.setAttribute('data-mxu-done', '1');
       var last = items[items.length - 1];
@@ -1296,7 +1269,7 @@
       btns[id] = b; return b;
     }
     bar = h('div', { class: 'mxn', role: 'navigation' },
-      mk('chats', 'Чаты', 'chat'), mk('contacts', 'Контакты', 'user'), mk('settings', 'Настройки', 'gear'), mk('profile', 'Профиль', 'idcard'));
+      mk('chats', 'Чаты', 'chat'), mk('contacts', 'Контакты', 'user'), mk('profile', 'Профиль', 'idcard'));
     set('chats');
     function mount() { if (document.body) document.body.appendChild(bar); else document.addEventListener('DOMContentLoaded', mount); }
     mount();
@@ -1523,7 +1496,7 @@
     window.__mxNavTrace = tr;
     ['pushState', 'replaceState', 'back', 'go'].forEach(function (m) { var o = history[m]; history[m] = function () { tr('history.' + m + '(' + [].slice.call(arguments).filter(function (a) { return typeof a === 'number'; }).join() + ') ← ' + who()); return o.apply(history, arguments); }; restore.push(function () { history[m] = o; }); });
     try { if (window.navigation && navigation.addEventListener) { var nvF = function (e) { var st = ''; if (e.navigationType !== 'traverse') { try { st = (new Error().stack || '').split('\n').slice(2, 9).map(function (x) { return x.trim().replace(/\(?https?:\/\/[^\/]+\//, '(').slice(0, 90); }).join(' < '); } catch (x) { } } tr('navigate ' + e.navigationType + ' → idx ' + (e.destination && e.destination.index) + (e.userInitiated ? ' (польз.)' : '') + (st ? ' ЧЕРЕЗ ' + st : '')); }; navigation.addEventListener('navigate', nvF); restore.push(function () { navigation.removeEventListener('navigate', nvF); }); } } catch (e) { }
-    var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'features', 'entryApps'];
+    var SCREENS = ['profile', 'invite', 'notifications', 'storage', 'device', 'scam', 'about', 'gif', 'debug', 'more', 'themes', 'sessions', 'data', 'entryApps'];
     var res = [], base = null;
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
     function snap() { return { layers: layers.length, dom: document.querySelectorAll('.mxu-page').length, idx: navIdx(), menu: document.querySelectorAll('.mxu-menu').length, ovl: document.querySelectorAll('#mx-upd,#mx-wa-overlay,#mx-apk').length }; }
