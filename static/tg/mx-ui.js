@@ -1228,8 +1228,9 @@
     }
     /* Бургер-меню Web K: пока грузятся чаты, кнопки меню может ещё не быть, а само меню открывается с анимацией — раньше ждали ровно 180 мс
        и показывали «Не удалось открыть». Теперь ждём кнопку до ~3 с и пункт меню до ~1,5 с, при неудаче пробуем ещё раз. */
+    var mnInfo = '';
     function menuClick(re) {
-      var tries = 0;
+      var tries = 0; mnInfo = '';
       function find() {
         var items = [].slice.call(document.querySelectorAll('.btn-menu.active .btn-menu-item, .btn-menu.is-visible .btn-menu-item, .btn-menu .btn-menu-item')).filter(visible);
         return items.filter(function (el) { return re.test(txt(el)); })[0];
@@ -1238,6 +1239,7 @@
         var t = [].slice.call(document.querySelectorAll('#column-left .sidebar-tools-button, #column-left .folders-sidebar__menu-button, #column-left .sidebar-header .btn-menu-toggle, #column-left .left-sidebar-burger .btn-menu-toggle, #column-left .sidebar-header__btn-container button')).filter(visible)[0];
         if (!t) {
           if (tries++ < 20) return sleep(150).then(attempt);
+          mnInfo = 'нет кнопки меню';
           try { console.warn('[mxn] кнопка меню Web K не найдена; кандидаты: ' + [].slice.call(document.querySelectorAll('#column-left button, #column-left [class*="menu"]')).slice(0, 12).map(function (x) { return x.tagName.toLowerCase() + '.' + String(x.className).replace(/\s+/g, '.').slice(0, 60); }).join(' | ')); } catch (e) { }
           return Promise.resolve(false);
         }
@@ -1248,6 +1250,8 @@
             var it = find();
             if (it) { it.click(); return true; }
             if (n++ < 12) return poll();
+            mnInfo = 'в меню: ' + [].slice.call(document.querySelectorAll('.btn-menu .btn-menu-item')).filter(visible).map(txt).filter(Boolean).slice(0, 12).join(', ');
+            try { console.warn('[mxn] пункт меню не найден; ' + mnInfo); } catch (e) { }
             t.click();   /* закрыть меню и попробовать всё заново */
             return tries++ < 2 ? sleep(300).then(attempt) : false;
           });
@@ -1259,8 +1263,8 @@
       if (id === 'profile') { set('profile'); open('profile'); return; }
       toRoot().then(function () {
         set(id);
-        if (id === 'contacts') menuClick(/^(Контакты|Contacts)$/).then(function (ok) { if (!ok) toast('Не удалось открыть «Контакты»'); });
-        else if (id === 'settings') menuClick(/^(Настройки|Settings)$/).then(function (ok) { if (!ok) toast('Не удалось открыть «Настройки»'); });
+        if (id === 'contacts') menuClick(/контакт|contacts/i).then(function (ok) { if (!ok) toast(('Не удалось открыть «Контакты» (' + (mnInfo || '?') + ')').slice(0, 160)); });
+        else if (id === 'settings') menuClick(/^(Настройки|Settings)/i).then(function (ok) { if (!ok) toast(('Не удалось открыть «Настройки» (' + (mnInfo || '?') + ')').slice(0, 160)); });
       });
     }
     function set(id) { cur = id; Object.keys(btns).forEach(function (k) { btns[k].classList.toggle('on', k === id); }); }
